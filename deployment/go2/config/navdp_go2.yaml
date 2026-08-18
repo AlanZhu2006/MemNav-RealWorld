@@ -1,0 +1,57 @@
+navdp_go2_adapter:
+  ros__parameters:
+    backend: x_navdp
+    mode: startgoal
+    server_url: http://127.0.0.1:8888
+
+    rgb_topic: /camera/camera/color/image_raw
+    depth_topic: /camera/camera/aligned_depth_to_color/image_raw
+    camera_info_topic: /camera/camera/color/camera_info
+    goal_topic: /navdp/relative_goal
+    image_goal_path: ""
+    image_goal_debug_topic: /navdp/image_goal
+    cmd_vel_topic: /navdp/cmd_vel
+    path_topic: /navdp/trajectory
+    status_topic: /navdp/status
+    debug_markers_topic: /navdp/debug/markers
+    enable_topic: /navdp/enabled
+    estop_topic: /navdp/estop
+    base_frame: base_link
+
+    debug_visualization: true
+    debug_max_candidates: 6
+    enable_on_start: false
+    plan_while_disabled: true
+    planning_rate_hz: 1.5
+    control_rate_hz: 20.0
+    connect_timeout_s: 3.0
+    request_timeout_s: 180.0
+    sensor_timeout_s: 0.60
+    goal_timeout_s: 0.75
+    trajectory_timeout_s: 2.50
+    max_rgb_depth_skew_s: 0.10
+    rgbd_sync_queue_size: 15
+    depth_scale_m: 0.001
+    goal_arrival_m: 0.60
+
+    lookahead_m: 0.60
+    max_linear_mps: 0.30
+    max_angular_rps: 0.55
+    rotate_in_place_angle_rad: 0.70
+    rotate_gain: 1.50
+    slow_path_length_m: 1.00
+    allow_reverse: false
+    reverse_lateral_angle_rad: 0.55
+    max_linear_accel_mps2: 0.45
+    max_angular_accel_rps2: 1.00
+
+    depth_hard_stop_m: 0.45
+    depth_slow_distance_m: 0.80
+    depth_percentile: 10.0
+    depth_roi_left: 0.35
+    depth_roi_right: 0.65
+    depth_roi_top: 0.30
+    depth_roi_bottom: 0.70
+    depth_min_valid_fraction: 0.03
+    depth_max_valid_m: 5.0
+    depth_fail_closed: true

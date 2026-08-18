@@ -2,7 +2,18 @@ import cv2
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.transforms import Compose
+
+try:
+    from torchvision.transforms import Compose
+except (ImportError, RuntimeError):
+    class Compose:
+        def __init__(self, transforms):
+            self.transforms = transforms
+
+        def __call__(self, value):
+            for transform in self.transforms:
+                value = transform(value)
+            return value
 
 from .dinov2 import DINOv2
 from .util.blocks import FeatureFusionBlock, _make_scratch

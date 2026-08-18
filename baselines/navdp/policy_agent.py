@@ -15,14 +15,18 @@ class NavDP_Agent:
                  heads=8,
                  token_dim=384,
                  navi_model = "./100.ckpt",
-                 device='cuda:0'):
+                 device='cuda:0',
+                 enable_visualization=True):
         self.image_intrinsic = image_intrinsic
         self.device = device
+        self.enable_visualization = enable_visualization
         self.predict_size = predict_size
         self.image_size = image_size
         self.memory_size = memory_size
         self.navi_former = NavDP_Policy(image_size,memory_size,predict_size,temporal_depth,heads,token_dim,device)
-        self.navi_former.load_state_dict(torch.load(navi_model,map_location=self.device),strict=False)
+        self.navi_former.load_state_dict(
+            torch.load(navi_model, map_location=self.device, weights_only=True), strict=False
+        )
         self.navi_former.to(self.device)
         self.navi_former.eval()
     
@@ -149,7 +153,7 @@ class NavDP_Agent:
         if all_values.max() < self.stop_threshold:
             good_trajectory[:,:,:,0] = good_trajectory[:,:,:,0] * 0.0
             good_trajectory[:,:,:,1] = np.sign(good_trajectory[:,:,:,1].mean())
-        trajectory_mask = self.project_trajectory(images,all_trajectory,all_values) 
+        trajectory_mask = self.project_trajectory(images,all_trajectory,all_values) if self.enable_visualization else None
         return good_trajectory[:,0], all_trajectory, all_values, trajectory_mask
     
     def step_pointgoal(self,goals,images,depths):
@@ -178,7 +182,7 @@ class NavDP_Agent:
         
         print(all_values.max(),all_values.min())
             
-        trajectory_mask = self.project_trajectory(images,all_trajectory,all_values) 
+        trajectory_mask = self.project_trajectory(images,all_trajectory,all_values) if self.enable_visualization else None
         return good_trajectory[:,0], all_trajectory, all_values, trajectory_mask
     
     def step_imagegoal(self,goals,images,depths):
@@ -205,7 +209,7 @@ class NavDP_Agent:
             good_trajectory[:,:,:,1] = np.sign(good_trajectory[:,:,:,1].mean())
             
         print(all_values.max(),all_values.min())
-        trajectory_mask = self.project_trajectory(images,all_trajectory,all_values) 
+        trajectory_mask = self.project_trajectory(images,all_trajectory,all_values) if self.enable_visualization else None
         return good_trajectory[:,0], all_trajectory, all_values, trajectory_mask
 
     def step_pixelgoal(self,goals,images,depths):
@@ -237,7 +241,7 @@ class NavDP_Agent:
             good_trajectory[:,:,:,0] = good_trajectory[:,:,:,0] * 0.0
             good_trajectory[:,:,:,1] = np.sign(good_trajectory[:,:,:,1].mean())
         
-        trajectory_mask = self.project_trajectory(images,all_trajectory,all_values) 
+        trajectory_mask = self.project_trajectory(images,all_trajectory,all_values) if self.enable_visualization else None
         return good_trajectory[:,0], all_trajectory, all_values, trajectory_mask
     
     def step_point_image_goal(self,pointgoal,imagegoal,images,depths):
@@ -267,5 +271,5 @@ class NavDP_Agent:
             good_trajectory[:,:,:,0] = good_trajectory[:,:,:,0] * 0.0
             good_trajectory[:,:,:,1] = torch.sign(good_trajectory[:,:,:,1].mean())
         
-        trajectory_mask = self.project_trajectory(images,all_trajectory,all_values) 
+        trajectory_mask = self.project_trajectory(images,all_trajectory,all_values) if self.enable_visualization else None
         return good_trajectory[:,0], all_trajectory, all_values, trajectory_mask

@@ -64,6 +64,11 @@ def init_app(
         raise ValueError(
             f"embodiment must be one of {list(EMBODIMENT_NAME_TO_IDX)}, got {embodiment!r}"
         )
+    if not checkpoint:
+        raise ValueError("checkpoint is required")
+    checkpoint = os.path.abspath(os.path.expanduser(checkpoint))
+    if not os.path.isfile(checkpoint):
+        raise FileNotFoundError(f"checkpoint not found: {checkpoint}")
     embodiment_idx = EMBODIMENT_NAME_TO_IDX[embodiment]
     enable_visualization = not no_visualization
     policy_device = device
@@ -74,16 +79,34 @@ def init_app(
     return app
 
 
+@app.route("/healthz", methods=["GET"])
+def healthz():
+    """Report process configuration and whether the model is loaded."""
+    return jsonify({
+        "status": "ok",
+        "model_loaded": navdp_navigator is not None,
+        "embodiment": policy_embodiment,
+        "real": policy_is_real,
+        "device": policy_device,
+        "visualization": enable_visualization,
+    })
+
+
 @app.route("/navigator_reset", methods=['POST'])
 @synchronized_navdp_route
 def navdp_reset():
     """Reset the navigator with initial camera intrinsics and batch size."""
     global navdp_navigator, navdp_fps_writer, vis_output_dir
 
-    intrinsic = np.array(request.get_json().get('intrinsic'))
-    batchsize = np.array(request.get_json().get('batch_size'))
-    sample_indices = request.get_json().get('sample_indices', None)
-    scene_name = request.get_json().get('scene_name', None)
+    payload = request.get_json(force=True)
+    intrinsic = np.asarray(payload.get('intrinsic'), dtype=np.float32)
+    if intrinsic.shape != (3, 3) or not np.isfinite(intrinsic).all():
+        raise ValueError(f"intrinsic must be a finite 3x3 matrix, got {intrinsic.shape}")
+    batchsize = int(payload.get('batch_size', 1))
+    if batchsize < 1:
+        raise ValueError("batch_size must be positive")
+    sample_indices = payload.get('sample_indices', None)
+    scene_name = payload.get('scene_name', None)
 
     vis_output_dir = os.path.join(
         "./vis_output", policy_embodiment,
@@ -92,8 +115,6 @@ def navdp_reset():
     os.makedirs(vis_output_dir, exist_ok=True)
 
     if navdp_navigator is None:
-        if not policy_checkpoint:
-            raise RuntimeError("Initialize the policy server with a checkpoint before reset.")
         navdp_navigator = NavDP_Agent(
             intrinsic,
             image_size=224,
@@ -106,6 +127,7 @@ def navdp_reset():
             device=policy_device,
             embodiment=embodiment_idx,
             is_real=policy_is_real,
+            enable_visualization=enable_visualization,
         )
         navdp_navigator.reset(batchsize)
     else:
@@ -298,6 +320,7 @@ def run_server(port=8888, host='127.0.0.1'):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8888)
     parser.add_argument(
         "--embodiment",
@@ -318,4 +341,4 @@ if __name__ == "__main__":
         checkpoint=args.checkpoint,
         real=args.real,
     )
-    run_server(port=args.port)
+    run_server(port=args.port, host=args.host)

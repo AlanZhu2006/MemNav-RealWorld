@@ -11,10 +11,9 @@ import cv2
 import time
 from scipy.spatial.transform import Rotation as R
 from scipy.interpolate import interp1d
-from matplotlib import colormaps as cm
-import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')
+from matplotlib import colormaps as cm
 from collections import deque
 
 
@@ -31,6 +30,7 @@ class NavDP_Agent:
                  token_dim=384,
                  embodiment=0,
                  is_real=False,
+                 enable_visualization=True,
                  navi_model="./100.ckpt",
                  device='cuda:0'):
         try:
@@ -45,12 +45,13 @@ class NavDP_Agent:
         self.memory_size = memory_size
         self.embodiment = embodiment
         self.is_real = is_real
+        self.enable_visualization = enable_visualization
 
         self.navi_former = NavDP_Policy_Embodiment(
             image_size, memory_size, predict_size, temporal_depth, heads, token_dim, device
         )
         self.navi_former.load_state_dict(
-            torch.load(navi_model, map_location=self.device), strict=False
+            torch.load(navi_model, map_location=self.device, weights_only=True), strict=False
         )
         self.navi_former.to(self.device)
         self.navi_former.eval()
@@ -162,6 +163,8 @@ class NavDP_Agent:
 
     def project_trajectory_2d(self, images, n_trajectories, n_values):
         """Project trajectories onto 2D visualization panels."""
+        import matplotlib.pyplot as plt
+
         trajectory_masks = []
         colormap = cm.get('jet')
         max_color = np.array(colormap(1.0)[0:3]) * 255.0
@@ -249,6 +252,8 @@ class NavDP_Agent:
 
     def _trajectory_debug_panel(self, current_traj, guidance_traj, robot_pos, robot_quat, image_shape):
         """Render current output and state-guided previous trajectory in world frame."""
+        import matplotlib.pyplot as plt
+
         img_height, img_width = image_shape[:2]
         if torch.is_tensor(current_traj):
             current_traj = current_traj.detach().cpu().numpy()
@@ -525,8 +530,10 @@ class NavDP_Agent:
                     picked = np.copy(all_trajectory[i, r])
                     good_trajectory[i, 0] = picked
 
-        trajectory_mask = self.project_trajectory_2d(images, all_trajectory, all_values)
-        if has_robot_state:
+        trajectory_mask = None
+        if self.enable_visualization:
+            trajectory_mask = self.project_trajectory_2d(images, all_trajectory, all_values)
+        if self.enable_visualization and has_robot_state:
             debug_panel = self._trajectory_debug_panel(
                 good_trajectory[:, 0], guidance_paths, robot_pos, robot_quat, images.shape[1:3]
             )

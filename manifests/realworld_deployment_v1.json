@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "snapshot_date": "2026-08-18",
+  "system": "memnav_cec_navdp_go2",
+  "robot": {
+    "platform": "Unitree Go2",
+    "compute": "Jetson Orin NX 16GB",
+    "camera": "Intel RealSense D435i",
+    "ros_distribution": "Humble",
+    "uses_vio": false,
+    "uses_metric_global_map": false
+  },
+  "policy_workstation": {
+    "accelerator": "NVIDIA RTX 4090",
+    "direct_actuator_authority": false,
+    "services": {
+      "navdp": {
+        "bind": "127.0.0.1",
+        "port": 8888
+      },
+      "memnav": {
+        "bind": "127.0.0.1",
+        "port": 18888
+      },
+      "cec_hub": {
+        "bind": "127.0.0.1",
+        "port": 18889
+      }
+    }
+  },
+  "transport": {
+    "type": "ssh_local_forward",
+    "request": [
+      "current_rgb",
+      "aligned_depth",
+      "image_goal"
+    ],
+    "response": "24_point_robot_local_trajectory"
+  },
+  "motion": {
+    "enabled_on_start": false,
+    "max_linear_mps": 0.3,
+    "max_angular_rps": 0.55,
+    "go2_min_translation_command_mps": 0.1,
+    "go2_min_rotation_command_rps": 0.2,
+    "bridge_watchdog_s": 0.35,
+    "reverse_enabled": false,
+    "hand_controller_priority": true
+  },
+  "cec": {
+    "controller_radius_m": 2.5,
+    "proposal_order": "geometry_first",
+    "probe_failure": "sticky_native_fallback_until_reset",
+    "certificate_rejection": "exact_native_imagegoal_fallback",
+    "ambiguous_navdp_failure": "reset_required"
+  },
+  "validation": {
+    "gpu_loopback_stack": "verified",
+    "jetson_real_rgbd_dry_run": "verified",
+    "ssh_tunnel_loss_zero_command": "verified",
+    "local_go2_bridge_motion": "verified_separately",
+    "powered_offboard_cec_navigation": "not_yet_verified",
+    "formal_realworld_sr_spl": "not_claimed"
+  },
+  "distributed_artifacts": {
+    "model_weights": false,
+    "captured_goal_images": false,
+    "runtime_buffers": false,
+    "credentials": false
+  }
+}

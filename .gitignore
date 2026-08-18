@@ -7,6 +7,17 @@ __pycache__
 *.jpg
 *.usd
 *.png
+.venv-navdp/
+.cache/
+.pytest_cache/
+runtime/
+vis_output/
+deployment/gpu/.env
+deployment/go2/goals/*
+!deployment/go2/goals/.gitkeep
+!media/go2_showcase.jpg
+*.download
+*.invalid.*
 assets/scenes/Materials/*
 assets/scenes/SkyTexture/*
 assets/scenes/embodiedscan/*
