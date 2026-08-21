@@ -23,6 +23,7 @@ verified, robot stopped**—not a real-world SR result.
 | Rollback | `rollback_pre_mono_20260820_d656b9d9ae30de73` present |
 | Jetson → workstation SSH | Passwordless route previously verified |
 | Protocol-v2 loopback health smoke | 5/5 passed without model, camera, ROS or motion |
+| Jetson single-entry launcher | Implemented; missing-D435i test failed closed and rolled back both machines |
 | Current process state | No MemNav/NavDP/hub/Go2 navigation stack running |
 | Motion during deployment | None |
 
@@ -56,6 +57,8 @@ verified, robot stopped**—not a real-world SR result.
 ## Next safe action
 
 Use the provisional `CEC_CAMERA_HEIGHT_M=0.42` only for static acceptance and
-run `deployment/go2/offboard/fullmono.sh start` from the Jetson. Complete the
-static and fault-injection gates in `RUNBOOK.md`; do not start the Go2 bridge
-until those receipts pass. Re-measure to ±1 cm before formal motion trials.
+reconnect the D435i, then run `deployment/go2/offboard/fullmono.sh start` from
+the Jetson. The launcher now requires a real CameraInfo frame and rolls both
+machines back if the camera is unavailable. Complete the static and
+fault-injection gates in `RUNBOOK.md`; do not start the Go2 bridge until those
+receipts pass. Re-measure to ±1 cm before formal motion trials.
