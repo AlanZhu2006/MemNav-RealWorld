@@ -3,8 +3,11 @@ set -euo pipefail
 
 OFFBOARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GO2_DIR="$(cd "$OFFBOARD_DIR/.." && pwd)"
+source "$GO2_DIR/scripts/common.sh"
 SESSION="${NAVDP_TMUX_SESSION:-navdp-go2-offboard}"
 LOCAL_PORT="${CEC_LOCAL_PORT:-18889}"
+CAMERA_READY_TIMEOUT_S="${NAVDP_CAMERA_READY_TIMEOUT_S:-30}"
+LOG_ROOT="${NAVDP_GO2_LOG_ROOT:-$NAVDP_ROOT/runtime/go2/logs}"
 with_go2=false
 with_camera=true
 with_rviz=false
@@ -21,6 +24,9 @@ done
 goal_path="${NAVDP_IMAGE_GOAL_PATH:-$GO2_DIR/goals/image_goal.png}"
 [[ -f "$goal_path" ]] || { echo "Image goal missing: $goal_path" >&2; exit 1; }
 command -v tmux >/dev/null || { echo "tmux is required" >&2; exit 1; }
+command -v timeout >/dev/null || { echo "timeout is required" >&2; exit 1; }
+[[ "$CAMERA_READY_TIMEOUT_S" =~ ^[1-9][0-9]*$ ]] \
+  || { echo "NAVDP_CAMERA_READY_TIMEOUT_S must be a positive integer" >&2; exit 1; }
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "tmux session already exists: $SESSION" >&2
   exit 1
@@ -50,7 +56,39 @@ if [[ "$healthy" != true ]]; then
 fi
 
 if [[ "$with_camera" == true ]]; then
-  tmux new-window -t "$SESSION" -n rgbd "exec '$GO2_DIR/scripts/run_realsense.sh'"
+  mkdir -p "$LOG_ROOT"
+  camera_log="$LOG_ROOT/realsense.log"
+  : >"$camera_log"
+  tmux new-window -t "$SESSION" -n rgbd \
+    "exec '$GO2_DIR/scripts/run_realsense.sh' >'$camera_log' 2>&1"
+
+  # A tmux window being created is not evidence that the camera survived its
+  # firmware/device checks.  Require one real CameraInfo message before the
+  # adapter is allowed to start, otherwise fail transactionally.
+  navdp_source_ros
+  camera_ready=false
+  camera_deadline=$((SECONDS + CAMERA_READY_TIMEOUT_S))
+  while (( SECONDS < camera_deadline )); do
+    if ! tmux list-windows -t "$SESSION" -F '#{window_name}' \
+        | grep -Fxq rgbd; then
+      break
+    fi
+    if timeout 1 ros2 topic echo --once \
+        /camera/camera/color/camera_info >/dev/null 2>&1; then
+      camera_ready=true
+      break
+    fi
+    sleep 0.25
+  done
+  if [[ "$camera_ready" != true ]]; then
+    echo "D435i did not publish CameraInfo; refusing to start the adapter." >&2
+    if [[ -s "$camera_log" ]]; then
+      echo "===== $camera_log" >&2
+      tail -n 80 "$camera_log" >&2 || true
+    fi
+    tmux kill-session -t "$SESSION" 2>/dev/null || true
+    exit 1
+  fi
 fi
 tmux new-window -t "$SESSION" -n adapter \
   "export NAVDP_BACKEND='navdp' NAVDP_MODE='imagegoal' NAVDP_SERVER_URL='http://127.0.0.1:${LOCAL_PORT}' NAVDP_IMAGE_GOAL_PATH='$goal_path'; exec '$GO2_DIR/scripts/run_adapter.sh'"

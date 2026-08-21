@@ -15,7 +15,10 @@ bash deployment/go2/offboard/fullmono.sh start
 
 This starts or reuses the RTX policy services, verifies the Full-Mono health
 contract, creates the SSH tunnel, and starts the D435i plus the disabled ROS
-adapter.  It does not start the Go2 bridge and cannot move the robot.
+adapter.  Startup succeeds only after the D435i publishes a real CameraInfo
+message; a missing or disconnected camera rolls back both machines instead of
+leaving a false-ready session.  It does not start the Go2 bridge and cannot
+move the robot.
 
 Useful variants are:
 

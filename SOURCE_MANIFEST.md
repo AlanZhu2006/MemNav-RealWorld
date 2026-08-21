@@ -41,15 +41,16 @@ and is ignored by Git.
 | `deployment/gpu/revisit_bearing_adapter.py` | `46c10132db7b00711ca3c781f18fcb9e04c4061bab9b44b8017d99c0c09bc6fd` |
 | `baselines/navdp/navdp_server.py` | `8f215345c9a1e9ed8fec3636e27d35c33949f4d14881209fadccc951a17f8057` |
 | `deployment/go2/offboard/preflight_offboard.sh` | `770fe4eb205b6054d6ab50b9bff7fd12b5b587f8eefd1d7fe9bad6e3db8b1d0d` |
-| `deployment/go2/offboard/run_offboard_stack.sh` | `ad4c3329a67f6b9ce1d5ab0f205f04b97c6758a41fd97ffb0fdcc603fb99a694` |
+| `deployment/go2/offboard/run_offboard_stack.sh` | `9f363b7bd5aebe783b92b7150dc2afe39580de4e8181918751167784f63f9f24` |
 | `deployment/go2/offboard/run_policy_tunnel.sh` | `eb65fb3c88c0976b17ddc87ee99e6481e6d4d0c718cc7121630446f76006c2c3` |
 | `deployment/go2/offboard/stop_offboard_stack.sh` | `e6b239f1cd2c51d59bd09c57348e037697a7bd4de47c0c9316860c608ed798c3` |
 | `deployment/go2/offboard/fullmono.sh` | `050ba1a45fc4d8d91dfb520bc002654f607bf13634b10373ec7db9afce1420a1` |
 
-The original four runtime payloads form content-addressed release
-`d656b9d9ae30de73f1d70a52b0150318f3dda238d6631dbae42f0a98dec973c2`.
-`fullmono.sh` is a subsequent orchestration-only entry point; it starts or
-stops those frozen payloads but does not alter their navigation behavior.
+The original four runtime payloads remain preserved as content-addressed
+release `d656b9d9ae30de73f1d70a52b0150318f3dda238d6631dbae42f0a98dec973c2`.
+`fullmono.sh` is a subsequent orchestration-only entry point.  The current
+`run_offboard_stack.sh` adds a fail-closed camera-readiness check; neither
+change alters navigation decisions or grants motion authority.
 
 ## Deliberate exclusions
 
