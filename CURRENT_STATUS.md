@@ -39,32 +39,46 @@ verified, robot stopped**—not a real-world SR result.
 - D435i aligned depth: Jetson collision safety only;
 - policy metric-depth consumption: forbidden and receipt-audited.
 
-## Not yet verified
+## Established by prior field operation
 
-1. A provisional D435i optical-center height of `0.42 m` has been recorded;
-   formal experiments still require a standard-pose measurement to ±1 cm.
-2. The full weighted MemNav + NavDP stack has not been reset under the measured
-   camera-height contract.
-3. Camera plus disabled adapter has not completed the required 10-minute
-   Full-Mono static run.
-4. Frame 0--39 bootstrap and the one-time frame-40 scale freeze have not been
-   audited on the robot.
-5. Static left/right CEC bearing-sign calibration is pending.
-6. Tunnel-kill and MemNav-kill fault injection under the final release is
+- The D435i optical-center height is operator-confirmed at `0.42 m`
+  (2026-08-21); `CEC_CAMERA_HEIGHT_M=0.42` is the deployed value.  The
+  launcher still requires the explicit export -- the env gate is a
+  configuration check, not an open measurement question.
+- The base RGB-D NavDP ImageGoal deployment on this Go2 was genuinely
+  effective in earlier field operation: camera pipeline, adapter, trajectory
+  tracking, stale-plan stop, watchdog, and bridge are field-proven
+  components.  The untested-on-robot surface is therefore confined to the
+  monocular additions, not the deployment stack.
+
+## Not yet verified (remaining real gates)
+
+1. Frame 0--39 bootstrap and the one-time frame-40 scale freeze have not been
+   audited on real D435i RGB at 0.42 m (all prior field operation was
+   metric RGB-D; the mono scale path has only run in simulation and in the
+   RTX live-stack smoke).
+2. Static left/right CEC bearing-sign calibration on the real mount is
    pending.
-7. Tethered `0.5--1.0 m` powered Full-Mono motion is pending.
-8. No formal real-world Novel/Revisit SR or SPL exists. The 2026-08-21
+3. The v3 two-phase contract has passed a full live-stack smoke on the RTX
+   host but has not yet been exercised from the robot.  The 2026-08-21
    tethered revisit trial FAILED under protocol v2 (goal issued from frame 0
-   excluded all history: `no_causal_candidate`); the v3 two-phase contract
-   fixes the root cause but has not yet been exercised on the robot.
-9. The weak-covisibility goal-candidate proxy thresholds are provisional
-   until calibrated on the disabled-adapter walk.
+   excluded all history: `no_causal_candidate`); v3 fixes the root cause.
+4. The weak-covisibility goal-candidate proxy thresholds are provisional
+   until calibrated on real recorded frames.
+5. No formal real-world Full-Mono Novel/Revisit SR or SPL exists.
+
+Recommended but no longer treated as blocking, because the fail-closed paths
+are test-covered and the watchdog/stale-plan layer is field-proven from the
+RGB-D deployment: tunnel-kill / MemNav-kill fault injection under the final
+release.
 
 ## Next safe action
 
-Use the provisional `CEC_CAMERA_HEIGHT_M=0.42` only for static acceptance and
-reconnect the D435i, then run `deployment/go2/offboard/fullmono.sh start` from
-the Jetson. The launcher now requires a real CameraInfo frame and rolls both
-machines back if the camera is unavailable. Complete the static and
-fault-injection gates in `RUNBOOK.md`; do not start the Go2 bridge until those
-receipts pass. Re-measure to ±1 cm before formal motion trials.
+Reconnect the D435i and run `deployment/go2/offboard/fullmono.sh start` from
+the Jetson (after fast-forwarding the Jetson checkout to `f9a1e37`).  Gates
+1, 2, and 4 fold into one combined pre-trial recording walk: record a short
+A->B leg with the adapter disabled, verify the frame-40 scale receipt and
+left/right bearing sign from the diagnostic output, and score the captured
+goal candidates to calibrate the proxy thresholds.  Only after those
+receipts pass, authorize tethered `0.5--1.0 m` motion for the first v3
+revisit trial.

@@ -70,7 +70,10 @@ mirrors the simulator's two-phase boundary on the robot.
 
 ## Unchanged boundaries
 
-All physical gates from `CURRENT_STATUS.md` remain open: measured camera
-height, disabled-adapter static acceptance, frame-40 scale audit, bearing
-sign check, fault injection, tethered motion. There is still no real-world
-SR/SPL, and this release does not claim one.
+The camera height is operator-confirmed at 0.42 m and the base RGB-D NavDP
+deployment stack is field-proven, so the remaining gates in
+`CURRENT_STATUS.md` are confined to the monocular additions: on-robot
+frame-40 scale audit, bearing-sign check, proxy-threshold calibration (one
+combined pre-trial recording walk), and the first on-robot v3 exercise.
+There is still no real-world Full-Mono SR/SPL, and this release does not
+claim one.

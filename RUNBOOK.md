@@ -46,11 +46,12 @@ cp deployment/gpu/env.example deployment/gpu/.env
 nano deployment/gpu/.env
 ~~~
 
-Set every external source/checkpoint path and record the physically measured
-D435i optical-center height:
+Set every external source/checkpoint path and the D435i optical-center
+height (operator-confirmed 0.42 m on 2026-08-21; the explicit export is a
+configuration gate, not an open measurement question):
 
 ~~~bash
-export CEC_CAMERA_HEIGHT_M=<measured-metres>
+export CEC_CAMERA_HEIGHT_M=0.42
 bash deployment/gpu/scripts/preflight.sh
 bash deployment/gpu/scripts/run_policy_stack.sh
 curl -fsS http://127.0.0.1:18889/healthz
