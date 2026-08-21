@@ -1,13 +1,14 @@
 # MemNav Real-World
 
-Real-world ImageGoal and revisit navigation on a Unitree Go2. An RTX 4090
-workstation runs MemNav certified episodic relocalization and frozen NavDP;
-the Jetson Orin NX keeps RGB-D synchronization, local trajectory tracking,
-motor safety and final stop authority on the robot.
+Real-world monocular ImageGoal and revisit navigation on a Unitree Go2. An RTX
+4090 workstation runs one causal RGB stream through LingBot-backed MemNav,
+Certified Episodic Compass (CEC), and frozen NavDP. The Jetson Orin NX keeps
+aligned depth only inside the local collision-safety layer, together with
+trajectory tracking, motor safety and final stop authority on the robot.
 
 > 中文部署细节见
 > [deployment/go2/README_CN.md](deployment/go2/README_CN.md)，双机联调记录见
-> [REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md](REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md)。
+> [FULL_MONO_RELEASE_20260821.md](FULL_MONO_RELEASE_20260821.md)。
 
 ## Reference Platform
 
@@ -17,8 +18,8 @@ motor safety and final stop authority on the robot.
 
 | Role | Compute | Platform / sensor | Responsibility |
 | --- | --- | --- | --- |
-| Policy workstation | NVIDIA RTX 4090 | Ubuntu workstation | MemNav causal memory, DINO retrieval, LightGlue + LingBot/PnP certificate, frozen NavDP |
-| Robot computer | Jetson Orin NX 16 GB | Unitree Go2 + RealSense D435i | Aligned RGB-D, ROS adapter, trajectory tracking, RViz, watchdog and Unitree control |
+| Policy workstation | NVIDIA RTX 4090 | Ubuntu workstation | One causal RGB stream, LingBot dense mono-depth readout, CEC proof, frozen NavDP |
+| Robot computer | Jetson Orin NX 16 GB | Unitree Go2 + RealSense D435i | RGB transport, local aligned-depth collision guard, trajectory tracking, watchdog and Unitree control |
 
 This deployment does **not** use TinyNav VIO, mapping or planning. The working
 TinyNav Python environment may only be reused for CycloneDDS and Unitree SDK
@@ -35,29 +36,32 @@ packages on the Jetson.
 The workstation never publishes velocity and does not load the Unitree SDK.
 It returns one 24-point robot-local trajectory through a loopback-only service
 reached by an SSH tunnel. The Jetson converts that path into
-<code>/navdp/cmd_vel</code> only after its own RGB-D freshness,
-depth-clearance, command-age, estop and operator-enable checks pass.
+<code>/navdp/cmd_vel</code> only after its own RGB/depth freshness,
+depth-clearance, command-age, estop and operator-enable checks pass. Jetson
+depth is never forwarded into the navigation policy.
 
 ### Online ImageGoal Route
 
-1. The Jetson sends synchronized current RGB, aligned depth and the fixed goal image.
-2. MemNav appends the observation once and proposes causal history candidates.
-3. A geometric certificate verifies or rejects a revisit bearing.
+1. The Jetson sends current RGB and the fixed goal image; aligned depth remains local for safety.
+2. MemNav appends the RGB exactly once. The same frozen LingBot stream exposes dense short-range mono depth and sparse long-range proof evidence.
+3. CEC either certifies a revisit bearing or abstains.
 4. An accepted bearing is normalized and projected to a frozen 2.5 m local PointGoal.
-5. Frozen NavDP runs mixed ImageGoal + PointGoal control; rejection uses native ImageGoal NavDP exactly.
-6. The Jetson tracks the returned local path at a tested default limit of <code>0.30 m/s</code>.
+5. Frozen NavDP always consumes the LingBot mono-depth sidecar. CEC rejection uses exact mono-native ImageGoal NavDP.
+6. A failed causal stream update latches <code>reset_required</code>; it cannot silently fall back to metric depth.
+7. The Jetson tracks the returned local path at a tested default limit of <code>0.30 m/s</code>.
 
 MemNav is therefore a certified directional memory layer, not a metric global
-planner. NavDP remains the local RGB-D trajectory policy. See
+planner. NavDP remains the sole local trajectory policy, but its observation
+depth is reconstructed from the same causal monocular stream. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for state and failure semantics.
 
 ## Safety Contract
 
 - Motion is locked at startup and requires an explicit ROS service call.
-- RGB-D timeout, excessive RGB/depth skew, stale trajectory or invalid depth produces zero velocity.
+- RGB/depth timeout, excessive synchronization skew, stale trajectory or invalid local safety depth produces zero velocity.
 - The Go2 bridge has an independent <code>0.35 s</code> watchdog and hand-controller priority.
 - The policy service is loopback-only; the robot reaches it through an SSH local forward.
-- MemNav failure sticks to native NavDP until reset; uncertain NavDP state requires a full reset.
+- Certificate rejection falls back exactly to mono-native NavDP. A causal stream failure or uncertain NavDP state requires a full reset.
 - The RTX workstation has no direct actuator path; the Jetson retains final authority.
 
 The software guards do not replace an onsite operator, a clear test area,
@@ -70,7 +74,7 @@ tethering for first motion, or the Unitree hand controller.
 | <code>deployment/go2/</code> | D435i, ROS 2 adapter, RViz, ImageGoal evaluator, Go2 bridge and tests |
 | <code>deployment/go2/offboard/</code> | Jetson-to-workstation SSH tunnel and dual-machine launcher |
 | <code>deployment/gpu/</code> | Auditable CEC router, fixed-bearing adapter, GPU launch scripts and tests |
-| <code>baselines/navdp/</code> | Upstream frozen NavDP implementation used for native and mixed control |
+| <code>baselines/navdp/</code> | Frozen NavDP plus audited mono-sidecar and state-safe inference interfaces |
 | <code>baselines/x-navdp/</code> | Upstream X-NavDP baseline and Jetson compatibility fixes |
 | <code>REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md</code> | Dated integration evidence and measured limitations |
 
@@ -103,6 +107,8 @@ environment template and point it to licensed local artifacts:
 cp deployment/gpu/env.example deployment/gpu/.env
 nano deployment/gpu/.env
 
+# Set this only after physically measuring the installed camera.
+export CEC_CAMERA_HEIGHT_M=<measured-metres>
 bash deployment/gpu/scripts/preflight.sh
 bash deployment/gpu/scripts/run_policy_stack.sh
 curl -fsS http://127.0.0.1:18889/healthz
@@ -153,8 +159,9 @@ bash deployment/go2/offboard/run_offboard_stack.sh --with-rviz
 tmux attach -t navdp-go2-offboard
 ~~~
 
-Confirm live RGB, aligned depth, candidate paths, selected path, inference
-latency and zero <code>/navdp/cmd_vel</code> while the adapter remains disabled.
+Confirm live RGB, local safety depth, mono-depth receipts, candidate paths,
+selected path, inference latency and zero <code>/navdp/cmd_vel</code> while the
+adapter remains disabled.
 
 ### 6. Supervised Go2 Run
 
@@ -180,19 +187,21 @@ bash deployment/go2/offboard/stop_offboard_stack.sh
 
 ## Current Status
 
-As of **2026-08-18**, the loopback services, unified route, Jetson SSH tunnel,
-real D435i dry-run and tunnel-loss fail-closed behavior have been exercised.
-The local Go2 bridge and <code>0.30 m/s</code> motion limit were previously
-exercised with the robot. The complete offboard CEC stack has **not** yet
-completed a formal powered Go2 campaign, bearing-sign calibration or long-run
-p99 latency test. No real-world SR/SPL claim is made here.
+As of **2026-08-21**, protocol-v2 Full-Mono code is synchronized across this
+repository, the RTX 4090 workspace and the Jetson live overlay. Unit tests,
+syntax checks, release hashes, SSH transport and a health-only loopback
+preflight pass. The full model stack, camera-only 10-minute run, bearing-sign
+calibration, fault injection and tethered powered motion remain pending. No
+Full-Mono real-world SR/SPL claim is made here.
 
 See [CURRENT_STATUS.md](CURRENT_STATUS.md) before any new experiment.
 
 ## Documentation
 
+- [FULL_MONO_RELEASE_20260821.md](FULL_MONO_RELEASE_20260821.md): synchronized protocol-v2 release and three-way receipt.
 - [RUNBOOK.md](RUNBOOK.md): current start, inspect, stop and revisit sequence.
 - [ARCHITECTURE.md](ARCHITECTURE.md): responsibilities, routing and fail-closed behavior.
+- [CURRENT_STATUS.md](CURRENT_STATUS.md): verified gates and remaining physical acceptance.
 - [SOURCE_MANIFEST.md](SOURCE_MANIFEST.md): source snapshot and excluded artifacts.
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): upstream code and model notices.
 - [deployment/go2/README_CN.md](deployment/go2/README_CN.md): complete Jetson/Go2 guide in Chinese.

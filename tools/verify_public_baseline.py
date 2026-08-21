@@ -22,10 +22,13 @@ REQUIRED_PATHS = (
     "media/go2_showcase.jpg",
     "media/system_architecture.svg",
     "manifests/realworld_deployment_v1.json",
+    "manifests/realworld_fullmono_v2.json",
+    "FULL_MONO_RELEASE_20260821.md",
     "deployment/go2/navdp_ros_node.py",
     "deployment/go2/go2_cmd_bridge.py",
     "deployment/go2/offboard/run_offboard_stack.sh",
     "deployment/gpu/realworld_cec_hub.py",
+    "deployment/gpu/monocular_depth_runtime.py",
     "deployment/gpu/revisit_bearing_adapter.py",
     "deployment/gpu/env.example",
 )
@@ -35,7 +38,10 @@ FORBIDDEN_PARTS = ("__pycache__", ".venv-navdp", ".cache", "runtime")
 ALLOWED_GOAL_FILE = "deployment/go2/goals/.gitkeep"
 EXPECTED_HASHES = {
     "deployment/gpu/realworld_cec_hub.py": (
-        "17603f6e86d3ae94eabebeda3bde84ac3efb229184a7e142b2d3e88e2295dc5a"
+        "09ef562f11b6a0c1e0dcf63d021dee5ebcb0b88a5b2f951308cfb73fad15c993"
+    ),
+    "deployment/gpu/monocular_depth_runtime.py": (
+        "709a4ad200a5778317bb314e87e398ba6da8398939d96c100f235fe1ce98c9fc"
     ),
     "deployment/gpu/revisit_bearing_adapter.py": (
         "46c10132db7b00711ca3c781f18fcb9e04c4061bab9b44b8017d99c0c09bc6fd"
@@ -44,7 +50,7 @@ EXPECTED_HASHES = {
         "a7b5a226e3e89d08aa04d932a4531dce7b2593e4a5d7e2693b5997f89652cd08"
     ),
     "media/system_architecture.svg": (
-        "8d7989b2a7f2eedad3b026c68bdefd0492c2576cf1ac4252efa3550a43700211"
+        "741f627a7557d1dd7c1018790702eb8528bd47904114d5ef265a97ae157783f2"
     ),
 }
 
@@ -128,7 +134,7 @@ def main() -> int:
             print(f"       {path}")
 
     manifest = json.loads(
-        (root / "manifests/realworld_deployment_v1.json").read_text()
+        (root / "manifests/realworld_fullmono_v2.json").read_text()
     )
     services = manifest["policy_workstation"]["services"]
     check(
@@ -152,8 +158,27 @@ def main() -> int:
         failures,
     )
     check(
-        manifest["validation"]["formal_realworld_sr_spl"] == "not_claimed",
+        manifest["claims"]["formal_realworld_sr_spl"] is False,
         "formal result boundary is explicit",
+        failures,
+    )
+    navigation = manifest["navigation_contract"]
+    check(
+        navigation["protocol_version"] == 2
+        and navigation["sensor_contract"] == "causal_monocular_rgb_v1",
+        "protocol-v2 monocular sensor contract",
+        failures,
+    )
+    check(
+        navigation["policy_depth_source"] == "monocular_sidecar"
+        and navigation["metric_depth_sensor_consumed_by_policy"] is False,
+        "policy cannot consume metric sensor depth",
+        failures,
+    )
+    check(
+        manifest["deployment_gate"]["status"] == "blocked_until_measured"
+        and manifest["deployment_gate"]["camera_optical_center_height_m"] is None,
+        "physical camera-height gate remains closed",
         failures,
     )
 

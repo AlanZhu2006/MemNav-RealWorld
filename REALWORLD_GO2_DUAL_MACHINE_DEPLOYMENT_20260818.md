@@ -1,5 +1,9 @@
 # CEC + NavDP Unitree Go2 双机部署（2026-08-18）
 
+> **历史文档，已被 2026-08-21 Full-Mono protocol v2 取代。** 当前架构、
+> 启动顺序与安全口径请以 `FULL_MONO_RELEASE_20260821.md`、`ARCHITECTURE.md`
+> 和 `RUNBOOK.md` 为准。本文仅保留最早 RGB-D 双机联调的测量记录。
+
 ## 1. 当前结论
 
 真机部署采用以下职责边界：

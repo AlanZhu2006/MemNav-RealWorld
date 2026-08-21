@@ -1,63 +1,61 @@
 # Source and Artifact Manifest
 
-## Repository Base
+Snapshot: **2026-08-21**
 
-- Upstream repository: <code>https://github.com/InternRobotics/NavDP</code>
-- Imported base commit: <code>878740a2011856d0e3782dd6ccd880fd2eccd70f</code>
-- Base commit date: <code>2026-07-31T13:43:54+08:00</code>
-- Base history is retained rather than copied as an anonymous source dump.
+## Repository base
 
-## Real-World Overlay
+- Upstream repository: `https://github.com/InternRobotics/NavDP`
+- Imported upstream commit: `878740a2011856d0e3782dd6ccd880fd2eccd70f`
+- Full-Mono research source: `AlanZhu2006/Nav`,
+  branch `feat/memnav-graph-blind-20260806`, commit
+  `70387b63db65fedf1eb74bbe995631139d7b8e18`
+- Standalone real-world base before this release:
+  `ab4bf8e58ed21b070e3b0b8f01236d11921684ca`
 
-| Path | Provenance |
+The upstream history is retained. Full-Mono changes are recorded as an
+auditable overlay instead of an anonymous source dump.
+
+## Full-Mono overlay
+
+| Path | Provenance and role |
 | --- | --- |
-| <code>deployment/go2/</code> | Jetson Orin NX / D435i / Unitree Go2 integration developed and exercised in this workspace |
-| <code>deployment/gpu/realworld_cec_hub.py</code> | Selected from the 2026-08-18 RTX workstation working tree, then package import generalized |
-| <code>deployment/gpu/revisit_bearing_adapter.py</code> | Frozen verified-bearing controller boundary selected from the same working tree |
-| <code>deployment/gpu/scripts/</code> | Public path-parameterized launch form of the observed workstation scripts |
-| <code>deployment/go2/offboard/</code> | SSH-forward and offboard Jetson launch overlay synchronized during the 2026-08-18 dry-run |
+| `deployment/gpu/realworld_cec_hub.py` | Protocol-v2 CEC hub adapted from the frozen research source |
+| `deployment/gpu/monocular_depth_runtime.py` | First-40 scale and SHA-bound mono-depth receipt contract |
+| `deployment/gpu/revisit_bearing_adapter.py` | Frozen scale-free bearing to 2.5 m PointGoal boundary |
+| `deployment/gpu/scripts/` | Path-parameterized RTX 4090 launch and fail-closed preflight |
+| `baselines/navdp/{navdp_server,policy_agent,policy_network}.py` | Frozen NavDP with mono-sidecar and state-safe inference interfaces |
+| `deployment/go2/` | Jetson Orin NX, D435i and Unitree Go2 integration |
+| `deployment/go2/offboard/` | SSH-forward and protocol-v2 offboard launcher synchronized to the robot |
 
-The workstation source snapshot was an uncommitted research working tree. It
-therefore has no honest source Git object to cite. This repository records that
-boundary instead of inventing provenance. The selected router and adapter are
-covered by this repository's Git history after import.
+The MemNav model service remains an external research dependency because its
+licensed checkpoints, LingBot weights, LightGlue dependency tree and research
+workspace are not redistributed. `deployment/gpu/.env` points to that source
+and is ignored by Git.
 
-Selected release SHA-256 values:
+## Selected release SHA-256
 
 | File | SHA-256 |
 | --- | --- |
-| <code>deployment/gpu/realworld_cec_hub.py</code> | <code>17603f6e86d3ae94eabebeda3bde84ac3efb229184a7e142b2d3e88e2295dc5a</code> |
-| <code>deployment/gpu/revisit_bearing_adapter.py</code> | <code>46c10132db7b00711ca3c781f18fcb9e04c4061bab9b44b8017d99c0c09bc6fd</code> |
-| <code>media/go2_showcase.jpg</code> | <code>a7b5a226e3e89d08aa04d932a4531dce7b2593e4a5d7e2693b5997f89652cd08</code> |
-| <code>media/system_architecture.svg</code> | <code>8d7989b2a7f2eedad3b026c68bdefd0492c2576cf1ac4252efa3550a43700211</code> |
+| `deployment/gpu/realworld_cec_hub.py` | `09ef562f11b6a0c1e0dcf63d021dee5ebcb0b88a5b2f951308cfb73fad15c993` |
+| `deployment/gpu/monocular_depth_runtime.py` | `709a4ad200a5778317bb314e87e398ba6da8398939d96c100f235fe1ce98c9fc` |
+| `deployment/gpu/revisit_bearing_adapter.py` | `46c10132db7b00711ca3c781f18fcb9e04c4061bab9b44b8017d99c0c09bc6fd` |
+| `baselines/navdp/navdp_server.py` | `8f215345c9a1e9ed8fec3636e27d35c33949f4d14881209fadccc951a17f8057` |
+| `deployment/go2/offboard/preflight_offboard.sh` | `770fe4eb205b6054d6ab50b9bff7fd12b5b587f8eefd1d7fe9bad6e3db8b1d0d` |
+| `deployment/go2/offboard/run_offboard_stack.sh` | `ad4c3329a67f6b9ce1d5ab0f205f04b97c6758a41fd97ffb0fdcc603fb99a694` |
+| `deployment/go2/offboard/run_policy_tunnel.sh` | `eb65fb3c88c0976b17ddc87ee99e6481e6d4d0c718cc7121630446f76006c2c3` |
+| `deployment/go2/offboard/stop_offboard_stack.sh` | `e6b239f1cd2c51d59bd09c57348e037697a7bd4de47c0c9316860c608ed798c3` |
 
-## External Runtime Requirements
+The four Jetson payloads form content-addressed release
+`d656b9d9ae30de73f1d70a52b0150318f3dda238d6631dbae42f0a98dec973c2`.
 
-The public repository is not model-artifact complete. The GPU MemNav service
-expects the operator to provide:
-
-- a compatible MemNav research workspace and server;
-- MemNav and NavDP checkpoints;
-- InternNav diffusion-policy source;
-- LingBot Map source and weights;
-- an official compatible LightGlue checkout;
-- the locally assembled Python dependency root.
-
-All locations are configured in <code>deployment/gpu/.env</code>; the template
-contains no credentials.
-
-The Jetson additionally requires ROS 2 Humble, the RealSense ROS driver,
-CycloneDDS, Unitree SDK2 Python and the model checkpoints named in
-<code>deployment/go2/README_CN.md</code>.
-
-## Deliberate Exclusions
+## Deliberate exclusions
 
 - model checkpoints and weight caches;
 - Conda/venv environments and compiled dependencies;
 - MemNav causal buffers and service logs;
-- captured goal RGB/depth, Go2 reference poses and experiment result JSON;
+- captured goal RGB/depth, Go2 reference poses and result JSON;
 - robot/network credentials and SSH private keys;
-- datasets, simulator assets and unrelated research diagnostics.
+- simulator datasets and unrelated diagnostics.
 
-Runtime exclusions are enforced by <code>.gitignore</code>. The goal directory
-retains only <code>deployment/go2/goals/.gitkeep</code>.
+Runtime exclusions are enforced by `.gitignore`. Immutable releases remain
+on the robot but `deployment/go2/releases/` is not committed.

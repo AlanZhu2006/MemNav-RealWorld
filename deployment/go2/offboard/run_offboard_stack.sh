@@ -30,7 +30,14 @@ tmux new-session -d -s "$SESSION" -n tunnel "exec '$OFFBOARD_DIR/run_policy_tunn
 healthy=false
 for _ in $(seq 1 20); do
   if curl -fsS --max-time 1 "http://127.0.0.1:${LOCAL_PORT}/healthz" \
-      | grep -q 'cec_hybrid_navdp'; then
+      | python3 -c '
+import json, sys
+p = json.load(sys.stdin)
+assert p.get("algo") == "cec_hybrid_navdp"
+assert p.get("navigation_sensor_contract") == "causal_monocular_rgb_v1"
+assert p.get("navdp_depth_source") == "monocular_sidecar"
+assert p.get("metric_depth_sensor_consumed_by_policy") is False
+' 2>/dev/null; then
     healthy=true
     break
   fi
@@ -56,5 +63,6 @@ fi
 
 echo "Offboard CEC/NavDP stack started in tmux session $SESSION"
 echo "  hub=http://127.0.0.1:${LOCAL_PORT} camera=$with_camera go2_bridge=$with_go2"
+echo "  navigation=causal_monocular_rgb local_aligned_depth=safety_only"
 echo "  inspect: tmux attach -t $SESSION"
 echo "Motion remains locked until an operator explicitly calls set_enabled=true."

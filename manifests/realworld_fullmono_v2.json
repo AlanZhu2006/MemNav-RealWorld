@@ -1,0 +1,101 @@
+{
+  "schema_version": 2,
+  "release_id": "fullmono-cec-20260821-d656b9d9ae30de73",
+  "snapshot_date": "2026-08-21",
+  "system": "fullmono_certified_episodic_compass_navdp_go2",
+  "research_source": {
+    "repository": "AlanZhu2006/Nav",
+    "branch": "feat/memnav-graph-blind-20260806",
+    "commit": "70387b63db65fedf1eb74bbe995631139d7b8e18"
+  },
+  "navigation_contract": {
+    "protocol_version": 2,
+    "sensor_contract": "causal_monocular_rgb_v1",
+    "policy_depth_source": "monocular_sidecar",
+    "metric_depth_sensor_consumed_by_policy": false,
+    "client_depth_field": "accepted_for_wire_compatibility_and_discarded",
+    "robot_local_depth_role": "collision_safety_and_optional_arrival_audit_only",
+    "controller": "frozen_navdp",
+    "memory_method": "certified_episodic_compass",
+    "controller_radius_m": 2.5
+  },
+  "robot": {
+    "platform": "Unitree Go2",
+    "compute": "Jetson Orin NX 16GB",
+    "camera": "Intel RealSense D435i",
+    "ros_distribution": "Humble",
+    "uses_vio": false,
+    "uses_metric_global_map": false
+  },
+  "policy_workstation": {
+    "accelerator": "NVIDIA RTX 4090",
+    "direct_actuator_authority": false,
+    "services": {
+      "navdp": {"bind": "127.0.0.1", "port": 8888},
+      "memnav": {"bind": "127.0.0.1", "port": 18888},
+      "cec_hub": {"bind": "127.0.0.1", "port": 18889}
+    }
+  },
+  "transport": {
+    "type": "ssh_local_forward",
+    "request": [
+      "current_rgb",
+      "image_goal",
+      "legacy_aligned_depth_field_discarded_by_hub"
+    ],
+    "response": "24_point_robot_local_trajectory"
+  },
+  "failure_semantics": {
+    "certificate_rejection": "exact_mono_native_imagegoal_fallback",
+    "certificate_error_after_successful_append": "exact_mono_native_imagegoal_fallback_with_receipt",
+    "causal_stream_append_failure": "reset_required_no_new_trajectory",
+    "ambiguous_navdp_failure": "reset_required",
+    "missing_monocular_receipt": "reset_required"
+  },
+  "motion": {
+    "enabled_on_start": false,
+    "max_linear_mps": 0.3,
+    "max_angular_rps": 0.55,
+    "go2_min_translation_command_mps": 0.1,
+    "go2_min_rotation_command_rps": 0.2,
+    "bridge_watchdog_s": 0.35,
+    "reverse_enabled": false,
+    "hand_controller_priority": true
+  },
+  "jetson_release": {
+    "ssh_alias": "tegra-ubuntu",
+    "live_overlay": "/home/nvidia/twork/NavDP/deployment/go2/offboard",
+    "immutable_release": "/home/nvidia/twork/NavDP/deployment/go2/releases/cec_mono_20260820_d656b9d9ae30de73",
+    "rollback": "/home/nvidia/twork/NavDP/deployment/go2/releases/rollback_pre_mono_20260820_d656b9d9ae30de73",
+    "payload_tree_sha256": "d656b9d9ae30de73f1d70a52b0150318f3dda238d6631dbae42f0a98dec973c2",
+    "payload_sha256": {
+      "preflight_offboard.sh": "770fe4eb205b6054d6ab50b9bff7fd12b5b587f8eefd1d7fe9bad6e3db8b1d0d",
+      "run_offboard_stack.sh": "ad4c3329a67f6b9ce1d5ab0f205f04b97c6758a41fd97ffb0fdcc603fb99a694",
+      "run_policy_tunnel.sh": "eb65fb3c88c0976b17ddc87ee99e6481e6d4d0c718cc7121630446f76006c2c3",
+      "stop_offboard_stack.sh": "e6b239f1cd2c51d59bd09c57348e037697a7bd4de47c0c9316860c608ed798c3"
+    }
+  },
+  "verification": {
+    "standalone_contract_tests": "26 passed",
+    "research_protocol_tests": "10 passed",
+    "python_compile": true,
+    "shell_syntax": true,
+    "architecture_svg_xml": true,
+    "jetson_live_hashes_match": true,
+    "camera_started_during_sync": false,
+    "ros_adapter_started_during_sync": false,
+    "go2_bridge_started_during_sync": false,
+    "motion_command_sent_during_sync": false
+  },
+  "deployment_gate": {
+    "camera_optical_center_height_m": null,
+    "status": "blocked_until_measured",
+    "next_safe_step": "measure CEC_CAMERA_HEIGHT_M and run camera-only disabled-adapter acceptance"
+  },
+  "claims": {
+    "software_deployed": true,
+    "transport_verified": true,
+    "powered_fullmono_closed_loop_verified": false,
+    "formal_realworld_sr_spl": false
+  }
+}

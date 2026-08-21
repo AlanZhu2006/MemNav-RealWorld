@@ -1,5 +1,15 @@
 # NavDP 在 Unitree Go2（Jetson + D435i）上的部署
 
+> **2026-08-21 Full-Mono 主协议：** 本文件后续章节仍保留原生
+> NavDP/X-NavDP、RGB-D 调试和到达评测说明；正式 CEC offboard 路径则以
+> 仓库根目录的 `ARCHITECTURE.md` 与 `RUNBOOK.md` 为准。正式路径中，Jetson
+> 只向策略提供当前 RGB 和 ImageGoal；旧 HTTP depth 字段仅为 wire
+> compatibility，hub 会丢弃。D435i aligned depth 只在 Jetson 本地用于近障停车
+> 与可选到达审计，不输入 CEC、bearing 或 NavDP。上位机从同一 causal RGB
+> LingBot state 提供 mono-depth sidecar 和 CEC proof，NavDP 仍是唯一轨迹生成器。
+> 未实测 D435i 光心离地高度、未通过静态十分钟验收和故障注入前，禁止启动
+> Go2 bridge 或声称已完成真机闭环。
+
 这套部署针对当前机器：Jetson Orin NX 16GB、JetPack/L4T 36.4、ROS 2 Humble、Intel RealSense D435i、Unitree Go2。默认策略是 **X-NavDP quadruped**，默认不使用 TinyNav VIO，也不启动 TinyNav 的任何感知、建图或规划节点。
 
 ## 1. 先说明：NavDP 是否需要 VIO

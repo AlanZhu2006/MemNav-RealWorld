@@ -1,41 +1,60 @@
-# Current Status
+# Current Full-Mono Real-World Status
 
-Snapshot: **2026-08-18 UTC**
+Snapshot: **2026-08-21 17:29 Asia/Shanghai**
+
+## Bottom line
+
+The Full-Mono software release is synchronized and auditable, but the physical
+navigation campaign is not complete. This is **code deployed, transport
+verified, robot stopped**—not a real-world SR result.
 
 ## Verified
 
 | Gate | Result |
 | --- | --- |
-| Jetson ↔ RTX 4090 network | Approximately 2.3 ms observed round-trip latency |
-| Policy exposure | NavDP <code>8888</code>, MemNav <code>18888</code>, hub <code>18889</code>; loopback-only |
-| Unified reset | Returned <code>algo=cec_hybrid_navdp</code> with certificate enabled |
-| Real multipart inference | Returned a finite 24-point trajectory |
-| First causal frame | No history candidate; exact native NavDP fallback |
-| Real D435i dry-run | 38 disabled states over 20 s, zero errors and zero nonzero commands |
-| Dry-run inference latency | p50 <code>0.638 s</code>, p95 <code>0.681 s</code>, max <code>0.760 s</code> |
-| RGB-D synchronization | p95 skew <code>0.066 s</code>, max <code>0.138 s</code> in the recorded run |
-| Tunnel-loss guard | Plan aged out and command stayed zero; service recovered after tunnel restore |
-| Go2 bridge defaults | <code>0.30 m/s</code> cap, hardware motion floors and remote priority configured |
+| Research source | `AlanZhu2006/Nav@70387b6`; protocol-v2 Full-Mono files are pushed |
+| Standalone contract tests | 26 passed |
+| Research hub/runtime tests | 10 passed |
+| Python compile and shell syntax | Passed |
+| Architecture SVG XML | Valid |
+| Jetson SSH | `tegra-ubuntu` reachable |
+| Jetson live overlay | All four payload hashes match the immutable release |
+| Immutable release | `cec_mono_20260820_d656b9d9ae30de73` present |
+| Rollback | `rollback_pre_mono_20260820_d656b9d9ae30de73` present |
+| Jetson → workstation SSH | Passwordless route previously verified |
+| Protocol-v2 loopback health smoke | 5/5 passed without model, camera, ROS or motion |
+| Current process state | No MemNav/NavDP/hub/Go2 navigation stack running |
+| Motion during deployment | None |
 
-The dated evidence and exact observed host commands are preserved in
-[REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md](REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md).
+## Frozen policy contract
 
-## Not Yet Verified
+- navigation input: one causal monocular RGB stream plus ImageGoal;
+- short-range readout: LingBot mono-depth sidecar;
+- long-range readout: CEC proof and scale-free bearing;
+- controller: frozen NavDP only;
+- CEC reject: exact mono-native NavDP;
+- stream append or ambiguous policy failure: latch `reset_required`;
+- D435i aligned depth: Jetson collision safety only;
+- policy metric-depth consumption: forbidden and receipt-audited.
 
-- Complete CEC + MemNav + NavDP navigation with the Go2 powered and walking.
-- Camera optical-axis to <code>base_link</code> bearing-sign calibration for CEC takeover.
-- Long-duration exclusive-GPU latency and p99 characterization.
-- Formal first-visit/revisit campaign with frozen starts and success protocol.
-- Real-world success rate or SPL. No such result is claimed by this snapshot.
+## Not yet verified
 
-## Next Physical Gate
+1. Installed D435i optical-center height has not been physically recorded.
+2. The full weighted MemNav + NavDP stack has not been reset under the measured
+   camera-height contract.
+3. Camera plus disabled adapter has not completed the required 10-minute
+   Full-Mono static run.
+4. Frame 0--39 bootstrap and the one-time frame-40 scale freeze have not been
+   audited on the robot.
+5. Static left/right CEC bearing-sign calibration is pending.
+6. Tunnel-kill and MemNav-kill fault injection under the final release is
+   pending.
+7. Tethered `0.5--1.0 m` powered Full-Mono motion is pending.
+8. No formal real-world Novel/Revisit SR or SPL exists.
 
-1. Run GPU and Jetson preflight with the robot disabled.
-2. Hold a 10-minute D435i dry-run and inspect RViz/status.
-3. Validate bearing sign using a static target on both image sides.
-4. Kill the SSH tunnel and confirm zero command within the local age/watchdog bounds.
-5. Perform a tethered <code>0.5–1.0 m</code> low-speed run with an onsite operator.
-6. Only then begin the frozen first-visit/revisit protocol.
+## Next safe action
 
-This file describes code and observed validation state; it does not assert
-that a physical session is currently armed.
+Measure the installed camera optical-center height, export
+`CEC_CAMERA_HEIGHT_M`, start only the RTX stack and camera/disabled adapter,
+then complete the static and fault-injection gates in `RUNBOOK.md`. Do not
+start the Go2 bridge until those receipts pass.

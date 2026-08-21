@@ -1,129 +1,132 @@
-# Audited Architecture
+# Audited Full-Mono Architecture
 
-## System Boundary
+Snapshot: **2026-08-21**
+
+## System boundary
 
 This repository implements a two-computer real-world ImageGoal stack:
 
-- the RTX 4090 workstation owns memory retrieval, geometric certification and policy inference;
-- the Jetson Orin NX owns sensors, ROS state, path tracking and every interface that can move the Go2.
+- the RTX 4090 workstation owns one causal RGB stream, episodic retrieval,
+  geometric certification and frozen policy inference;
+- the Jetson Orin NX owns camera transport, local collision sensing, trajectory
+  tracking and every interface that can move the Unitree Go2.
 
-It is not a metric global-navigation system. No component in the current
-deployment produces a persistent <code>map -> odom -> base_link</code>
-transform. MemNav contributes a verified camera-relative revisit direction;
-NavDP emits a 24-point robot-local trajectory from current RGB-D and goal
-conditioning.
+The navigation policy is monocular. D435i aligned depth remains on the Jetson
+as an independent collision-safety signal and is never consumed by CEC,
+bearing generation or NavDP policy inference. The honest system description is
+**monocular navigation with a local depth safety layer**, not a sensorless
+robot.
 
-## Data Plane
+## One stream, two time scales, one policy
 
 ~~~text
-Unitree Go2 / Jetson Orin NX                     RTX 4090 workstation
+Unitree Go2 / Jetson Orin NX                  RTX 4090 workstation
 
-D435i aligned RGB-D
-        │
-        ├── ROS adapter ── current RGB + depth + goal ──┐
-        │                                                │ SSH local forward
-        │                                                ▼
-        │                                      Unified CEC hub :18889
-        │                                      ├─ MemNav :18888
-        │                                      └─ NavDP  :8888
-        │                                                │
-        └── local tracker ◀──── 24-point trajectory ─────┘
-                 │
-        depth / age / estop guards
-                 │
-          /navdp/cmd_vel
-                 │
-       0.35 s watchdog + remote priority
-                 │
-         Unitree SportClient.Move()
+D435i RGB ───────── SSH local forward ──────> protocol-v2 CEC hub
+                                                    |
+                                         exactly one RGB append
+                                                    |
+                                        frozen LingBot state
+                                     /                        \
+                         dense mono-depth readout       sparse CEC proof
+                         first-40 scale receipt         history retrieval
+                                     \                        /
+                                      frozen NavDP controller
+                                  ImageGoal or Image+PointGoal
+                                                    |
+Jetson local tracker <──── 24-point local path ─────┘
+  + aligned-depth collision stop
+  + stale-plan guard + estop
+  + 0.35 s Go2 watchdog
+  + hand-controller priority
 ~~~
 
-The HTTP services bind only to <code>127.0.0.1</code> on the workstation. The
-Jetson uses a local SSH forward, so the ROS adapter still addresses a loopback
-URL.
+LingBot does not compete with NavDP for control. It supplies two readouts from
+the same causal RGB state:
 
-## Stateful CEC Route
+1. a dense short-range depth observation for NavDP's unchanged RGB-D encoder;
+2. sparse long-range evidence used by CEC to prove a revisit direction.
+
+NavDP remains the only component that generates trajectories.
+
+## Stateful protocol-v2 route
 
 ### Reset
 
-<code>POST /navigator_reset</code> resets both upstream stateful services. The
-hub is initialized only if both resets succeed. A partial or ambiguous reset
-returns <code>503</code> and the client must retry a full reset.
+`POST /navigator_reset` atomically resets MemNav and NavDP. A successful
+receipt must prove all of the following:
 
-### ImageGoal Step
+- CEC is enabled;
+- the LingBot monocular-depth stream is enabled;
+- `metric_depth_sensor_consumed=false`;
+- NavDP is frozen to `depth_source=monocular_sidecar`;
+- a sidecar endpoint is configured.
 
-For each <code>POST /imagegoal_step</code>:
+The camera optical-center height is supplied by the workstation launch
+environment. There is intentionally no default. It must be physically measured
+on the installed D435i before a real model reset.
 
-1. <code>/retrieval_probe_step</code> appends the current observation exactly once and returns causal candidates.
-2. <code>/certified_relocalize</code> verifies candidates using the frozen geometry-first route.
-3. A certificate is eligible only when <code>ok=true</code>, <code>accepted=true</code> and its units are the scale-free LingBot direction contract.
-4. The direction is normalized and projected onto a frozen <code>2.5 m</code> controller radius.
-5. Eligible evidence calls NavDP <code>/navdp_step_ip_mixgoal</code>.
-6. Rejected evidence calls the native NavDP <code>/imagegoal_step</code> route without changing the image goal.
+### ImageGoal step
 
-This separation prevents an uncalibrated memory-vector norm from being
-misrepresented as metric distance.
+For each `POST /imagegoal_step`:
 
-## Failure Semantics
+1. the hub accepts the old client depth field only for wire compatibility, then
+   discards it;
+2. `/retrieval_probe_step` appends current RGB exactly once and advances the
+   shared LingBot state;
+3. NavDP retrieves mono depth for exactly that RGB SHA-256 from
+   `/monocular_depth_query`;
+4. CEC retrieves temporally diverse history candidates and verifies them with
+   SuperPoint/LightGlue, LingBot depth and PnP;
+5. accepted proof produces a scale-free bearing, normalized onto a fixed
+   `2.5 m` PointGoal residual;
+6. accepted evidence calls frozen mixed ImageGoal + PointGoal NavDP;
+7. rejected evidence calls exact mono-native ImageGoal NavDP.
 
-| Failure | Behavior |
+CEC does not implement a semantic Novel/Revisit classifier. Acceptance means
+only that the current online history supports a self-certified localization
+hypothesis; rejection means abstention.
+
+Every returned trajectory must carry a mono-depth receipt. A response that
+cannot prove the configured depth source is rejected and latches reset.
+
+## Scale contract
+
+The first 40 causal frames form the frozen scale bootstrap. Before scale is
+ready, the sidecar returns the explicit bootstrap-zero-depth state. At the
+transition, the scale receipt must freeze exactly once from the installed
+camera optical-center height. Later frames may consume that frozen scale but
+must not silently recalibrate it.
+
+The `0.5 m` value used in the 2026-08-20 health-only smoke was not a
+calibration and is not a deployment default.
+
+## Failure semantics
+
+| Failure | Required behavior |
 | --- | --- |
-| MemNav probe fails | Native NavDP handles the current step; memory remains degraded until reset |
-| Certificate fails or rejects | Exact native ImageGoal fallback |
-| Native or mixed NavDP request is ambiguous | Latch <code>reset_required</code>; do not continue statefully |
-| Concurrent hub request | Reject with HTTP <code>409</code> |
-| SSH tunnel breaks | Jetson plan expires, command becomes zero |
-| RGB-D pair is stale / skewed | Jetson command becomes zero |
-| Depth ROI is invalid or blocked | Jetson command becomes zero or slows conservatively |
-| Go2 command stream is stale | Bridge sends zero and calls <code>StopMove()</code> |
+| Certificate rejects | Exact mono-native ImageGoal NavDP |
+| Certificate endpoint errors after a successful RGB append | Exact mono-native ImageGoal NavDP, with an error receipt |
+| Causal RGB/LingBot append fails | Latch `reset_required`; issue no new trajectory |
+| NavDP request or mono-depth receipt is ambiguous | Latch `reset_required` |
+| Concurrent hub request | Reject with HTTP `409` |
+| SSH tunnel breaks | Jetson plan becomes stale and velocity becomes zero |
+| RGB or local depth becomes stale | Jetson velocity becomes zero |
+| Local aligned-depth ROI is blocked | Jetson slows or stops independently |
+| Go2 command stream is stale | Bridge sends zero and calls `StopMove()` |
 | Hand controller becomes active | Autonomous SportClient authority is released |
 
-The hub never silently retries a state-mutating inference request because a
-timeout cannot prove whether the upstream policy already advanced its memory.
+A stream failure cannot fall back to metric NavDP: the same LingBot state owns
+both the current mono-depth observation and the history proof.
 
-## Robot-Local Control
+## Robot-local control and authority
 
-The trajectory tracker uses robot-plane coordinates <code>x</code> forward and
-<code>y</code> left. It selects a geometric lookahead point and produces
-forward velocity and yaw rate; lateral velocity and reverse motion are
-disabled by default.
+The trajectory tracker uses robot-plane coordinates `x` forward and `y`
+left. It emits forward velocity and yaw rate; reverse and lateral velocity are
+disabled by default. The default linear limit is `0.30 m/s`. The bridge keeps
+the observed hardware command floors of `0.10 m/s` translation and
+`0.20 rad/s` rotation.
 
-The default linear limit is <code>0.30 m/s</code>. The Go2 bridge preserves the
-observed hardware motion floors <code>0.10 m/s</code> translation and
-<code>0.20 rad/s</code> rotation so small commands do not merely change leg
-posture without translating.
-
-Two separate watchdogs exist:
-
-- the ROS adapter rejects sensor, goal and trajectory age violations;
-- the Unitree bridge independently rejects a command older than <code>0.35 s</code>.
-
-## Debug and Evaluation Boundary
-
-RViz shows the current local trajectory, top policy candidates, aligned depth,
-goal image, clearance, commands and stop reason. Its identity
-<code>navdp_local -> base_link</code> transform is visualization-only and is
-not odometry.
-
-The ImageGoal evaluator may read <code>SportModeState</code> for stationary
-gating and auxiliary path metrics. That state is never sent into NavDP.
-Goal-object, exact-view, policy-stop and auxiliary-pose success remain separate
-fields; no single motor-odometry threshold is treated as visual goal
-recognition.
-
-## Authority Boundary
-
-The workstation is advisory:
-
-- no Unitree SDK dependency;
-- no ROS velocity publisher;
-- no direct actuator network route.
-
-The Jetson is authoritative:
-
-- explicit enable and estop;
-- live perception checks;
-- trajectory freshness;
-- local collision guard;
-- operator takeover;
-- final velocity publication and watchdog.
+The workstation is advisory and has no Unitree SDK, ROS velocity publisher or
+direct actuator route. The Jetson retains explicit enable, estop, trajectory
+freshness, collision guard, operator takeover and the final watchdog.

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-labelledby="title desc">
-  <title id="title">MemNav Real-World dual-machine architecture</title>
-  <desc id="desc">RTX 4090 memory and policy inference connected through an SSH tunnel to robot-local sensing, control and safety on a Unitree Go2 Jetson.</desc>
+  <title id="title">MemNav Real-World Full-Mono dual-machine architecture</title>
+  <desc id="desc">One causal RGB stream drives LingBot memory, monocular depth and frozen NavDP on RTX 4090; aligned depth remains a robot-local safety signal on the Unitree Go2 Jetson.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#f8fafc"/>
@@ -36,8 +36,8 @@
   </defs>
 
   <rect width="1600" height="900" fill="url(#bg)"/>
-  <text x="800" y="62" text-anchor="middle" class="title">MemNav Real-World · Dual-Machine Architecture</text>
-  <text x="800" y="96" text-anchor="middle" class="subtitle">Certified episodic memory on RTX 4090 · final motion authority on Unitree Go2</text>
+  <text x="800" y="62" text-anchor="middle" class="title">MemNav Real-World · Full-Mono Dual-Machine Architecture</text>
+  <text x="800" y="96" text-anchor="middle" class="subtitle">One causal RGB stream on RTX 4090 · final motion authority on Unitree Go2</text>
 
   <rect x="55" y="135" width="690" height="690" rx="28" fill="url(#jetson)" stroke="#e6b62f" stroke-width="3" filter="url(#shadow)"/>
   <rect x="855" y="135" width="690" height="690" rx="28" fill="url(#gpu)" stroke="#df5c87" stroke-width="3" filter="url(#shadow)"/>
@@ -48,17 +48,17 @@
   <text x="890" y="214" class="panelSub">Loopback-only inference services · no actuator interface</text>
 
   <rect x="100" y="250" width="600" height="90" rx="16" fill="#ffffff" stroke="#e6b62f" stroke-width="2"/>
-  <text x="130" y="282" class="boxTitle">D435i aligned RGB-D</text>
-  <text x="130" y="310" class="boxText">848×480 color + depth · CameraInfo · synchronized frame pair</text>
+  <text x="130" y="282" class="boxTitle">D435i RGB + local safety depth</text>
+  <text x="130" y="310" class="boxText">RGB goes to policy · aligned depth stays in the Jetson safety shell</text>
 
   <rect x="100" y="375" width="600" height="105" rx="16" fill="#ffffff" stroke="#e6b62f" stroke-width="2"/>
   <text x="130" y="407" class="boxTitle">ROS adapter + local trajectory tracker</text>
   <text x="130" y="435" class="boxText">24-point robot-frame path → lookahead vx / wz</text>
-  <text x="130" y="458" class="boxText">RViz: RGB-D, candidates, chosen path, commands and stop reason</text>
+  <text x="130" y="458" class="boxText">RViz: RGB, local safety depth, chosen path, commands and stop reason</text>
 
   <rect x="100" y="515" width="600" height="125" rx="16" fill="#fff8df" stroke="#d99a00" stroke-width="3"/>
   <text x="130" y="547" class="boxTitle">Fail-closed safety boundary</text>
-  <text x="130" y="575" class="boxText">RGB-D skew / age · depth clearance · plan age · estop · explicit enable</text>
+  <text x="130" y="575" class="boxText">RGB/depth age · local clearance · plan age · estop · explicit enable</text>
   <text x="130" y="600" class="boxText">0.35 s bridge watchdog · remote-controller priority · no reverse</text>
   <text x="130" y="623" class="boxText">Default linear limit 0.30 m/s</text>
 
@@ -68,29 +68,29 @@
 
   <rect x="900" y="250" width="600" height="100" rx="16" fill="#ffffff" stroke="#df5c87" stroke-width="2"/>
   <text x="930" y="282" class="boxTitle">Unified CEC Hub · :18889</text>
-  <text x="930" y="310" class="boxText">Atomic reset · single-writer state · native fallback · reset-required latch</text>
+  <text x="930" y="310" class="boxText">Protocol v2 · atomic reset · mono-native fallback · reset latch</text>
   <text x="930" y="333" class="boxText">Public contract: /healthz · /navigator_reset · /imagegoal_step</text>
 
   <rect x="900" y="390" width="275" height="185" rx="16" fill="#ffffff" stroke="#df5c87" stroke-width="2"/>
   <text x="930" y="423" class="boxTitle">MemNav · :18888</text>
-  <text x="930" y="452" class="boxText">Causal observation buffer</text>
-  <text x="930" y="479" class="boxText">DINO candidate retrieval</text>
-  <text x="930" y="506" class="boxText">LightGlue geometry</text>
-  <text x="930" y="533" class="boxText">LingBot/PnP bearing</text>
-  <text x="930" y="558" class="small">certificate may abstain</text>
+  <text x="930" y="452" class="boxText">One causal LingBot stream</text>
+  <text x="930" y="479" class="boxText">Dense mono-depth readout</text>
+  <text x="930" y="506" class="boxText">DINO + LightGlue proof</text>
+  <text x="930" y="533" class="boxText">PnP scale-free bearing</text>
+  <text x="930" y="558" class="small">proof may abstain</text>
 
   <rect x="1225" y="390" width="275" height="185" rx="16" fill="#ffffff" stroke="#df5c87" stroke-width="2"/>
   <text x="1255" y="423" class="boxTitle">Frozen NavDP · :8888</text>
   <text x="1255" y="452" class="boxText">Native ImageGoal path</text>
   <text x="1255" y="479" class="boxText">or mixed Image + PointGoal</text>
-  <text x="1255" y="506" class="boxText">RGB-D local policy</text>
+  <text x="1255" y="506" class="boxText">RGB + LingBot mono depth</text>
   <text x="1255" y="533" class="boxText">24 trajectory points</text>
   <text x="1255" y="558" class="small">no direct velocity output</text>
 
   <rect x="900" y="615" width="600" height="105" rx="16" fill="#ffe8f0" stroke="#d94072" stroke-width="3"/>
   <text x="930" y="648" class="boxTitle">Certified directional takeover</text>
   <text x="930" y="676" class="boxText">accepted bearing → normalize → frozen 2.5 m local PointGoal</text>
-  <text x="930" y="700" class="boxText">reject/error → exact native ImageGoal NavDP</text>
+  <text x="930" y="700" class="boxText">reject → exact mono-native NavDP · stream error → reset</text>
 
   <line x1="400" y1="340" x2="400" y2="369" stroke="#d99a00" stroke-width="4" marker-end="url(#arrowGold)"/>
   <line x1="400" y1="480" x2="400" y2="509" stroke="#d99a00" stroke-width="4" marker-end="url(#arrowGold)"/>
@@ -98,7 +98,7 @@
 
   <path d="M700 310 C780 310, 820 285, 900 285" fill="none" stroke="#d94072" stroke-width="4" marker-end="url(#arrowPink)"/>
   <text x="800" y="268" text-anchor="middle" class="label">SSH local forward</text>
-  <text x="800" y="292" text-anchor="middle" class="small">current RGB + depth + goal</text>
+  <text x="800" y="292" text-anchor="middle" class="small">current RGB + goal · policy depth field discarded</text>
 
   <path d="M900 745 C820 745, 780 430, 700 430" fill="none" stroke="#d99a00" stroke-width="4" marker-end="url(#arrowGold)"/>
   <text x="800" y="594" text-anchor="middle" class="label">24-point local trajectory</text>
@@ -109,5 +109,5 @@
   <line x1="1040" y1="575" x2="1120" y2="609" stroke="#d94072" stroke-width="3" marker-end="url(#arrowPink)"/>
   <line x1="1360" y1="575" x2="1280" y2="609" stroke="#d94072" stroke-width="3" marker-end="url(#arrowPink)"/>
 
-  <text x="800" y="866" text-anchor="middle" class="subtitle">Memory proposes · geometry certifies · NavDP plans locally · the robot decides whether motion is safe</text>
+  <text x="800" y="866" text-anchor="middle" class="subtitle">One RGB stream supplies depth and proof · NavDP plans · the robot decides whether motion is safe</text>
 </svg>

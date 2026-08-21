@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Single-entry real-world bridge for CEC and frozen NavDP.
+"""Single-entry monocular real-world bridge for CEC and frozen NavDP.
 
 The Go2 client sees the ordinary NavDP ``/navigator_reset`` and
-``/imagegoal_step`` contract.  Internally this process performs the frozen
-Certified Episodic Compass decision and delegates control to either native
-ImageGoal NavDP or the mixed image/PointGoal controller.
+``/imagegoal_step`` contract.  Internally this process advances one causal RGB
+stream, performs the frozen Certified Episodic Compass decision, and delegates
+control to either monocular-native ImageGoal NavDP or the mixed
+image/PointGoal controller.  Client depth is accepted only for wire
+compatibility with the robot-side safety stack; it is never forwarded to the
+navigation policy.
 
 This process owns no actuator interface.  It is intended to listen on
 loopback and be reached through an SSH local-forward from the robot computer.
@@ -26,9 +29,12 @@ import requests
 from deployment.gpu.revisit_bearing_adapter import adapt_revisit_pointgoal
 
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 POINTGOAL_UNITS = "lingbot_raw_direction_only"
 PROPOSAL_ORDER = "geometry_first"
+NAVIGATION_SENSOR_CONTRACT = "causal_monocular_rgb_v1"
+NAVDP_DEPTH_SOURCE = "monocular_sidecar"
+CLIENT_DEPTH_CONTRACT = "local_safety_only_not_forwarded"
 
 
 class HybridBackendError(RuntimeError):
@@ -39,8 +45,10 @@ class HybridBackendError(RuntimeError):
 class UpstreamConfig:
     memnav_url: str
     navdp_url: str
+    camera_height_m: float
     connect_timeout_s: float = 3.0
     request_timeout_s: float = 180.0
+    navdp_depth_source: str = NAVDP_DEPTH_SOURCE
 
     @property
     def timeout(self) -> tuple[float, float]:
@@ -93,8 +101,15 @@ class CecHybridRouter:
         intrinsic = _finite_intrinsic(payload.get("intrinsic"))
         navdp_payload = dict(payload)
         navdp_payload["intrinsic"] = intrinsic
+        # The robot client cannot silently switch the deployed navigation
+        # policy back to sensor depth.  D435i depth remains local to the
+        # collision safety layer and is not part of this upstream contract.
+        navdp_payload["depth_source"] = self.config.navdp_depth_source
+        camera_height_m = float(self.config.camera_height_m)
+        if not math.isfinite(camera_height_m) or not 0.1 <= camera_height_m <= 2.0:
+            raise ValueError("camera_height_m must be finite and in [0.1, 2.0]")
         memnav_payload = {
-            "camera_height": float(payload.get("camera_height", 0.5)),
+            "camera_height": camera_height_m,
             "camera_intrinsic": intrinsic,
             "seed": payload.get("seed"),
             "episode_len": payload.get("episode_len"),
@@ -124,42 +139,79 @@ class CecHybridRouter:
             raise HybridBackendError(
                 f"atomic reset failed: {type(error).__name__}: {error}"
             ) from error
-        self.initialized = True
         certificate_status = memnav.get("certified_relocalization")
         certificate_enabled = (
             bool(certificate_status.get("enabled"))
             if isinstance(certificate_status, dict)
             else bool(certificate_status)
         )
+        monocular_status = memnav.get("monocular_depth")
+        monocular_enabled = (
+            isinstance(monocular_status, dict)
+            and monocular_status.get("enabled") is True
+            and monocular_status.get("metric_depth_sensor_consumed") is False
+        )
+        navdp_monocular = (
+            navdp.get("depth_source") == self.config.navdp_depth_source
+            and navdp.get("metric_depth_sensor_consumed_by_config") is False
+            and navdp.get("monocular_depth_url_configured") is True
+        )
+        if not certificate_enabled or not monocular_enabled or not navdp_monocular:
+            self.native_state_uncertain = True
+            raise HybridBackendError(
+                "upstream reset did not establish the frozen monocular CEC contract"
+            )
+        self.initialized = True
         return {
             "algo": "cec_hybrid_navdp",
             "protocol_version": PROTOCOL_VERSION,
             "memnav_algo": memnav.get("algo"),
             "navdp_algo": navdp.get("algo", "navdp"),
             "certificate_enabled": certificate_enabled,
+            "navigation_sensor_contract": NAVIGATION_SENSOR_CONTRACT,
+            "navdp_depth_source": self.config.navdp_depth_source,
+            "metric_depth_sensor_consumed_by_policy": False,
+            "client_depth_contract": CLIENT_DEPTH_CONTRACT,
+            "camera_height_m": camera_height_m,
         }
+
+    def _validate_monocular_plan(self, result: dict[str, Any]) -> dict[str, Any]:
+        if (
+            result.get("depth_source") != self.config.navdp_depth_source
+            or result.get("metric_depth_sensor_consumed") is not False
+            or not isinstance(result.get("monocular_depth_receipt"), dict)
+        ):
+            self.native_state_uncertain = True
+            raise HybridBackendError(
+                "NavDP plan did not prove monocular depth consumption; reset is required"
+            )
+        result.update({
+            "navigation_sensor_contract": NAVIGATION_SENSOR_CONTRACT,
+            "metric_depth_sensor_consumed_by_policy": False,
+            "client_metric_depth_forwarded": False,
+        })
+        return result
 
     def _native_plan(
         self,
         image: bytes,
         goal: bytes,
-        depth: bytes,
         form: Mapping[str, str],
     ) -> dict[str, Any]:
         try:
-            return _json_object(
+            result = _json_object(
                 self.session.post(
                     f"{self.config.navdp_url}/imagegoal_step",
                     files={
                         "image": _file("image.jpg", image, "image/jpeg"),
                         "goal": _file("goal.jpg", goal, "image/jpeg"),
-                        "depth": _file("depth.png", depth, "image/png"),
                     },
                     data=dict(form),
                     timeout=self.config.timeout,
                 ),
                 "native NavDP step",
             )
+            return self._validate_monocular_plan(result)
         except Exception as error:
             self.native_state_uncertain = True
             raise HybridBackendError(
@@ -171,7 +223,6 @@ class CecHybridRouter:
         self,
         image: bytes,
         goal: bytes,
-        depth: bytes,
         pointgoal: tuple[float, float],
         form: Mapping[str, str],
     ) -> dict[str, Any]:
@@ -181,19 +232,19 @@ class CecHybridRouter:
             "goal_y": [float(pointgoal[1])],
         })
         try:
-            return _json_object(
+            result = _json_object(
                 self.session.post(
                     f"{self.config.navdp_url}/navdp_step_ip_mixgoal",
                     files={
                         "image": _file("image.jpg", image, "image/jpeg"),
                         "image_goal": _file("goal.jpg", goal, "image/jpeg"),
-                        "depth": _file("depth.png", depth, "image/png"),
                     },
                     data=data,
                     timeout=self.config.timeout,
                 ),
                 "mixed NavDP step",
             )
+            return self._validate_monocular_plan(result)
         except Exception as error:
             self.native_state_uncertain = True
             raise HybridBackendError(
@@ -206,29 +257,26 @@ class CecHybridRouter:
         *,
         image: bytes,
         goal: bytes,
-        depth: bytes,
+        depth: bytes | None = None,
         form: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
         if not self.initialized:
             raise HybridBackendError("router is not initialized")
         if self.native_state_uncertain:
             raise HybridBackendError("native state is uncertain; reset is required")
-        if not image or not goal or not depth:
-            raise ValueError("image, goal, and depth are required")
+        if not image or not goal:
+            raise ValueError("image and goal are required")
         form = dict(form or {})
         self.step_index += 1
 
-        # A failed memory process must never prevent native navigation.  Once
-        # degraded, however, CEC remains disabled until an explicit reset so
-        # it cannot reason over a history with missing observations.
+        # In the monocular system the same causal LingBot stream provides both
+        # CEC proof and current-frame depth.  Missing a stream update therefore
+        # cannot be disguised as an exact native fallback: fail closed and let
+        # the robot-side stale-plan/watchdog layers stop motion.
         if self.memory_degraded:
-            result = self._native_plan(image, goal, depth, form)
-            result.update({
-                "cec_takeover": False,
-                "cec_reason": "memory_session_degraded",
-                "cec_step_index": self.step_index,
-            })
-            return result
+            raise HybridBackendError(
+                "monocular geometry stream is degraded; reset is required"
+            )
 
         try:
             probe = _json_object(
@@ -245,14 +293,10 @@ class CecHybridRouter:
             )
         except Exception as error:
             self.memory_degraded = True
-            result = self._native_plan(image, goal, depth, form)
-            result.update({
-                "cec_takeover": False,
-                "cec_reason": "retrieval_probe_failure_native_only",
-                "cec_error": f"{type(error).__name__}: {error}",
-                "cec_step_index": self.step_index,
-            })
-            return result
+            raise HybridBackendError(
+                "monocular geometry stream update failed; reset is required: "
+                f"{type(error).__name__}: {error}"
+            ) from error
 
         candidates = probe.get("certified_visual_candidates")
         if not isinstance(candidates, list):
@@ -295,11 +339,11 @@ class CecHybridRouter:
         if decision.takeover:
             assert decision.controller_pointgoal is not None
             result = self._mixed_plan(
-                image, goal, depth, decision.controller_pointgoal, form
+                image, goal, decision.controller_pointgoal, form
             )
             controller = "navdp_image_point_mix"
         else:
-            result = self._native_plan(image, goal, depth, form)
+            result = self._native_plan(image, goal, form)
             controller = "navdp_image_router"
         result.update(decision.audit_dict())
         result.update({
@@ -330,6 +374,11 @@ def create_app(router: CecHybridRouter) -> Flask:
             "initialized": router.initialized,
             "memory_degraded": router.memory_degraded,
             "native_state_uncertain": router.native_state_uncertain,
+            "navigation_sensor_contract": NAVIGATION_SENSOR_CONTRACT,
+            "navdp_depth_source": router.config.navdp_depth_source,
+            "metric_depth_sensor_consumed_by_policy": False,
+            "client_depth_contract": CLIENT_DEPTH_CONTRACT,
+            "camera_height_m": float(router.config.camera_height_m),
         })
 
     @app.post("/navigator_reset")
@@ -348,7 +397,7 @@ def create_app(router: CecHybridRouter) -> Flask:
 
     @app.post("/imagegoal_step")
     def imagegoal_step():
-        missing = [name for name in ("image", "goal", "depth") if name not in request.files]
+        missing = [name for name in ("image", "goal") if name not in request.files]
         if missing:
             return jsonify({"error": f"missing files: {', '.join(missing)}"}), 400
         if not call_lock.acquire(blocking=False):
@@ -358,7 +407,10 @@ def create_app(router: CecHybridRouter) -> Flask:
                 result = router.plan_imagegoal(
                     image=request.files["image"].read(),
                     goal=request.files["goal"].read(),
-                    depth=request.files["depth"].read(),
+                    depth=(
+                        request.files["depth"].read()
+                        if "depth" in request.files else None
+                    ),
                     form=request.form.to_dict(flat=True),
                 )
                 app.logger.info(
@@ -391,6 +443,7 @@ def main() -> None:
     parser.add_argument("--navdp-url", default="http://127.0.0.1:8888")
     parser.add_argument("--connect-timeout-s", type=float, default=3.0)
     parser.add_argument("--request-timeout-s", type=float, default=180.0)
+    parser.add_argument("--camera-height-m", type=float, required=True)
     args = parser.parse_args()
     if args.host not in {"127.0.0.1", "::1", "localhost"}:
         parser.error("real-world hub must bind to loopback; use an SSH tunnel")
@@ -399,6 +452,7 @@ def main() -> None:
         navdp_url=args.navdp_url.rstrip("/"),
         connect_timeout_s=args.connect_timeout_s,
         request_timeout_s=args.request_timeout_s,
+        camera_height_m=args.camera_height_m,
     ))
     create_app(router).run(host=args.host, port=args.port, threaded=True)
 
