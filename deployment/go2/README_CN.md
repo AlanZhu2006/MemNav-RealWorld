@@ -10,6 +10,18 @@
 > 未实测 D435i 光心离地高度、未通过静态十分钟验收和故障注入前，禁止启动
 > Go2 bridge 或声称已完成真机闭环。
 
+完成一次性上位机 `.env` 配置后，推荐从 Jetson 统一启动两台机器：
+
+```bash
+cd /home/nvidia/twork/NavDP
+bash deployment/go2/offboard/fullmono.sh start --with-rviz
+bash deployment/go2/offboard/fullmono.sh status
+bash deployment/go2/offboard/fullmono.sh stop
+```
+
+默认启动 4090 策略服务、SSH 隧道、D435i 和禁用态 adapter，不启动 Go2 bridge。
+即使显式增加 `--with-go2`，也只启动带 watchdog 的底盘桥，仍不会自动解锁运动。
+
 这套部署针对当前机器：Jetson Orin NX 16GB、JetPack/L4T 36.4、ROS 2 Humble、Intel RealSense D435i、Unitree Go2。默认策略是 **X-NavDP quadruped**，默认不使用 TinyNav VIO，也不启动 TinyNav 的任何感知、建图或规划节点。
 
 ## 1. 先说明：NavDP 是否需要 VIO

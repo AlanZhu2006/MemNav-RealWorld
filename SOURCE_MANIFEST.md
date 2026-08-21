@@ -44,9 +44,12 @@ and is ignored by Git.
 | `deployment/go2/offboard/run_offboard_stack.sh` | `ad4c3329a67f6b9ce1d5ab0f205f04b97c6758a41fd97ffb0fdcc603fb99a694` |
 | `deployment/go2/offboard/run_policy_tunnel.sh` | `eb65fb3c88c0976b17ddc87ee99e6481e6d4d0c718cc7121630446f76006c2c3` |
 | `deployment/go2/offboard/stop_offboard_stack.sh` | `e6b239f1cd2c51d59bd09c57348e037697a7bd4de47c0c9316860c608ed798c3` |
+| `deployment/go2/offboard/fullmono.sh` | `050ba1a45fc4d8d91dfb520bc002654f607bf13634b10373ec7db9afce1420a1` |
 
-The four Jetson payloads form content-addressed release
+The original four runtime payloads form content-addressed release
 `d656b9d9ae30de73f1d70a52b0150318f3dda238d6631dbae42f0a98dec973c2`.
+`fullmono.sh` is a subsequent orchestration-only entry point; it starts or
+stops those frozen payloads but does not alter their navigation behavior.
 
 ## Deliberate exclusions
 

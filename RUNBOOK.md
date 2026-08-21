@@ -3,6 +3,38 @@
 This runbook is fail-closed. Completing a software deployment does not authorize
 camera startup, ROS motion, or Go2 movement.
 
+## 0. Jetson single-entry launcher
+
+After the one-time RTX configuration in Section 1, the normal two-machine
+startup is issued only from the Jetson:
+
+~~~bash
+cd /home/nvidia/twork/NavDP
+bash deployment/go2/offboard/fullmono.sh start
+~~~
+
+This starts or reuses the RTX policy services, verifies the Full-Mono health
+contract, creates the SSH tunnel, and starts the D435i plus the disabled ROS
+adapter.  It does not start the Go2 bridge and cannot move the robot.
+
+Useful variants are:
+
+~~~bash
+# Camera, locked adapter and RViz; still no Go2 bridge.
+bash deployment/go2/offboard/fullmono.sh start --with-rviz
+
+# Also start the watchdog Go2 bridge; the adapter still remains disabled.
+bash deployment/go2/offboard/fullmono.sh start --with-go2 --with-rviz
+
+bash deployment/go2/offboard/fullmono.sh status
+bash deployment/go2/offboard/fullmono.sh stop
+~~~
+
+`--with-go2` is deliberately not an arming command.  Motion still requires the
+separate onsite `SetBool` call in Section 6.  The RTX host and repository default
+to `work-pc` and `/home/asus/Research/Memnav_Realworld`; override them with
+`CEC_HUB_SSH_HOST` and `CEC_GPU_REPO` if the site layout changes.
+
 ## 1. RTX 4090 workstation
 
 ~~~bash

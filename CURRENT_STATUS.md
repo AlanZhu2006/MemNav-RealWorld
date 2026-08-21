@@ -39,7 +39,8 @@ verified, robot stopped**—not a real-world SR result.
 
 ## Not yet verified
 
-1. Installed D435i optical-center height has not been physically recorded.
+1. A provisional D435i optical-center height of `0.42 m` has been recorded;
+   formal experiments still require a standard-pose measurement to ±1 cm.
 2. The full weighted MemNav + NavDP stack has not been reset under the measured
    camera-height contract.
 3. Camera plus disabled adapter has not completed the required 10-minute
@@ -54,7 +55,7 @@ verified, robot stopped**—not a real-world SR result.
 
 ## Next safe action
 
-Measure the installed camera optical-center height, export
-`CEC_CAMERA_HEIGHT_M`, start only the RTX stack and camera/disabled adapter,
-then complete the static and fault-injection gates in `RUNBOOK.md`. Do not
-start the Go2 bridge until those receipts pass.
+Use the provisional `CEC_CAMERA_HEIGHT_M=0.42` only for static acceptance and
+run `deployment/go2/offboard/fullmono.sh start` from the Jetson. Complete the
+static and fault-injection gates in `RUNBOOK.md`; do not start the Go2 bridge
+until those receipts pass. Re-measure to ±1 cm before formal motion trials.
