@@ -150,8 +150,19 @@ start_stack() {
     echo "Reusing healthy RTX policy session: $GPU_SESSION"
   else
     echo "Starting RTX policy stack through $GPU_HOST ..."
+    # Forward the measured camera height (and optional goal-candidate dir)
+    # from the Jetson environment: non-interactive SSH does not load the RTX
+    # user environment, and the RTX preflight hard-fails without the height.
+    # No default is supplied here on purpose -- the height is a safety gate.
+    local remote_env="CEC_TMUX_SESSION=${quoted_gpu_session}"
+    if [[ -n "${CEC_CAMERA_HEIGHT_M:-}" ]]; then
+      remote_env+=" CEC_CAMERA_HEIGHT_M=$(shell_quote "$CEC_CAMERA_HEIGHT_M")"
+    fi
+    if [[ -n "${CEC_GOAL_CANDIDATE_DIR:-}" ]]; then
+      remote_env+=" CEC_GOAL_CANDIDATE_DIR=$(shell_quote "$CEC_GOAL_CANDIDATE_DIR")"
+    fi
     remote_exec \
-      "cd ${quoted_repo} && CEC_TMUX_SESSION=${quoted_gpu_session} bash deployment/gpu/scripts/preflight.sh && CEC_TMUX_SESSION=${quoted_gpu_session} bash deployment/gpu/scripts/run_policy_stack.sh"
+      "cd ${quoted_repo} && ${remote_env} bash deployment/gpu/scripts/preflight.sh && ${remote_env} bash deployment/gpu/scripts/run_policy_stack.sh"
     started_gpu=true
     health="$(remote_health)" \
       || die "RTX policy stack started but health endpoint is unavailable"

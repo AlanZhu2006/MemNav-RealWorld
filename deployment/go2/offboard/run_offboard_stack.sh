@@ -91,7 +91,7 @@ if [[ "$with_camera" == true ]]; then
   fi
 fi
 tmux new-window -t "$SESSION" -n adapter \
-  "export NAVDP_BACKEND='navdp' NAVDP_MODE='imagegoal' NAVDP_SERVER_URL='http://127.0.0.1:${LOCAL_PORT}' NAVDP_IMAGE_GOAL_PATH='$goal_path'; exec '$GO2_DIR/scripts/run_adapter.sh'"
+  "export NAVDP_BACKEND='navdp' NAVDP_MODE='imagegoal' NAVDP_TWO_PHASE='true' NAVDP_SERVER_URL='http://127.0.0.1:${LOCAL_PORT}' NAVDP_IMAGE_GOAL_PATH='$goal_path'; exec '$GO2_DIR/scripts/run_adapter.sh'"
 if [[ "$with_go2" == true ]]; then
   tmux new-window -t "$SESSION" -n go2 "exec '$GO2_DIR/scripts/run_go2_bridge.sh'"
 fi

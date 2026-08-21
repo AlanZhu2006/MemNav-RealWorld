@@ -187,7 +187,7 @@ bash deployment/go2/offboard/stop_offboard_stack.sh
 
 ## Current Status
 
-As of **2026-08-21**, protocol-v2 Full-Mono code is synchronized across this
+As of **2026-08-21**, protocol-v3 Full-Mono code (two-phase episode contract) is synchronized across this
 repository, the RTX 4090 workspace and the Jetson live overlay. Unit tests,
 syntax checks, release hashes, SSH transport and a health-only loopback
 preflight pass. The full model stack, camera-only 10-minute run, bearing-sign
@@ -199,6 +199,7 @@ See [CURRENT_STATUS.md](CURRENT_STATUS.md) before any new experiment.
 ## Documentation
 
 - [FULL_MONO_RELEASE_20260821.md](FULL_MONO_RELEASE_20260821.md): synchronized protocol-v2 release and three-way receipt.
+- [FULL_MONO_RELEASE_20260821_V3.md](FULL_MONO_RELEASE_20260821_V3.md): protocol-v3 two-phase episode contract release note.
 - [RUNBOOK.md](RUNBOOK.md): current start, inspect, stop and revisit sequence.
 - [ARCHITECTURE.md](ARCHITECTURE.md): responsibilities, routing and fail-closed behavior.
 - [CURRENT_STATUS.md](CURRENT_STATUS.md): verified gates and remaining physical acceptance.

@@ -19,13 +19,14 @@ auditable overlay instead of an anonymous source dump.
 
 | Path | Provenance and role |
 | --- | --- |
-| `deployment/gpu/realworld_cec_hub.py` | Protocol-v2 CEC hub adapted from the frozen research source |
+| `deployment/gpu/realworld_cec_hub.py` | Protocol-v3 two-phase CEC hub adapted from the frozen research source |
 | `deployment/gpu/monocular_depth_runtime.py` | First-40 scale and SHA-bound mono-depth receipt contract |
 | `deployment/gpu/revisit_bearing_adapter.py` | Frozen scale-free bearing to 2.5 m PointGoal boundary |
+| `deployment/gpu/score_realworld_revisit_goal.py` | Weak-covisibility goal-candidate scorer (frozen server components only) |
 | `deployment/gpu/scripts/` | Path-parameterized RTX 4090 launch and fail-closed preflight |
 | `baselines/navdp/{navdp_server,policy_agent,policy_network}.py` | Frozen NavDP with mono-sidecar and state-safe inference interfaces |
 | `deployment/go2/` | Jetson Orin NX, D435i and Unitree Go2 integration |
-| `deployment/go2/offboard/` | SSH-forward and protocol-v2 offboard launcher synchronized to the robot |
+| `deployment/go2/offboard/` | SSH-forward and protocol-v3 offboard launcher synchronized to the robot |
 
 The MemNav model service remains an external research dependency because its
 licensed checkpoints, LingBot weights, LightGlue dependency tree and research
@@ -36,8 +37,8 @@ and is ignored by Git.
 
 | File | SHA-256 |
 | --- | --- |
-| `deployment/gpu/realworld_cec_hub.py` | `09ef562f11b6a0c1e0dcf63d021dee5ebcb0b88a5b2f951308cfb73fad15c993` |
-| `deployment/gpu/monocular_depth_runtime.py` | `709a4ad200a5778317bb314e87e398ba6da8398939d96c100f235fe1ce98c9fc` |
+| `deployment/gpu/realworld_cec_hub.py` | `964fae60ad8cfcaed483c5c57693f9dfcec9e1dd646c4fdf27575e6b28ece560` |
+| `deployment/gpu/monocular_depth_runtime.py` | `9b88cbd091b83dbe15846ec0b47d329d715273f0557abffe319a463936c9c138` |
 | `deployment/gpu/revisit_bearing_adapter.py` | `46c10132db7b00711ca3c781f18fcb9e04c4061bab9b44b8017d99c0c09bc6fd` |
 | `baselines/navdp/navdp_server.py` | `8f215345c9a1e9ed8fec3636e27d35c33949f4d14881209fadccc951a17f8057` |
 | `deployment/go2/offboard/preflight_offboard.sh` | `770fe4eb205b6054d6ab50b9bff7fd12b5b587f8eefd1d7fe9bad6e3db8b1d0d` |

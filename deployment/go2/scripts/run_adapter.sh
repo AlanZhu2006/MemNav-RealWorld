@@ -13,6 +13,7 @@ SERVER_URL="${NAVDP_SERVER_URL:-http://127.0.0.1:8888}"
 MAX_LINEAR_MPS="${NAVDP_MAX_LINEAR_MPS:-}"
 MAX_ANGULAR_RPS="${NAVDP_MAX_ANGULAR_RPS:-}"
 IMAGE_GOAL_PATH="${NAVDP_IMAGE_GOAL_PATH:-$NAVDP_GO2_DIR/goals/image_goal.png}"
+TWO_PHASE="${NAVDP_TWO_PHASE:-}"
 EXTRA_PARAMS=()
 
 if [[ -n "$MAX_LINEAR_MPS" ]]; then
@@ -23,6 +24,9 @@ if [[ -n "$MAX_ANGULAR_RPS" ]]; then
 fi
 if [[ "$MODE" == "imagegoal" ]]; then
   EXTRA_PARAMS+=(-p image_goal_path:="$IMAGE_GOAL_PATH")
+fi
+if [[ -n "$TWO_PHASE" ]]; then
+  EXTRA_PARAMS+=(-p two_phase_episode:="$TWO_PHASE")
 fi
 
 if [[ ! -f "$CONFIG" ]]; then

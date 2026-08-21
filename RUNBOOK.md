@@ -161,7 +161,62 @@ bash deployment/go2/offboard/stop_offboard_stack.sh
 bash deployment/gpu/scripts/stop_policy_stack.sh
 ~~~
 
-## 8. Revisit experiment boundary
+## 8. Protocol-v3 revisit mission flow
+
+The hub enforces a two-phase episode contract (protocol v3). The first goal
+query freezes the MemNav goal session and its candidate ceiling, so it must
+happen only at the revisit start point. Issuing the goal from frame 0 was the
+root cause of the 2026-08-21 `no_causal_candidate` field failure: the entire
+recorded walk was excluded from Revisit candidacy and the robot silently
+degraded to plain ImageGoal exploration.
+
+The offboard stack starts the adapter with `NAVDP_TWO_PHASE=true`, so after
+`reset` the adapter posts every frame to `/memory_step` (record-only, no goal)
+and the hub rejects any goal query with HTTP 400 until the phase switch.
+
+End-to-end mission:
+
+~~~bash
+# 1. Start the stack (adapter locked, recording phase after reset).
+bash deployment/go2/offboard/fullmono.sh start --with-rviz
+
+# 2. Recording walk: drive A -> B with the hand controller. The adapter
+#    streams /memory_step automatically; watch frames_recorded grow:
+ros2 topic echo --once /navdp/status   # "phase":"memory_recording"
+
+# 3. (Optional, recommended) capture 2-3 goal-candidate photos during the
+#    walk at deliberately rotated viewpoints. Candidates are NEVER appended
+#    to memory; each returns a captured_after_frame + sha256 receipt:
+source /opt/ros/humble/setup.bash
+ros2 service call /navdp_go2_adapter/capture_goal_candidate \
+  std_srvs/srv/Trigger
+
+# 4. Stop at B, robot stationary. Score the candidates on the RTX host
+#    against the recorded stream (frozen server components only):
+python deployment/gpu/score_realworld_revisit_goal.py \
+  --memnav-url http://127.0.0.1:18888 \
+  --rgb-dir <memnav_buffer_episode_dir> \
+  --candidates <goal_candidate_jpgs...> --out /tmp/goal_score.json
+# Pick a provisional_weak_covis candidate; reject near-duplicates
+# (max_cos > 0.90) and unsupported ones (inliers < 16). These proxy
+# thresholds are provisional until the disabled-adapter walk calibration.
+
+# 5. Switch phase (robot MUST be stationary; the hub replays a stride-8
+#    tail into NavDP and verifies the queue, and the first certificate
+#    afterwards can take seconds):
+ros2 service call /navdp_go2_adapter/begin_revisit std_srvs/srv/Trigger
+# The response carries navdp_warmup_frames / navdp_queue_lengths receipts.
+
+# 6. Install the selected candidate as the image goal, then goal queries
+#    run normally; motion still requires the explicit enable service.
+~~~
+
+Any out-of-order call fails fast: `/memory_step` after the switch, a second
+`/begin_revisit`, or a goal query during recording all return HTTP 400 with
+the contract explanation, and the adapter surfaces the error instead of
+retrying.
+
+## 9. Revisit experiment boundary
 
 A formal real-world result requires frozen starts, unchanged goal assets,
 causal online history and separately reported goal-object, exact-view,

@@ -1,6 +1,6 @@
 # Current Full-Mono Real-World Status
 
-Snapshot: **2026-08-21 17:29 Asia/Shanghai**
+Snapshot: **2026-08-21 protocol-v3 update**
 
 ## Bottom line
 
@@ -12,9 +12,9 @@ verified, robot stopped**—not a real-world SR result.
 
 | Gate | Result |
 | --- | --- |
-| Research source | `AlanZhu2006/Nav@70387b6`; protocol-v2 Full-Mono files are pushed |
-| Standalone contract tests | 26 passed |
-| Research hub/runtime tests | 10 passed |
+| Research source | protocol-v3 two-phase hub, goal-candidate capture, scorer and NavDP warm-up ported from the research workspace |
+| Standalone contract tests | 35 passed (gpu) + 40 passed (go2, non-ROS) |
+| Research hub/runtime tests | 31 passed (hub 15 + runtime + composition contract) |
 | Python compile and shell syntax | Passed |
 | Architecture SVG XML | Valid |
 | Jetson SSH | `tegra-ubuntu` reachable |
@@ -22,13 +22,14 @@ verified, robot stopped**—not a real-world SR result.
 | Immutable release | `cec_mono_20260820_d656b9d9ae30de73` present |
 | Rollback | `rollback_pre_mono_20260820_d656b9d9ae30de73` present |
 | Jetson → workstation SSH | Passwordless route previously verified |
-| Protocol-v2 loopback health smoke | 5/5 passed without model, camera, ROS or motion |
+| Protocol-v2 loopback health smoke | 5/5 passed without model, camera, ROS or motion (pre-v3; re-run against the v3 hub before the next trial) |
 | Jetson single-entry launcher | Implemented; missing-D435i test failed closed and rolled back both machines |
 | Current process state | No MemNav/NavDP/hub/Go2 navigation stack running |
 | Motion during deployment | None |
 
 ## Frozen policy contract
 
+- episode protocol: v3 two-phase (memory_recording -> begin_revisit -> revisit_query); goal queries during recording are rejected server-side;
 - navigation input: one causal monocular RGB stream plus ImageGoal;
 - short-range readout: LingBot mono-depth sidecar;
 - long-range readout: CEC proof and scale-free bearing;
@@ -52,7 +53,12 @@ verified, robot stopped**—not a real-world SR result.
 6. Tunnel-kill and MemNav-kill fault injection under the final release is
    pending.
 7. Tethered `0.5--1.0 m` powered Full-Mono motion is pending.
-8. No formal real-world Novel/Revisit SR or SPL exists.
+8. No formal real-world Novel/Revisit SR or SPL exists. The 2026-08-21
+   tethered revisit trial FAILED under protocol v2 (goal issued from frame 0
+   excluded all history: `no_causal_candidate`); the v3 two-phase contract
+   fixes the root cause but has not yet been exercised on the robot.
+9. The weak-covisibility goal-candidate proxy thresholds are provisional
+   until calibrated on the disabled-adapter walk.
 
 ## Next safe action
 

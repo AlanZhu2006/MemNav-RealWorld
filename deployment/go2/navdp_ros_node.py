@@ -77,6 +77,12 @@ class NavDPGo2Adapter(Node):
         self._last_error = ""
         self._stop_reason = "disabled" if not self._enabled else "waiting_for_plan"
         self._last_warn: dict[str, float] = {}
+        # Protocol-v3 two-phase episode state (hub is authoritative; these
+        # mirror its receipts for status reporting and local gating only).
+        self._phase: Optional[str] = None
+        self._frames_recorded = 0
+        self._goal_candidates_captured = 0
+        self._client_lock = threading.Lock()
 
         self._client = NavDPClient(
             self.server_url,
@@ -128,6 +134,14 @@ class NavDPGo2Adapter(Node):
 
         self.create_service(SetBool, "~/set_enabled", self._set_enabled_service)
         self.create_service(Trigger, "~/reset_policy", self._reset_policy_service)
+        if self.two_phase_episode:
+            self.create_service(
+                Trigger, "~/capture_goal_candidate",
+                self._capture_goal_candidate_service,
+            )
+            self.create_service(
+                Trigger, "~/begin_revisit", self._begin_revisit_service
+            )
 
         self.create_timer(1.0 / self.planning_rate_hz, self._request_inference)
         self.create_timer(1.0 / self.control_rate_hz, self._control_tick)
@@ -184,6 +198,7 @@ class NavDPGo2Adapter(Node):
             "debug_max_candidates": 6,
             "enable_on_start": False,
             "plan_while_disabled": True,
+            "two_phase_episode": False,
             "planning_rate_hz": 2.0,
             "control_rate_hz": 20.0,
             "connect_timeout_s": 3.0,
@@ -228,6 +243,13 @@ class NavDPGo2Adapter(Node):
             raise ValueError("mode must be pointgoal, startgoal, imagegoal, or nogoal")
         if self.backend == "x_navdp" and self.mode in {"imagegoal", "nogoal"}:
             raise ValueError("X-NavDP server supports pointgoal/startgoal only")
+        self.two_phase_episode = bool(
+            self.get_parameter("two_phase_episode").value
+        )
+        if self.two_phase_episode and self.mode != "imagegoal":
+            raise ValueError(
+                "two_phase_episode (protocol-v3 hub) requires mode=imagegoal"
+            )
 
         for name in (
             "server_url",
@@ -435,6 +457,66 @@ class NavDPGo2Adapter(Node):
         response.message = "NavDP reset queued"
         return response
 
+    def _capture_goal_candidate_service(self, _request, response):
+        with self._lock:
+            rgb = None if self._rgb is None else self._rgb.copy()
+            initialized = self._server_initialized
+            phase = self._phase
+        if not initialized or rgb is None:
+            response.success = False
+            response.message = "server not initialized or no RGB frame yet"
+            return response
+        if phase != "memory_recording":
+            response.success = False
+            response.message = (
+                f"goal candidates require the memory_recording phase, not {phase}"
+            )
+            return response
+        try:
+            with self._client_lock:
+                receipt = self._client.goal_candidate(rgb)
+        except Exception as exc:
+            response.success = False
+            response.message = f"{type(exc).__name__}: {exc}"
+            return response
+        with self._lock:
+            self._goal_candidates_captured += 1
+        self.get_logger().info(f"goal candidate captured: {receipt}")
+        response.success = True
+        response.message = json.dumps(receipt, ensure_ascii=False)
+        return response
+
+    def _begin_revisit_service(self, _request, response):
+        with self._lock:
+            initialized = self._server_initialized
+            phase = self._phase
+            busy = self._inference_busy
+        if not initialized:
+            response.success = False
+            response.message = "server not initialized"
+            return response
+        if phase != "memory_recording":
+            response.success = False
+            response.message = f"begin_revisit requires memory_recording, not {phase}"
+            return response
+        if busy:
+            response.success = False
+            response.message = "inference busy; retry when the recording step settles"
+            return response
+        try:
+            with self._client_lock:
+                receipt = self._client.begin_revisit()
+        except Exception as exc:
+            response.success = False
+            response.message = f"{type(exc).__name__}: {exc}"
+            return response
+        with self._lock:
+            self._phase = "revisit_query"
+        self.get_logger().info(f"revisit phase started: {receipt}")
+        response.success = True
+        response.message = json.dumps(receipt, ensure_ascii=False)
+        return response
+
     def _set_enabled(self, enabled: bool, source: str) -> None:
         with self._lock:
             changed = enabled != self._enabled
@@ -468,9 +550,12 @@ class NavDPGo2Adapter(Node):
                     return None, "goal_stale"
                 goal_condition = self._goal_xy.copy()
             elif self.mode == "imagegoal":
-                if self._image_goal is None:
+                if self.two_phase_episode and self._phase in (None, "memory_recording"):
+                    goal_condition = None
+                elif self._image_goal is None:
                     return None, "waiting_for_image_goal"
-                goal_condition = self._image_goal.copy()
+                else:
+                    goal_condition = self._image_goal.copy()
             else:
                 goal_condition = None
             return (
@@ -502,24 +587,57 @@ class NavDPGo2Adapter(Node):
             started = time.monotonic()
             try:
                 if reset_requested or not self._server_initialized:
-                    algorithm = self._client.reset(intrinsic)
+                    with self._client_lock:
+                        algorithm = self._client.reset(intrinsic)
                     with self._lock:
                         self._server_initialized = True
                         self._reset_requested = False
+                        self._frames_recorded = 0
+                        self._goal_candidates_captured = 0
+                        self._phase = (
+                            "memory_recording"
+                            if self.two_phase_episode
+                            else "revisit_query"
+                        )
                     self.get_logger().info(f"Policy server initialized: {algorithm}")
 
+                with self._lock:
+                    recording = (
+                        self.two_phase_episode
+                        and self.mode == "imagegoal"
+                        and self._phase == "memory_recording"
+                    )
+                if recording:
+                    # Protocol v3: record-only append.  No goal is sent, no
+                    # trajectory is produced; the hub rejects goal queries in
+                    # this phase, so do not attempt planning at all.
+                    with self._client_lock:
+                        receipt = self._client.memory_step(rgb)
+                    finished = time.monotonic()
+                    with self._lock:
+                        self._frames_recorded = int(
+                            receipt.get("frames_recorded", self._frames_recorded + 1)
+                        )
+                        self._last_inference_s = finished - started
+                        self._last_error = ""
+                        self._stop_reason = "memory_recording"
+                    continue
+
                 if self.mode == "nogoal":
-                    trajectory, all_trajectories, all_values = self._client.nogoal_step(
-                        rgb, depth_m
-                    )
+                    with self._client_lock:
+                        trajectory, all_trajectories, all_values = self._client.nogoal_step(
+                            rgb, depth_m
+                        )
                 elif self.mode == "imagegoal":
-                    trajectory, all_trajectories, all_values = self._client.imagegoal_step(
-                        goal_condition, rgb, depth_m
-                    )
+                    with self._client_lock:
+                        trajectory, all_trajectories, all_values = self._client.imagegoal_step(
+                            goal_condition, rgb, depth_m
+                        )
                 else:
-                    trajectory, all_trajectories, all_values = self._client.pointgoal_step(
-                        goal_condition, rgb, depth_m
-                    )
+                    with self._client_lock:
+                        trajectory, all_trajectories, all_values = self._client.pointgoal_step(
+                            goal_condition, rgb, depth_m
+                        )
                 path = self._normalize_trajectory(trajectory)
                 candidates, candidate_values = ranked_candidates(
                     all_trajectories, all_values, self.debug_max_candidates
@@ -928,6 +1046,9 @@ class NavDPGo2Adapter(Node):
                 "clearance_m": None if clearance is None else round(clearance, 3),
                 "stop_reason": self._stop_reason,
                 "last_error": self._last_error,
+                "phase": self._phase,
+                "frames_recorded": self._frames_recorded,
+                "goal_candidates_captured": self._goal_candidates_captured,
                 "cmd_vx": round(self._last_command.linear_x, 3),
                 "cmd_wz": round(self._last_command.angular_z, 3),
             }

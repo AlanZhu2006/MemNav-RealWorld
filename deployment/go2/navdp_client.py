@@ -42,6 +42,41 @@ class NavDPClient:
             raise RuntimeError("failed to encode depth image")
         return encoded.tobytes()
 
+    def _post_phase_endpoint(self, route: str, files: Optional[dict] = None) -> dict:
+        """POST a protocol-v3 phase endpoint, surfacing hub contract errors."""
+        response = self.session.post(
+            f"{self.server_url}{route}",
+            files=files,
+            timeout=self.timeout,
+        )
+        if response.status_code >= 400:
+            try:
+                detail = str(response.json().get("error", ""))
+            except Exception:
+                detail = response.text[:200]
+            raise RuntimeError(
+                f"{route} rejected by hub ({response.status_code}): {detail}"
+            )
+        return response.json()
+
+    def memory_step(self, rgb: np.ndarray) -> dict:
+        """Protocol v3: record-only causal RGB append (memory_recording phase)."""
+        return self._post_phase_endpoint(
+            "/memory_step",
+            files={"image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg")},
+        )
+
+    def goal_candidate(self, rgb: np.ndarray) -> dict:
+        """Protocol v3: register a goal-candidate photo excluded from memory."""
+        return self._post_phase_endpoint(
+            "/goal_candidate",
+            files={"image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg")},
+        )
+
+    def begin_revisit(self) -> dict:
+        """Protocol v3: switch to revisit_query; hub warms NavDP and verifies."""
+        return self._post_phase_endpoint("/begin_revisit")
+
     def health(self) -> dict:
         response = self.session.get(f"{self.server_url}/healthz", timeout=self.timeout)
         response.raise_for_status()

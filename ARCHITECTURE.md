@@ -22,7 +22,7 @@ robot.
 ~~~text
 Unitree Go2 / Jetson Orin NX                  RTX 4090 workstation
 
-D435i RGB ───────── SSH local forward ──────> protocol-v2 CEC hub
+D435i RGB ───────── SSH local forward ──────> protocol-v3 CEC hub
                                                     |
                                          exactly one RGB append
                                                     |
@@ -49,7 +49,43 @@ the same causal RGB state:
 
 NavDP remains the only component that generates trajectories.
 
-## Stateful protocol-v2 route
+## Stateful protocol-v3 route
+
+### Two-phase episode contract (v3)
+
+Protocol v3 splits every episode into two server-enforced phases. The reason
+is causal: MemNav freezes a goal session at the FIRST query for that goal
+image (`goal_start_frame`, candidate ceiling), so a goal issued from frame 0
+excludes the entire subsequent walk from Revisit candidacy. That is exactly
+what happened in the 2026-08-21 field trial: a valid 613-frame memory
+returned `no_causal_candidate` on every plan, and the system silently
+degraded to plain ImageGoal exploration. The hub now makes the mistake
+structurally impossible instead of procedurally avoidable.
+
+~~~text
+navigator_reset
+   -> phase = memory_recording
+        /memory_step        record-only causal RGB append (no goal)
+        /goal_candidate     register a goal photo, NEVER appended to memory
+        /imagegoal_step     REJECTED (HTTP 400, no upstream traffic)
+   -> /begin_revisit  (>=1 recorded frame; robot stationary)
+        replays a stride-8 tail of recorded frames through NavDP
+        /memory_replay_step and hard-verifies queue_lengths, mirroring the
+        simulator shared-trace boundary; any failure latches
+        native_state_uncertain and requires reset
+   -> phase = revisit_query
+        /imagegoal_step     legal; the first goal query freezes the MemNav
+                            goal session at the revisit start point with the
+                            full recorded history eligible
+        /memory_step        REJECTED
+~~~
+
+`/healthz` reports `phase`, `frames_recorded`, `revisit_started_after_frame`
+and `goal_candidates_captured`. Goal candidates carry a
+`captured_after_frame` and SHA-256 receipt and are scored offline against the
+recorded stream (`deployment/gpu/score_realworld_revisit_goal.py`) using only
+frozen server components; the weak-covisibility proxy thresholds are
+provisional until calibrated on the disabled-adapter walk.
 
 ### Reset
 
@@ -66,7 +102,7 @@ The camera optical-center height is supplied by the workstation launch
 environment. There is intentionally no default. It must be physically measured
 on the installed D435i before a real model reset.
 
-### ImageGoal step
+### ImageGoal step (revisit_query phase only)
 
 For each `POST /imagegoal_step`:
 

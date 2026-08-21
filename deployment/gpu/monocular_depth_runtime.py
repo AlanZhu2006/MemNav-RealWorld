@@ -29,6 +29,7 @@ from PIL import Image
 
 SCALE_SCHEMA = "mdtec_first40_scale_receipt_v1_20260819"
 DEPTH_SCHEMA = "mdtec_monocular_depth_observation_v1_20260819"
+DEPTH_TRANSACTION_SCHEMA = "mdtec_monocular_depth_transaction_v1_20260821"
 SCALE_CONTRACT = "causal_first_prefix_rgb_only_v1"
 DEPTH_CONTRACT = "raw_lingbot_depth_first40_v1"
 PREFIX_FRAMES = 40
@@ -52,6 +53,72 @@ def image_sha256(image_bytes: bytes) -> str:
     if not image_bytes:
         raise ValueError("current JPEG is empty")
     return hashlib.sha256(image_bytes).hexdigest()
+
+
+def monocular_depth_transaction_token(payload: Mapping[str, Any]) -> str:
+    """Bind one materialized depth payload to its exact RGB stream position."""
+
+    image_digest = str(payload.get("image_sha256", ""))
+    depth_digest = str(payload.get("depth_png_sha256", ""))
+    scale_digest = payload.get("scale_receipt_sha256")
+    if not _SHA256.fullmatch(image_digest):
+        raise ValueError("transaction image SHA-256 is invalid")
+    if not _SHA256.fullmatch(depth_digest):
+        raise ValueError("transaction depth SHA-256 is invalid")
+    if scale_digest is not None and not _SHA256.fullmatch(str(scale_digest)):
+        raise ValueError("transaction scale SHA-256 is invalid")
+    frame_index = int(payload.get("frame_index", -1))
+    if frame_index < 0:
+        raise ValueError("transaction frame index is invalid")
+    return canonical_sha256({
+        "schema": DEPTH_TRANSACTION_SCHEMA,
+        "depth_schema": payload.get("schema"),
+        "depth_contract": payload.get("depth_contract"),
+        "frame_index": frame_index,
+        "image_sha256": image_digest,
+        "depth_png_sha256": depth_digest,
+        "scale_receipt_sha256": scale_digest,
+    })
+
+
+def bind_monocular_depth_transaction(
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Return a copy of ``payload`` carrying its immutable transaction token."""
+
+    bound = dict(payload)
+    bound["monocular_depth_transaction_schema"] = DEPTH_TRANSACTION_SCHEMA
+    bound["monocular_depth_transaction_token"] = (
+        monocular_depth_transaction_token(payload)
+    )
+    return bound
+
+
+def validate_monocular_depth_transaction(
+    payload: Mapping[str, Any],
+    *,
+    expected_token: str,
+    expected_image_sha256: str,
+    expected_frame_index: int | None = None,
+) -> None:
+    """Fail closed unless a cached payload matches the caller's exact append."""
+
+    if not _SHA256.fullmatch(str(expected_token)):
+        raise ValueError("expected transaction token is invalid")
+    if payload.get("monocular_depth_transaction_schema") != (
+        DEPTH_TRANSACTION_SCHEMA
+    ):
+        raise ValueError("unexpected monocular depth transaction schema")
+    if payload.get("monocular_depth_transaction_token") != expected_token:
+        raise ValueError("monocular depth transaction token mismatch")
+    if monocular_depth_transaction_token(payload) != expected_token:
+        raise ValueError("monocular depth transaction payload changed")
+    if payload.get("image_sha256") != expected_image_sha256:
+        raise ValueError("monocular depth transaction image mismatch")
+    if expected_frame_index is not None and int(payload.get(
+        "frame_index", -1
+    )) != int(expected_frame_index):
+        raise ValueError("monocular depth transaction frame mismatch")
 
 
 def _base_scale_receipt(camera_height_m: float) -> dict[str, Any]:

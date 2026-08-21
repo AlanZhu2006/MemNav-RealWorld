@@ -22,6 +22,7 @@ navdp_go2_adapter:
     debug_max_candidates: 6
     enable_on_start: false
     plan_while_disabled: true
+    two_phase_episode: false
     planning_rate_hz: 1.5
     control_rate_hz: 20.0
     connect_timeout_s: 3.0

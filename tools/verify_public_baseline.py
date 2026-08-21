@@ -23,6 +23,7 @@ REQUIRED_PATHS = (
     "media/system_architecture.svg",
     "manifests/realworld_deployment_v1.json",
     "manifests/realworld_fullmono_v2.json",
+    "manifests/realworld_fullmono_v3.json",
     "FULL_MONO_RELEASE_20260821.md",
     "deployment/go2/navdp_ros_node.py",
     "deployment/go2/go2_cmd_bridge.py",
@@ -38,10 +39,10 @@ FORBIDDEN_PARTS = ("__pycache__", ".venv-navdp", ".cache", "runtime")
 ALLOWED_GOAL_FILE = "deployment/go2/goals/.gitkeep"
 EXPECTED_HASHES = {
     "deployment/gpu/realworld_cec_hub.py": (
-        "09ef562f11b6a0c1e0dcf63d021dee5ebcb0b88a5b2f951308cfb73fad15c993"
+        "964fae60ad8cfcaed483c5c57693f9dfcec9e1dd646c4fdf27575e6b28ece560"
     ),
     "deployment/gpu/monocular_depth_runtime.py": (
-        "709a4ad200a5778317bb314e87e398ba6da8398939d96c100f235fe1ce98c9fc"
+        "9b88cbd091b83dbe15846ec0b47d329d715273f0557abffe319a463936c9c138"
     ),
     "deployment/gpu/revisit_bearing_adapter.py": (
         "46c10132db7b00711ca3c781f18fcb9e04c4061bab9b44b8017d99c0c09bc6fd"
@@ -134,7 +135,7 @@ def main() -> int:
             print(f"       {path}")
 
     manifest = json.loads(
-        (root / "manifests/realworld_fullmono_v2.json").read_text()
+        (root / "manifests/realworld_fullmono_v3.json").read_text()
     )
     services = manifest["policy_workstation"]["services"]
     check(
@@ -164,9 +165,32 @@ def main() -> int:
     )
     navigation = manifest["navigation_contract"]
     check(
-        navigation["protocol_version"] == 2
+        navigation["protocol_version"] == 3
         and navigation["sensor_contract"] == "causal_monocular_rgb_v1",
-        "protocol-v2 monocular sensor contract",
+        "protocol-v3 monocular sensor contract",
+        failures,
+    )
+    phases = navigation.get("episode_phases", {})
+    check(
+        phases.get("order") == ["memory_recording", "revisit_query"]
+        and phases.get("initial_phase_after_reset") == "memory_recording"
+        and phases.get("goal_query_during_recording")
+        == "rejected_http_400_no_upstream_traffic",
+        "two-phase episode contract is declared",
+        failures,
+    )
+    endpoints = navigation.get("endpoints", {})
+    check(
+        all(route in endpoints for route in
+            ("/memory_step", "/goal_candidate", "/begin_revisit")),
+        "v3 endpoints are declared",
+        failures,
+    )
+    warmup = navigation.get("navdp_warmup", {})
+    check(
+        warmup.get("max_frames") == 8 and warmup.get("stride") == 8
+        and "navdp_warmup_frames" in warmup.get("receipt_fields", []),
+        "NavDP warm-up parity receipt is declared",
         failures,
     )
     check(
@@ -200,6 +224,21 @@ def main() -> int:
     check(
         'args.host not in {"127.0.0.1", "::1", "localhost"}' in hub_source,
         "hub rejects non-loopback bind",
+        failures,
+    )
+    check(
+        "PROTOCOL_VERSION = 3" in hub_source
+        and 'PHASE_RECORDING = "memory_recording"' in hub_source
+        and "/begin_revisit" in hub_source
+        and "/memory_step" in hub_source
+        and "/goal_candidate" in hub_source,
+        "hub implements the protocol-v3 phase contract",
+        failures,
+    )
+    check(
+        "memory_replay_step" in hub_source
+        and "queue length mismatch" in hub_source,
+        "hub performs verified NavDP warm-up at begin_revisit",
         failures,
     )
 

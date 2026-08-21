@@ -8,10 +8,12 @@ from PIL import Image
 
 from deployment.gpu.monocular_depth_runtime import (
     ACTIVE_FROM_FRAME_INDEX,
+    bind_monocular_depth_transaction,
     build_monocular_depth_payload,
     compute_first40_scale_receipt,
     decode_monocular_depth_payload,
     image_sha256,
+    validate_monocular_depth_transaction,
 )
 
 
@@ -98,6 +100,40 @@ class MonocularDepthRuntimeTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "receipt checksum"):
             decode_monocular_depth_payload(
                 corrupt, expected_image_sha256=image_sha256(current)
+            )
+
+    def test_transaction_binds_exact_image_frame_and_depth(self):
+        current = b"transaction-current-jpeg"
+        digest = image_sha256(current)
+        payload = build_monocular_depth_payload(
+            relative_depth=None,
+            depth_shape=(3, 4),
+            image_sha256_value=digest,
+            frame_index=ACTIVE_FROM_FRAME_INDEX - 1,
+            scale_receipt=None,
+        )
+        bound = bind_monocular_depth_transaction(payload)
+        token = bound["monocular_depth_transaction_token"]
+        validate_monocular_depth_transaction(
+            bound,
+            expected_token=token,
+            expected_image_sha256=digest,
+            expected_frame_index=ACTIVE_FROM_FRAME_INDEX - 1,
+        )
+
+        wrong_frame = copy.deepcopy(bound)
+        wrong_frame["frame_index"] += 1
+        with self.assertRaisesRegex(ValueError, "payload changed"):
+            validate_monocular_depth_transaction(
+                wrong_frame,
+                expected_token=token,
+                expected_image_sha256=digest,
+            )
+        with self.assertRaisesRegex(ValueError, "image mismatch"):
+            validate_monocular_depth_transaction(
+                bound,
+                expected_token=token,
+                expected_image_sha256="0" * 64,
             )
 
 
