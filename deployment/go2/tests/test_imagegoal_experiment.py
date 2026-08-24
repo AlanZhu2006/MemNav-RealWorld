@@ -11,6 +11,7 @@ from imagegoal_experiment import (  # noqa: E402
     EpisodeTracker,
     PolicyStopTracker,
     StateSample,
+    safety_abort_reason,
 )
 
 
@@ -129,6 +130,48 @@ class PolicyStopTrackerTests(unittest.TestCase):
         tracker.update_path(np.zeros((24, 2)), 2.0)
         tracker.update_status(self.active_status(), 2.0)
         self.assertEqual(tracker.snapshot(3.1)["reason"], "navdp_path_stale")
+
+
+class SafetyAbortTests(unittest.TestCase):
+    def test_path_limit_is_fail_closed(self):
+        reason = safety_abort_reason(
+            {
+                "path_length_m": 2.21,
+                "initial_distance_m": 1.5,
+                "current_distance_m": 1.2,
+            },
+            max_path_length_m=2.2,
+            max_target_distance_regression_m=0.3,
+        )
+        self.assertEqual(reason, "path_length_limit")
+
+    def test_target_regression_is_fail_closed(self):
+        reason = safety_abort_reason(
+            {
+                "path_length_m": 0.8,
+                "initial_distance_m": 1.5,
+                "current_distance_m": 1.81,
+            },
+            max_path_length_m=2.2,
+            max_target_distance_regression_m=0.3,
+        )
+        self.assertEqual(reason, "target_distance_regression")
+
+    def test_disabled_or_in_bound_limits_do_not_abort(self):
+        metrics = {
+            "path_length_m": 2.3,
+            "initial_distance_m": 1.5,
+            "current_distance_m": 1.9,
+        }
+        self.assertEqual(safety_abort_reason(metrics), "")
+        self.assertEqual(
+            safety_abort_reason(
+                metrics,
+                max_path_length_m=2.5,
+                max_target_distance_regression_m=0.5,
+            ),
+            "",
+        )
 
 
 if __name__ == "__main__":

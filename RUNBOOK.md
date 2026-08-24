@@ -63,7 +63,7 @@ The health payload must contain:
 navigation_sensor_contract=causal_monocular_rgb_v1
 navdp_depth_source=monocular_sidecar
 metric_depth_sensor_consumed_by_policy=false
-protocol_version=2
+protocol_version=3
 ~~~
 
 Inspect without exposing any service to the LAN:
@@ -146,6 +146,14 @@ bash deployment/go2/offboard/run_offboard_stack.sh --with-go2 --with-rviz
 The adapter still starts disabled. With a clear area, tether, onsite operator
 holding the Unitree controller and a `0.5--1.0 m` route, explicitly enable:
 
+- the default `NAVDP_CONTROL_PROFILE=formal` rejects stale low-speed overrides;
+- formal motion uses controller `max_linear_mps=0.30`, `max_angular_rps=0.55`
+  and an `8 deg` heading-error deadband;
+- the Go2 bridge retains `min_cmd_v=0.10` and `min_cmd_w=0.20` after that
+  controller deadband;
+- a bounded commissioning smoke must opt in with
+  `NAVDP_CONTROL_PROFILE=acceptance`; it is not a formal episode.
+
 ~~~bash
 source /opt/ros/humble/setup.bash
 ros2 service call /navdp_go2_adapter/set_enabled \
@@ -185,37 +193,34 @@ bash deployment/go2/offboard/fullmono.sh start --with-rviz
 #    streams /memory_step automatically; watch frames_recorded grow:
 ros2 topic echo --once /navdp/status   # "phase":"memory_recording"
 
-# 3. (Optional, recommended) capture 2-3 goal-candidate photos during the
-#    walk at deliberately rotated viewpoints. Candidates are NEVER appended
-#    to memory; each returns a captured_after_frame + sha256 receipt:
-source /opt/ros/humble/setup.bash
-ros2 service call /navdp_go2_adapter/capture_goal_candidate \
-  std_srvs/srv/Trigger
+# 3. Candidate-only frames are sampled automatically every 24 recorded
+#    frames. The RTX read-only support query accepts only geometrically
+#    supported, non-near-duplicate views. Watch accepted/rejected receipts:
+ros2 topic echo /navdp/cec_receipt
 
-# 4. Stop at B, robot stationary. Score the candidates on the RTX host
-#    against the recorded stream (frozen server components only):
-python deployment/gpu/score_realworld_revisit_goal.py \
-  --memnav-url http://127.0.0.1:18888 \
-  --rgb-dir <memnav_buffer_episode_dir> \
-  --candidates <goal_candidate_jpgs...> --out /tmp/goal_score.json
-# Pick a provisional_weak_covis candidate; reject near-duplicates
-# (max_cos > 0.90) and unsupported ones (inliers < 16). These proxy
-# thresholds are provisional until the disabled-adapter walk calibration.
+# Optional controlled override: explicitly capture an unfiltered candidate.
+ros2 service call /navdp_go2_adapter/capture_goal_candidate std_srvs/srv/Trigger
 
-# 5. Switch phase (robot MUST be stationary; the hub replays a stride-8
-#    tail into NavDP and verifies the queue, and the first certificate
-#    afterwards can take seconds):
+# 4. Stop at B and invoke the ONE explicit task-boundary transition. This
+#    atomically scores all registered candidates, selects and installs the
+#    target, warms NavDP, verifies its FIFO, and switches phase:
 ros2 service call /navdp_go2_adapter/begin_revisit std_srvs/srv/Trigger
-# The response carries navdp_warmup_frames / navdp_queue_lengths receipts.
+# Retry the same call after an ambiguous network response: prepare_revisit is
+# idempotent and returns the already-committed goal without a second warm-up.
 
-# 6. Install the selected candidate as the image goal, then goal queries
-#    run normally; motion still requires the explicit enable service.
+# 5. Verify the persistent receipt and the runtime target before enabling:
+ros2 topic echo --once /navdp/status
+# Require phase=revisit_query, active_goal_sha256, selected_goal,
+# navdp_warmup_frames and navdp_queue_lengths. /navdp/image_goal now displays
+# the selected online target. Goal queries then run automatically; motion
+# still requires the explicit enable service.
 ~~~
 
-Any out-of-order call fails fast: `/memory_step` after the switch, a second
-`/begin_revisit`, or a goal query during recording all return HTTP 400 with
-the contract explanation, and the adapter surfaces the error instead of
-retrying.
+Any out-of-order call fails fast: `/memory_step` after the switch or a goal
+query during recording returns HTTP 400. A repeated `/prepare_revisit` is the
+single exception: it is an idempotent recovery read for a possibly lost commit
+response. If no candidate passes the frozen support band, phase remains
+`memory_recording` and no NavDP warm-up or goal installation occurs.
 
 ## 9. Revisit experiment boundary
 
@@ -223,3 +228,46 @@ A formal real-world result requires frozen starts, unchanged goal assets,
 causal online history and separately reported goal-object, exact-view,
 policy-stop and auxiliary-pose outcomes. Do not report SR/SPL from deployment
 or transport smoke tests.
+
+The launcher allocates a new timestamped MemNav buffer namespace on every
+service start, so restarting the process cannot erase the preceding RGB trace.
+Set `CEC_BUFFER_ROOT` only when a formal run has already reserved an immutable,
+empty destination.
+
+## 10. Direct-bearing handoff gate
+
+Before any tethered Revisit run, keep motion disabled and wait for one complete
+terminal receipt:
+
+~~~bash
+ros2 topic echo --once /navdp/cec_receipt
+ros2 topic echo --once /navdp/status
+~~~
+
+Require `last_error=""`, a committed goal SHA, schema
+`cec_direct_bearing_handoff_v2_20260824`, and one of the audited bearing
+dispositions. A rearward direct proof should report `terminal_atomic_turn`,
+`terminal_proof_active=true`, `terminal_local_latched=false`,
+`terminal_metric_scale_control_authority=false`, and
+`terminal_stop_authorized=false`. While disabled, `cmd_vx=cmd_wz=0` and the
+shadow override must have zero translation. The first uncached CEC anchor may
+take about 20 seconds; never enable while `inference_busy=true` or before a
+fresh receipt.
+
+Adapter restart now asserts estop by default. Motion requires two explicit
+onsite operations, in this order:
+
+~~~bash
+# Only with clear floor, tether and controller operator present:
+ros2 topic pub --once /navdp/estop std_msgs/msg/Bool "{data: false}"
+ros2 service call /navdp_go2_adapter/set_enabled \
+  std_srvs/srv/SetBool "{data: true}"
+~~~
+
+The direct-bearing path is not an arrival endpoint. `/local_pose_query` may
+include an MDTEC-scaled distance, but v2 uses only its certified direction;
+that distance may not authorize local metric control or STOP. GOAT keeps the
+separate `/arrival_query` strict-first-64 research contract. Until an
+independent visual-convergence gate is implemented and validated, every real
+run still requires an external evaluator/operator termination and must not be
+reported as autonomous ImageGoal arrival.

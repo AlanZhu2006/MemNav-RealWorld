@@ -1,0 +1,116 @@
+{
+  "schema_version": 4,
+  "release_id": "fullmono-cec-protocol3-bearing2-safety-20260825",
+  "snapshot_date": "2026-08-25",
+  "system": "fullmono_certified_episodic_compass_navdp_go2",
+  "provenance": {
+    "standalone_repository": "AlanZhu2006/Memnav_Realworld",
+    "base_commit": "6cae26d71376f1c698bfab6494094e1dba218576",
+    "status": "audited_working_tree_pending_public_commit",
+    "research_workspace": "/home/asus/Research/Nav-graph-blind"
+  },
+  "navigation_contract": {
+    "protocol_version": 3,
+    "terminal_handoff_schema": "cec_direct_bearing_handoff_v2_20260824",
+    "sensor_contract": "causal_monocular_rgb_v1",
+    "policy_depth_source": "monocular_sidecar",
+    "metric_depth_sensor_consumed_by_policy": false,
+    "controller": "frozen_navdp",
+    "memory_method": "certified_episodic_compass",
+    "bearing_residual_m": 2.5,
+    "metric_pnp_translation_authority": "diagnostic_only",
+    "stop_authority": "none_until_independent_visual_convergence",
+    "fallback": "preceding_native_or_long_range_route",
+    "episode_phases": [
+      "memory_recording",
+      "revisit_query"
+    ],
+    "automatic_goal_contract": {
+      "candidate_support_ceiling": "frozen_at_capture_and_forwarded_to_every_retrieval_probe",
+      "accepted_candidate_missing_or_widened_ceiling": "fail_closed",
+      "formal_benchmark_goal_source": "operator_frozen_external_imagegoal"
+    }
+  },
+  "runtime_compatibility": {
+    "hub_advertises_terminal_schema": true,
+    "jetson_imports_expected_schema_from_actual_executor": true,
+    "reset_mismatch": "reject",
+    "launcher_preflight_mismatch": "reject",
+    "partial_file_copy": "cannot_start"
+  },
+  "robot": {
+    "platform": "Unitree Go2",
+    "compute": "Jetson Orin NX 16GB",
+    "camera": "Intel RealSense D435i",
+    "camera_optical_center_height_m": 0.42,
+    "uses_metric_global_map": false,
+    "policy_uses_metric_sensor_depth": false,
+    "local_depth_role": "collision_safety_only"
+  },
+  "motion": {
+    "enabled_on_start": false,
+    "estop_on_start": true,
+    "max_linear_mps": 0.3,
+    "max_angular_rps": 0.55,
+    "heading_deadband_deg": 8.0,
+    "go2_min_translation_command_mps": 0.1,
+    "go2_min_rotation_command_rps": 0.2,
+    "bridge_watchdog_s": 0.35,
+    "reverse_enabled": false,
+    "hand_controller_priority": true
+  },
+  "field_evidence": {
+    "powered_trials": 3,
+    "autonomous_imagegoal_successes": 0,
+    "formal_realworld_sr_spl": false,
+    "metric_pnp_scale_counterexample": {
+      "trace_true_min_distance_m": 0.993,
+      "minimum_reported_pnp_distance_m": 0.125,
+      "minimum_underestimate_factor": 7.9
+    },
+    "visual_convergence_audit": {
+      "recorded_frames": 431,
+      "certificate_precheck_frames": 15,
+      "best_supported_frame": 326,
+      "best_supported_lightglue_matches": 331,
+      "best_supported_fundamental_inliers": 299,
+      "threshold_status": "not_selected_without_physical_labels"
+    }
+  },
+  "verification": {
+    "workstation_focused_tests": "71 passed",
+    "jetson_targeted_tests": "31 passed",
+    "python_compile": true,
+    "shell_syntax": true,
+    "git_diff_check": true,
+    "camera_started_during_sync": false,
+    "adapter_started_during_sync": false,
+    "go2_bridge_started_during_sync": false,
+    "motion_command_sent_during_sync": false,
+    "jetson_backup": ".deployment_backups/20260825_bearing_v2_contract_pre_sync"
+  },
+  "payload_sha256": {
+    "deployment/gpu/realworld_cec_hub.py": "501858a5961f844098ad20d26e4a28763ac29937b37e3a9501c1caead746ee61",
+    "deployment/gpu/revisit_local_pose_adapter.py": "ab58913fff760182b1945d1a26c5dbb2bba58f040d38c28f030b19fc1bc569cd",
+    "deployment/gpu/audit_visual_convergence.py": "807ba6b1ba3a9395ce0a89fbe79b368276479efb92c56be18ac4332b6b0f4af7",
+    "deployment/go2/terminal_motion_override.py": "1a0ea960c36e231d4424c1a3837d7b3cf88dce0ef7d4737068d371bfa888054e",
+    "deployment/go2/navdp_client.py": "1d4cc28b7c8a5d9d864d0443bc9ab32c0e7124a19b39e2481ff41de6d5fefcf9",
+    "deployment/go2/navdp_ros_node.py": "8e2cfd17625d3d08d05f5aa9043be81fada7a0d6e6831a0f48ebff7c343c2e74",
+    "deployment/go2/offboard/runtime_contract.sh": "bfa64b010a335e5bd1528c6033a636773d4631d443631da7f4c5e0d135858f97",
+    "deployment/go2/offboard/preflight_offboard.sh": "da337f20bdc98c7ad8714ddb948c637a6451f32f394726a3bb07bc3aee2bbf45",
+    "deployment/go2/offboard/fullmono.sh": "530dfcaf62cfa5395381470dd990ffa883d142ece5dcec0f5092cdb4efd6a1f8",
+    "deployment/go2/offboard/run_offboard_stack.sh": "5298ef53d5eeee2e53cf6d784df8743cad8a9c0a2372bed7cc24b13612ea5ba0"
+  },
+  "deployment_gate": {
+    "status": "motion_locked_pending_arrival_calibration",
+    "next_safe_step": "disabled physically labelled target-neighbourhood RGB collection"
+  },
+  "claims": {
+    "software_synchronized": true,
+    "transport_verified": true,
+    "powered_motion_observed": true,
+    "autonomous_imagegoal_arrival_verified": false,
+    "formal_realworld_sr_spl": false
+  },
+  "supersedes": "fullmono-cec-20260821-protocol-v3"
+}

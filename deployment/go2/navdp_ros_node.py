@@ -27,6 +27,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from debug_visualization import ranked_candidates, score_rgb
 from image_goal_io import load_rgb_image
 from navdp_client import NavDPClient
+from terminal_motion_override import terminal_motion_override
 from trajectory_control import (
     ControllerConfig,
     DepthSafetyConfig,
@@ -60,11 +61,19 @@ class NavDPGo2Adapter(Node):
         self._goal_xy: Optional[np.ndarray] = None
         self._goal_monotonic = 0.0
         self._image_goal: Optional[np.ndarray] = None
+        self._revisit_image_goal: Optional[np.ndarray] = None
         if self.mode == "imagegoal":
             self._image_goal = load_rgb_image(self.image_goal_path)
+            if self.revisit_image_goal_path:
+                self._revisit_image_goal = load_rgb_image(
+                    self.revisit_image_goal_path
+                )
+        self._startup_image_goal = (
+            None if self._image_goal is None else self._image_goal.copy()
+        )
 
         self._enabled = bool(self.get_parameter("enable_on_start").value)
-        self._estop = False
+        self._estop = self.estop_on_start
         self._server_initialized = False
         self._reset_requested = True
         self._trajectory: Optional[np.ndarray] = None
@@ -82,6 +91,14 @@ class NavDPGo2Adapter(Node):
         self._phase: Optional[str] = None
         self._frames_recorded = 0
         self._goal_candidates_captured = 0
+        self._last_auto_candidate_after_frame = -1
+        self._auto_candidate_guard_remaining = 0
+        self._active_goal_id: Optional[int] = None
+        self._active_goal_sha256: Optional[str] = None
+        self._last_phase_receipt: dict = {}
+        self._last_plan_receipt: dict = {}
+        self._terminal_motion_receipt: dict = {}
+        self._last_receipt_event = ""
         self._client_lock = threading.Lock()
 
         self._client = NavDPClient(
@@ -99,6 +116,9 @@ class NavDPGo2Adapter(Node):
         self._cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, command_qos)
         self._path_pub = self.create_publisher(Path, self.path_topic, state_qos)
         self._status_pub = self.create_publisher(String, self.status_topic, state_qos)
+        self._receipt_pub = self.create_publisher(
+            String, self.cec_receipt_topic, state_qos
+        )
         self._debug_markers_pub = None
         self._image_goal_pub = None
         if self.debug_visualization:
@@ -186,10 +206,12 @@ class NavDPGo2Adapter(Node):
             "camera_info_topic": "/camera/camera/color/camera_info",
             "goal_topic": "/navdp/relative_goal",
             "image_goal_path": "",
+            "revisit_image_goal_path": "",
             "image_goal_debug_topic": "/navdp/image_goal",
             "cmd_vel_topic": "/navdp/cmd_vel",
             "path_topic": "/navdp/trajectory",
             "status_topic": "/navdp/status",
+            "cec_receipt_topic": "/navdp/cec_receipt",
             "debug_markers_topic": "/navdp/debug/markers",
             "enable_topic": "/navdp/enabled",
             "estop_topic": "/navdp/estop",
@@ -197,8 +219,14 @@ class NavDPGo2Adapter(Node):
             "debug_visualization": True,
             "debug_max_candidates": 6,
             "enable_on_start": False,
+            "estop_on_start": True,
             "plan_while_disabled": True,
             "two_phase_episode": False,
+            "navigate_during_memory_recording": False,
+            "auto_goal_candidate_interval_frames": 24,
+            "auto_goal_candidate_max": 6,
+            "auto_goal_candidate_post_guard_frames": 4,
+            "auto_select_goal_candidate": True,
             "planning_rate_hz": 2.0,
             "control_rate_hz": 20.0,
             "connect_timeout_s": 3.0,
@@ -213,6 +241,7 @@ class NavDPGo2Adapter(Node):
             "lookahead_m": 0.60,
             "max_linear_mps": 0.30,
             "max_angular_rps": 0.60,
+            "heading_deadband_rad": math.radians(8.0),
             "rotate_in_place_angle_rad": 0.70,
             "rotate_gain": 1.50,
             "slow_path_length_m": 1.00,
@@ -246,9 +275,34 @@ class NavDPGo2Adapter(Node):
         self.two_phase_episode = bool(
             self.get_parameter("two_phase_episode").value
         )
+        self.navigate_during_memory_recording = bool(
+            self.get_parameter("navigate_during_memory_recording").value
+        )
+        self.auto_goal_candidate_interval_frames = max(
+            0,
+            int(self.get_parameter("auto_goal_candidate_interval_frames").value),
+        )
+        self.auto_goal_candidate_max = max(
+            0, int(self.get_parameter("auto_goal_candidate_max").value)
+        )
+        self.auto_goal_candidate_post_guard_frames = max(
+            0,
+            int(
+                self.get_parameter(
+                    "auto_goal_candidate_post_guard_frames"
+                ).value
+            ),
+        )
+        self.auto_select_goal_candidate = bool(
+            self.get_parameter("auto_select_goal_candidate").value
+        )
         if self.two_phase_episode and self.mode != "imagegoal":
             raise ValueError(
                 "two_phase_episode (protocol-v3 hub) requires mode=imagegoal"
+            )
+        if self.navigate_during_memory_recording and not self.two_phase_episode:
+            raise ValueError(
+                "navigate_during_memory_recording requires two_phase_episode"
             )
 
         for name in (
@@ -258,10 +312,12 @@ class NavDPGo2Adapter(Node):
             "camera_info_topic",
             "goal_topic",
             "image_goal_path",
+            "revisit_image_goal_path",
             "image_goal_debug_topic",
             "cmd_vel_topic",
             "path_topic",
             "status_topic",
+            "cec_receipt_topic",
             "debug_markers_topic",
             "enable_topic",
             "estop_topic",
@@ -285,6 +341,9 @@ class NavDPGo2Adapter(Node):
         ):
             setattr(self, name, float(self.get_parameter(name).value))
         self.plan_while_disabled = bool(self.get_parameter("plan_while_disabled").value)
+        self.estop_on_start = bool(
+            self.get_parameter("estop_on_start").value
+        )
         self.debug_visualization = bool(
             self.get_parameter("debug_visualization").value
         )
@@ -306,6 +365,9 @@ class NavDPGo2Adapter(Node):
             lookahead_m=float(self.get_parameter("lookahead_m").value),
             max_linear_mps=float(self.get_parameter("max_linear_mps").value),
             max_angular_rps=float(self.get_parameter("max_angular_rps").value),
+            heading_deadband_rad=float(
+                self.get_parameter("heading_deadband_rad").value
+            ),
             rotate_in_place_angle_rad=float(
                 self.get_parameter("rotate_in_place_angle_rad").value
             ),
@@ -451,11 +513,39 @@ class NavDPGo2Adapter(Node):
             self._candidate_values = np.empty((0,), dtype=np.float32)
             self._plan_monotonic = 0.0
             self._last_error = ""
+            self._active_goal_id = None
+            self._active_goal_sha256 = None
+            self._last_phase_receipt = {}
+            self._last_plan_receipt = {}
+            self._terminal_motion_receipt = {}
+            self._last_receipt_event = ""
+            self._last_auto_candidate_after_frame = -1
+            self._auto_candidate_guard_remaining = 0
+            self._image_goal = (
+                None
+                if self._startup_image_goal is None
+                else self._startup_image_goal.copy()
+            )
         self._publish_zero("policy_reset")
         self._inference_event.set()
         response.success = True
         response.message = "NavDP reset queued"
         return response
+
+    def _publish_receipt(self, event: str, receipt: dict) -> None:
+        payload = {
+            "schema": "cec_realworld_runtime_receipt_v1_20260824",
+            "event": str(event),
+            "monotonic_s": round(time.monotonic(), 6),
+            "receipt": dict(receipt),
+        }
+        with self._lock:
+            self._last_receipt_event = str(event)
+        message = String()
+        message.data = json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":")
+        )
+        self._receipt_pub.publish(message)
 
     def _capture_goal_candidate_service(self, _request, response):
         with self._lock:
@@ -482,6 +572,7 @@ class NavDPGo2Adapter(Node):
         with self._lock:
             self._goal_candidates_captured += 1
         self.get_logger().info(f"goal candidate captured: {receipt}")
+        self._publish_receipt("goal_candidate", receipt)
         response.success = True
         response.message = json.dumps(receipt, ensure_ascii=False)
         return response
@@ -491,6 +582,13 @@ class NavDPGo2Adapter(Node):
             initialized = self._server_initialized
             phase = self._phase
             busy = self._inference_busy
+            # Reserve the only stateful inference slot atomically with the
+            # idle check.  Without this reservation, the timer worker can
+            # start one final Novel request between this check and acquisition
+            # of ``_client_lock``; that stale request then reaches the hub
+            # after its phase has already changed to Revisit.
+            if initialized and phase == "memory_recording" and not busy:
+                self._inference_busy = True
         if not initialized:
             response.success = False
             response.message = "server not initialized"
@@ -505,14 +603,36 @@ class NavDPGo2Adapter(Node):
             return response
         try:
             with self._client_lock:
-                receipt = self._client.begin_revisit()
+                if self._revisit_image_goal is not None:
+                    receipt, selected_goal = self._client.prepare_revisit_goal(
+                        self._revisit_image_goal
+                    )
+                elif self.auto_select_goal_candidate:
+                    receipt, selected_goal = self._client.prepare_revisit()
+                else:
+                    receipt = self._client.begin_revisit()
+                    selected_goal = None
         except Exception as exc:
+            with self._lock:
+                self._inference_busy = False
             response.success = False
             response.message = f"{type(exc).__name__}: {exc}"
             return response
         with self._lock:
             self._phase = "revisit_query"
+            self._inference_busy = False
+            self._last_phase_receipt = dict(receipt)
+            if selected_goal is not None:
+                selected = receipt.get("selected_goal", {})
+                self._image_goal = selected_goal.copy()
+                candidate_id = selected.get("candidate_id")
+                self._active_goal_id = (
+                    None if candidate_id is None else int(candidate_id)
+                )
+                self._active_goal_sha256 = str(selected["sha256"])
         self.get_logger().info(f"revisit phase started: {receipt}")
+        self._publish_receipt("prepare_revisit", receipt)
+        self._publish_image_goal()
         response.success = True
         response.message = json.dumps(receipt, ensure_ascii=False)
         return response
@@ -550,7 +670,11 @@ class NavDPGo2Adapter(Node):
                     return None, "goal_stale"
                 goal_condition = self._goal_xy.copy()
             elif self.mode == "imagegoal":
-                if self.two_phase_episode and self._phase in (None, "memory_recording"):
+                if (
+                    self.two_phase_episode
+                    and self._phase in (None, "memory_recording")
+                    and not self.navigate_during_memory_recording
+                ):
                     goal_condition = None
                 elif self._image_goal is None:
                     return None, "waiting_for_image_goal"
@@ -594,6 +718,19 @@ class NavDPGo2Adapter(Node):
                         self._reset_requested = False
                         self._frames_recorded = 0
                         self._goal_candidates_captured = 0
+                        self._last_auto_candidate_after_frame = -1
+                        self._auto_candidate_guard_remaining = 0
+                        self._active_goal_id = None
+                        self._active_goal_sha256 = None
+                        self._last_phase_receipt = {}
+                        self._last_plan_receipt = {}
+                        self._terminal_motion_receipt = {}
+                        self._last_receipt_event = ""
+                        self._image_goal = (
+                            None
+                            if self._startup_image_goal is None
+                            else self._startup_image_goal.copy()
+                        )
                         self._phase = (
                             "memory_recording"
                             if self.two_phase_episode
@@ -607,32 +744,136 @@ class NavDPGo2Adapter(Node):
                         and self.mode == "imagegoal"
                         and self._phase == "memory_recording"
                     )
+                planned_in_recording = False
                 if recording:
-                    # Protocol v3: record-only append.  No goal is sent, no
-                    # trajectory is produced; the hub rejects goal queries in
-                    # this phase, so do not attempt planning at all.
-                    with self._client_lock:
-                        receipt = self._client.memory_step(rgb)
-                    finished = time.monotonic()
+                    # The default remains record-only.  Formal autonomous
+                    # Novel->Revisit trials opt into a single hub transaction
+                    # that writes this RGB to CEC memory and executes frozen
+                    # native NavDP toward the independently frozen Novel goal.
                     with self._lock:
-                        self._frames_recorded = int(
-                            receipt.get("frames_recorded", self._frames_recorded + 1)
+                        guard_remaining = self._auto_candidate_guard_remaining
+                        if guard_remaining > 0:
+                            self._auto_candidate_guard_remaining -= 1
+                    if guard_remaining > 0:
+                        finished = time.monotonic()
+                        with self._lock:
+                            self._last_inference_s = finished - started
+                            self._last_error = ""
+                            self._stop_reason = "goal_candidate_guard"
+                        # Do not append near-adjacent frames after a selected
+                        # candidate.  This prevents the candidate from becoming
+                        # a trivial near-self match in the recorded history.
+                        continue
+                    with self._lock:
+                        auto_candidate = (
+                            self.auto_goal_candidate_interval_frames > 0
+                            and self._frames_recorded
+                            >= self.auto_goal_candidate_interval_frames
+                            and self._frames_recorded
+                            % self.auto_goal_candidate_interval_frames == 0
+                            and self._last_auto_candidate_after_frame
+                            != self._frames_recorded
+                            and self._goal_candidates_captured
+                            < self.auto_goal_candidate_max
                         )
-                        self._last_inference_s = finished - started
-                        self._last_error = ""
-                        self._stop_reason = "memory_recording"
-                    continue
+                    if auto_candidate:
+                        try:
+                            with self._client_lock:
+                                candidate_receipt = self._client.goal_candidate(
+                                    rgb, validate_support=True
+                                )
+                            if candidate_receipt.get("registered") is True:
+                                finished = time.monotonic()
+                                with self._lock:
+                                    self._goal_candidates_captured += 1
+                                    self._last_auto_candidate_after_frame = (
+                                        self._frames_recorded
+                                    )
+                                    self._auto_candidate_guard_remaining = (
+                                        self.auto_goal_candidate_post_guard_frames
+                                    )
+                                    self._last_inference_s = finished - started
+                                    self._last_error = ""
+                                    self._stop_reason = "memory_recording"
+                                self._publish_receipt(
+                                    "auto_goal_candidate", candidate_receipt
+                                )
+                                # The candidate RGB is intentionally not
+                                # appended.  A short guard also excludes the
+                                # immediately adjacent views.
+                                continue
+                            self._publish_receipt(
+                                "auto_goal_candidate_rejected", candidate_receipt
+                            )
+                        except Exception as exc:
+                            with self._lock:
+                                # The request may have committed remotely even
+                                # if its response was lost.  Never append this
+                                # ambiguous RGB to memory; mark the scheduling
+                                # point consumed so the next frame resumes
+                                # normal recording.
+                                self._last_auto_candidate_after_frame = (
+                                    self._frames_recorded
+                                )
+                            self._warn_throttled(
+                                "auto_goal_candidate",
+                                "Automatic goal-candidate capture was "
+                                f"ambiguous; dropping this frame: {exc}",
+                                period_s=2.0,
+                            )
+                            continue
+                    if self.navigate_during_memory_recording:
+                        if goal_condition is None:
+                            raise RuntimeError(
+                                "Novel recording requires a loaded ImageGoal"
+                            )
+                        with self._client_lock:
+                            trajectory, all_trajectories, all_values = (
+                                self._client.novel_imagegoal_step(
+                                    goal_condition, rgb, depth_m
+                                )
+                            )
+                            plan_receipt = dict(self._client.last_plan_receipt)
+                        with self._lock:
+                            self._frames_recorded = int(
+                                plan_receipt.get(
+                                    "frames_recorded", self._frames_recorded + 1
+                                )
+                            )
+                        planned_in_recording = True
+                    else:
+                        with self._client_lock:
+                            receipt = self._client.memory_step(rgb)
+                        finished = time.monotonic()
+                        with self._lock:
+                            self._frames_recorded = int(
+                                receipt.get(
+                                    "frames_recorded", self._frames_recorded + 1
+                                )
+                            )
+                            self._last_inference_s = finished - started
+                            self._last_error = ""
+                            self._stop_reason = "memory_recording"
+                        continue
 
-                if self.mode == "nogoal":
+                if planned_in_recording:
+                    pass
+                elif self.mode == "nogoal":
                     with self._client_lock:
                         trajectory, all_trajectories, all_values = self._client.nogoal_step(
                             rgb, depth_m
                         )
                 elif self.mode == "imagegoal":
+                    with self._lock:
+                        active_goal_sha256 = self._active_goal_sha256
                     with self._client_lock:
                         trajectory, all_trajectories, all_values = self._client.imagegoal_step(
-                            goal_condition, rgb, depth_m
+                            goal_condition,
+                            rgb,
+                            depth_m,
+                            installed_goal_sha256=active_goal_sha256,
                         )
+                        plan_receipt = dict(self._client.last_plan_receipt)
                 else:
                     with self._client_lock:
                         trajectory, all_trajectories, all_values = self._client.pointgoal_step(
@@ -643,6 +884,14 @@ class NavDPGo2Adapter(Node):
                     all_trajectories, all_values, self.debug_max_candidates
                 )
                 target = trajectory_to_command(path, self.controller_config)
+                terminal = terminal_motion_override(
+                    plan_receipt if self.mode == "imagegoal" else None,
+                    rotate_gain=self.controller_config.rotate_gain,
+                    max_angular_rps=self.controller_config.max_angular_rps,
+                )
+                if terminal.applied:
+                    assert terminal.command is not None
+                    target = terminal.command
                 finished = time.monotonic()
                 with self._lock:
                     self._trajectory = path
@@ -653,6 +902,19 @@ class NavDPGo2Adapter(Node):
                     self._last_inference_s = finished - started
                     self._last_error = ""
                     self._stop_reason = "ready"
+                    if self.mode == "imagegoal":
+                        self._last_plan_receipt = plan_receipt
+                        self._terminal_motion_receipt = terminal.audit_dict()
+                    if terminal.assert_estop:
+                        self._estop = True
+                        self._enabled = False
+                        self._stop_reason = "certified_terminal_stop"
+                if self.mode == "imagegoal":
+                    self._publish_receipt(
+                        "novel_recording_plan"
+                        if planned_in_recording else "imagegoal_plan",
+                        plan_receipt,
+                    )
                 if not self._stop_event.is_set() and rclpy.ok():
                     self._publish_path(path)
                     self._publish_debug_markers()
@@ -850,6 +1112,11 @@ class NavDPGo2Adapter(Node):
             stop_reason = self._stop_reason
             inference_s = self._last_inference_s
             depth = None if self._depth_m is None else self._depth_m
+            phase = self._phase
+            goal_candidates = self._goal_candidates_captured
+            active_goal_id = self._active_goal_id
+            cec_takeover = self._last_plan_receipt.get("cec_takeover")
+            cec_reason = self._last_plan_receipt.get("cec_reason")
 
         stamp = self.get_clock().now().to_msg()
         header = PoseStamped().header
@@ -995,6 +1262,10 @@ class NavDPGo2Adapter(Node):
                 0,
                 (
                     f"{state} | {stop_reason}\n"
+                    f"phase {phase or 'n/a'} | goals {goal_candidates}"
+                    f" | active {active_goal_id if active_goal_id is not None else '-'}\n"
+                    f"CEC {cec_takeover if cec_takeover is not None else '-'}"
+                    f" | {cec_reason or '-'}\n"
                     f"cmd {command.linear_x:+.2f} m/s  {command.angular_z:+.2f} rad/s\n"
                     f"depth {clearance_text} | infer {inference_s:.2f}s"
                 ),
@@ -1040,6 +1311,9 @@ class NavDPGo2Adapter(Node):
                 ),
                 "goal_age_s": self._age(now, self._goal_monotonic),
                 "image_goal_loaded": self._image_goal is not None,
+                "revisit_image_goal_loaded": (
+                    self._revisit_image_goal is not None
+                ),
                 "plan_age_s": self._age(now, self._plan_monotonic),
                 "last_inference_s": round(self._last_inference_s, 3),
                 "candidate_count": int(self._candidate_trajectories.shape[0]),
@@ -1048,7 +1322,62 @@ class NavDPGo2Adapter(Node):
                 "last_error": self._last_error,
                 "phase": self._phase,
                 "frames_recorded": self._frames_recorded,
+                "navigate_during_memory_recording": (
+                    self.navigate_during_memory_recording
+                ),
                 "goal_candidates_captured": self._goal_candidates_captured,
+                "auto_goal_candidate_interval_frames": (
+                    self.auto_goal_candidate_interval_frames
+                ),
+                "auto_goal_candidate_max": self.auto_goal_candidate_max,
+                "auto_goal_candidate_post_guard_frames": (
+                    self.auto_goal_candidate_post_guard_frames
+                ),
+                "auto_candidate_guard_remaining": (
+                    self._auto_candidate_guard_remaining
+                ),
+                "auto_select_goal_candidate": self.auto_select_goal_candidate,
+                "active_goal_id": self._active_goal_id,
+                "active_goal_sha256": self._active_goal_sha256,
+                "last_receipt_event": self._last_receipt_event,
+                "begin_revisit_receipt": self._last_phase_receipt,
+                "cec_takeover": self._last_plan_receipt.get("cec_takeover"),
+                "cec_reason": self._last_plan_receipt.get("cec_reason"),
+                "cec_controller": self._last_plan_receipt.get("cec_controller"),
+                "cec_selected_anchor": self._last_plan_receipt.get(
+                    "cec_selected_anchor"
+                ),
+                "terminal_handoff_disposition": self._last_plan_receipt.get(
+                    "terminal_handoff_disposition"
+                ),
+                "terminal_local_latched": self._last_plan_receipt.get(
+                    "terminal_local_latched"
+                ),
+                "terminal_predicted_distance_m": self._last_plan_receipt.get(
+                    "terminal_predicted_distance_m"
+                ),
+                "terminal_predicted_bearing_deg": self._last_plan_receipt.get(
+                    "terminal_predicted_bearing_deg"
+                ),
+                "terminal_stop_streak": self._last_plan_receipt.get(
+                    "terminal_stop_streak"
+                ),
+                "terminal_stop_authorized": self._last_plan_receipt.get(
+                    "terminal_stop_authorized"
+                ),
+                "terminal_motion_override": self._terminal_motion_receipt,
+                "monocular_depth_receipt": self._last_plan_receipt.get(
+                    "monocular_depth_receipt"
+                ),
+                "controller_max_linear_mps": round(
+                    self.controller_config.max_linear_mps, 3
+                ),
+                "controller_max_angular_rps": round(
+                    self.controller_config.max_angular_rps, 3
+                ),
+                "controller_heading_deadband_deg": round(
+                    math.degrees(self.controller_config.heading_deadband_rad), 3
+                ),
                 "cmd_vx": round(self._last_command.linear_x, 3),
                 "cmd_wz": round(self._last_command.angular_z, 3),
             }

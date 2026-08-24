@@ -13,6 +13,7 @@ navdp_go2_adapter:
     cmd_vel_topic: /navdp/cmd_vel
     path_topic: /navdp/trajectory
     status_topic: /navdp/status
+    cec_receipt_topic: /navdp/cec_receipt
     debug_markers_topic: /navdp/debug/markers
     enable_topic: /navdp/enabled
     estop_topic: /navdp/estop
@@ -21,8 +22,13 @@ navdp_go2_adapter:
     debug_visualization: true
     debug_max_candidates: 6
     enable_on_start: false
+    estop_on_start: true
     plan_while_disabled: true
     two_phase_episode: false
+    auto_goal_candidate_interval_frames: 24
+    auto_goal_candidate_max: 6
+    auto_goal_candidate_post_guard_frames: 4
+    auto_select_goal_candidate: true
     planning_rate_hz: 1.5
     control_rate_hz: 20.0
     connect_timeout_s: 3.0
@@ -38,6 +44,7 @@ navdp_go2_adapter:
     lookahead_m: 0.60
     max_linear_mps: 0.30
     max_angular_rps: 0.55
+    heading_deadband_rad: 0.13962634015954636  # 8 deg; validated TinyNav anti-hunting gate
     rotate_in_place_angle_rad: 0.70
     rotate_gain: 1.50
     slow_path_length_m: 1.00

@@ -15,6 +15,9 @@ class ControllerConfig:
     lookahead_m: float = 0.60
     max_linear_mps: float = 0.30
     max_angular_rps: float = 0.60
+    # Match the validated TinyNav real-robot controller: do not chase small
+    # alternating heading errors into the Go2 angular command floor.
+    heading_deadband_rad: float = math.radians(8.0)
     rotate_in_place_angle_rad: float = 0.70
     rotate_gain: float = 1.50
     slow_path_length_m: float = 1.00
@@ -127,7 +130,13 @@ def trajectory_to_command(
             speed_scale = min(1.0, path_length / max(config.slow_path_length_m, 1e-3))
             heading_scale = max(0.0, math.cos(heading))
             linear_x = config.max_linear_mps * speed_scale * heading_scale
-            angular_z = _clamp(2.0 * linear_x * target_y / distance_sq, config.max_angular_rps)
+            if abs(heading) < max(0.0, config.heading_deadband_rad):
+                angular_z = 0.0
+            else:
+                angular_z = _clamp(
+                    2.0 * linear_x * target_y / distance_sq,
+                    config.max_angular_rps,
+                )
 
     return VelocityCommand(
         linear_x=float(linear_x),

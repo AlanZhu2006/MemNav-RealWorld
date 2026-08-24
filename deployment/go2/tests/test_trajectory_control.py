@@ -37,6 +37,33 @@ class TrajectoryControlTest(unittest.TestCase):
         command = trajectory_to_command(np.array([[0.6, 0.0], [1.2, 0.0]]))
         self.assertAlmostEqual(command.linear_x, 0.30)
 
+    def test_tinynav_heading_deadband_rejects_small_alternating_turns(self):
+        distance = 0.60
+        for angle_deg in (-7.0, 7.0):
+            angle = math.radians(angle_deg)
+            path = np.array(
+                [
+                    [distance * math.cos(angle), distance * math.sin(angle)],
+                    [2.0 * distance * math.cos(angle), 2.0 * distance * math.sin(angle)],
+                ]
+            )
+            command = trajectory_to_command(path)
+            self.assertGreater(command.linear_x, 0.0)
+            self.assertEqual(command.angular_z, 0.0)
+
+    def test_heading_outside_tinynav_deadband_still_turns(self):
+        distance = 0.60
+        angle = math.radians(12.0)
+        path = np.array(
+            [
+                [distance * math.cos(angle), distance * math.sin(angle)],
+                [2.0 * distance * math.cos(angle), 2.0 * distance * math.sin(angle)],
+            ]
+        )
+        command = trajectory_to_command(path)
+        self.assertGreater(command.linear_x, 0.0)
+        self.assertGreater(command.angular_z, 0.0)
+
     def test_side_path_rotates_before_translation(self):
         command = trajectory_to_command(np.array([[0.0, 0.5], [0.0, 1.0]]))
         self.assertEqual(command.linear_x, 0.0)

@@ -223,7 +223,7 @@ ros2 service call /navdp_go2_adapter/set_enabled std_srvs/srv/SetBool "{data: tr
 
 Go2 桥有第二层 0.35s 命令超时；手柄任一摇杆超过 deadband 后，自动释放 NavDP 的 SportClient 控制并调用 `StopMove()`。
 
-Go2 本体有速度门控。NavDP 桥必须保持与本机已验证 TinyNav 桥相同的最小非零命令：平移 `GO2_MIN_CMD_V=0.10m/s`、旋转 `GO2_MIN_CMD_W=0.20rad/s`。低于门槛时可能只出现腿部姿态响应而没有有效位移，不能据此判断导航已驱动底盘。正常实验的线速度上限默认使用 TinyNav 导航模式及本轮 NavDP 真机共同验证有效的 `GO2_MAX_VX=0.30m/s`；首次短距测试若需更保守，可临时覆盖上限，但不要把 `GO2_MIN_CMD_V` 降到 `0.10` 以下，应通过限制解锁时长控制测试距离。
+Go2 本体有速度门控。NavDP 桥必须保持与本机已验证 TinyNav 桥相同的最小非零命令：平移 `GO2_MIN_CMD_V=0.10m/s`、旋转 `GO2_MIN_CMD_W=0.20rad/s`。低于门槛时可能只出现腿部姿态响应而没有有效位移，不能据此判断导航已驱动底盘。与 TinyNav 一样，轨迹控制器必须先应用 `8°` 航向误差死区，再由 Go2 桥施加最小角速度；不能把正负交替的微小角速度逐帧直接抬升到 `±0.20rad/s`，否则会产生左右 hunting。正常实验的线速度上限默认使用 TinyNav 导航模式及本轮 NavDP 真机共同验证有效的 `GO2_MAX_VX=0.30m/s`；首次短距测试若需更保守，可临时覆盖上限，但不要把 `GO2_MIN_CMD_V` 降到 `0.10` 以下，应通过限制解锁时长控制测试距离。
 
 ## 9. PointGoal、ImageGoal 与 NoGoal
 

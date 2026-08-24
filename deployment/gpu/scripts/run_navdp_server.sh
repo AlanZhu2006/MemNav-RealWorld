@@ -18,5 +18,6 @@ exec env NAVDP_DISABLE_VIDEO=1 PYTHONUNBUFFERED=1 \
   "$MEMNAV_PY" -u "$REPO_ROOT/baselines/navdp/navdp_server.py" \
     --port "$NAVDP_PORT" --checkpoint "$NAVDP_CKPT" \
     --depth_source monocular_sidecar \
+    --require_monocular_depth_transaction \
     --monocular_depth_url \
       "http://127.0.0.1:${MEMNAV_PORT}/monocular_depth_query"

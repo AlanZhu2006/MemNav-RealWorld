@@ -1,6 +1,6 @@
 # Audited Full-Mono Architecture
 
-Snapshot: **2026-08-21**
+Snapshot: **2026-08-24**
 
 ## System boundary
 
@@ -66,9 +66,12 @@ structurally impossible instead of procedurally avoidable.
 navigator_reset
    -> phase = memory_recording
         /memory_step        record-only causal RGB append (no goal)
-        /goal_candidate     register a goal photo, NEVER appended to memory
+        /goal_candidate     support-check and register a goal photo;
+                            accepted candidate RGB is NEVER appended to memory
         /imagegoal_step     REJECTED (HTTP 400, no upstream traffic)
-   -> /begin_revisit  (>=1 recorded frame; robot stationary)
+   -> /prepare_revisit  (explicit task boundary; robot stationary)
+        read-only cached-DINO whole-history score + SIFT/epipolar top-1 check
+        selects one non-trivial supported candidate and freezes its SHA-256
         replays a stride-8 tail of recorded frames through NavDP
         /memory_replay_step and hard-verifies queue_lengths, mirroring the
         simulator shared-trace boundary; any failure latches
@@ -80,12 +83,25 @@ navigator_reset
         /memory_step        REJECTED
 ~~~
 
-`/healthz` reports `phase`, `frames_recorded`, `revisit_started_after_frame`
-and `goal_candidates_captured`. Goal candidates carry a
-`captured_after_frame` and SHA-256 receipt and are scored offline against the
-recorded stream (`deployment/gpu/score_realworld_revisit_goal.py`) using only
-frozen server components; the weak-covisibility proxy thresholds are
-provisional until calibrated on the disabled-adapter walk.
+The Jetson samples candidate-only frames every 24 recorded memory frames, up
+to six candidates. Each candidate freezes its causal support ceiling at 16
+frames before its capture boundary; later recording can never widen that
+eligible history. A candidate is registered only when the read-only support
+query reports at least 16 geometric inliers and DINO cosine at most 0.90; four
+immediately following camera frames are omitted from memory to avoid a trivial
+near-self match.  These thresholds remain provisional until calibrated on the
+disabled-adapter walk.  Manual candidate capture and the offline scoring script
+remain available for controlled ablations.
+
+`/prepare_revisit` is idempotent.  A lost HTTP response can be retried without
+opening a second goal session or repeating NavDP warm-up.  Its single receipt
+contains candidate scores, selected id/SHA-256, the selected JPEG, warm-up
+indices and queue lengths.  The Jetson verifies the JPEG hash, updates the
+runtime ImageGoal and acknowledges the installed SHA on every query; the hub
+uses its committed goal bytes rather than trusting a stale client upload.
+`/healthz` reports the active goal and last prepare receipt.  ROS mirrors the
+same state on `/navdp/status`, publishes full event receipts on
+`/navdp/cec_receipt`, and shows phase/goal/CEC state in the RViz marker.
 
 ### Reset
 
@@ -166,3 +182,31 @@ the observed hardware command floors of `0.10 m/s` translation and
 The workstation is advisory and has no Unitree SDK, ROS velocity publisher or
 direct actuator route. The Jetson retains explicit enable, estop, trajectory
 freshness, collision guard, operator takeover and the final watchdog.
+
+### Proof-gated direct-bearing handoff
+
+Long-range CEC owns Revisit content addressing, while native NavDP owns the
+unsupported/Novel route. Once the live image and goal become directly
+covisible, `/local_pose_query` may refine either route with a certified
+scale-free current-to-goal bearing. Bearings inside the measured `+/-60 deg`
+NavDP point-token support are normalized onto the same validated `2.5 m`
+residual used by CEC. Rearward bearings never enter that token interface: the
+Jetson atomically emits bounded zero-translation yaw. Proof loss returns to the
+preceding native or long-range route.
+
+The low-latency query still reports a first-40-MDTEC-scaled translation for
+diagnostics, but real trace replay showed that value can underestimate the
+physical residual by at least `7.9x`. Schema
+`cec_direct_bearing_handoff_v2_20260824` therefore grants metric translation
+no control authority and no STOP authority. Automatic arrival remains
+fail-closed until a separately validated scale-free visual-convergence proof
+exists. The separate GOAT `/arrival_query` retains its strict-first-64 research
+contract; its claim must not be promoted into the robot execution boundary.
+
+Every direct-bearing disposition is returned in the plan receipt and
+revalidated at the robot execution boundary. A stale v1 schema, malformed
+bearing or unproven atomic turn cannot actuate the robot.
+
+The adapter starts with both `enable_on_start=false` and
+`estop_on_start=true`. Clearing estop and enabling motion are distinct onsite
+operator actions.

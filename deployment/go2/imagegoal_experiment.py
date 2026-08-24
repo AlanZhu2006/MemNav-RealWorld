@@ -402,6 +402,36 @@ def capture_target(args) -> int:
     return 0
 
 
+def safety_abort_reason(
+    metrics: dict,
+    *,
+    max_path_length_m: float = 0.0,
+    max_target_distance_regression_m: float = 0.0,
+) -> str:
+    """Return a fail-closed reason when an episode exceeds frozen bounds."""
+    path_length = metrics.get("path_length_m")
+    if (
+        max_path_length_m > 0.0
+        and isinstance(path_length, (int, float))
+        and math.isfinite(float(path_length))
+        and float(path_length) > max_path_length_m
+    ):
+        return "path_length_limit"
+    initial_distance = metrics.get("initial_distance_m")
+    current_distance = metrics.get("current_distance_m")
+    if (
+        max_target_distance_regression_m > 0.0
+        and isinstance(initial_distance, (int, float))
+        and isinstance(current_distance, (int, float))
+        and math.isfinite(float(initial_distance))
+        and math.isfinite(float(current_distance))
+        and float(current_distance)
+        > float(initial_distance) + max_target_distance_regression_m
+    ):
+        return "target_distance_regression"
+    return ""
+
+
 class EvaluationNode:
     def __init__(
         self,
@@ -588,7 +618,6 @@ class EvaluationNode:
             else None
         )
         return payload
-
     def _policy_stop_payload(self, now_s: Optional[float] = None) -> dict:
         now = time.monotonic() if now_s is None else now_s
         with self.lock:
@@ -826,6 +855,17 @@ class EvaluationNode:
             self._finish("success")
             return
         metrics = self.tracker.metrics(now)
+        abort_reason = safety_abort_reason(
+            metrics,
+            max_path_length_m=max(0.0, self.args.max_path_length_m),
+            max_target_distance_regression_m=max(
+                0.0, self.args.max_target_distance_regression_m
+            ),
+        )
+        if abort_reason:
+            self.tracker.invalid_reason = abort_reason
+            self._finish(f"safety_abort_{abort_reason}")
+            return
         raw_pose_success = bool(metrics.pop("success", False))
         metrics["raw_pose_success"] = raw_pose_success
         metrics["auxiliary_pose_valid"] = self._pose_metrics_valid(metrics)
@@ -1000,6 +1040,18 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--min-start-distance-m", type=float, default=1.20)
     run.add_argument("--max-start-distance-m", type=float, default=8.00)
     run.add_argument("--max-position-jump-m", type=float, default=0.50)
+    run.add_argument(
+        "--max-path-length-m",
+        type=float,
+        default=0.0,
+        help="fail-closed path-length limit; zero disables it",
+    )
+    run.add_argument(
+        "--max-target-distance-regression-m",
+        type=float,
+        default=0.0,
+        help="abort if target distance exceeds its initial value by this margin",
+    )
     run.add_argument("--state-timeout-s", type=float, default=0.50)
     run.add_argument("--visual-startup-timeout-s", type=float, default=5.00)
     run.add_argument("--visual-timeout-s", type=float, default=1.00)

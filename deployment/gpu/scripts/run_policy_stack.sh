@@ -3,6 +3,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
+GO2_DIR="$REPO_ROOT/deployment/go2"
+source "$GO2_DIR/offboard/runtime_contract.sh"
 SESSION="${CEC_TMUX_SESSION:-cec-realworld}"
 CEC_CAMERA_HEIGHT_M="${CEC_CAMERA_HEIGHT_M:?Set measured D435i optical-center height in metres}"
 export CEC_CAMERA_HEIGHT_M
@@ -29,15 +31,9 @@ tmux new-window -t "$SESSION" -n hub \
 
 ready=false
 for _ in $(seq 1 240); do
-  if curl -fsS --max-time 1 "http://127.0.0.1:$CEC_HUB_PORT/healthz" \
-      | python3 -c '
-import json, sys
-p = json.load(sys.stdin)
-assert p.get("algo") == "cec_hybrid_navdp"
-assert p.get("navigation_sensor_contract") == "causal_monocular_rgb_v1"
-assert p.get("navdp_depth_source") == "monocular_sidecar"
-assert p.get("metric_depth_sensor_consumed_by_policy") is False
-' \
+  health="$(curl -fsS --max-time 1 \
+      "http://127.0.0.1:$CEC_HUB_PORT/healthz" 2>/dev/null || true)"
+  if cec_validate_health_contract "$health" "$GO2_DIR" \
       && ss -ltn | awk '{print $4}' | grep -Eq "(^|:)$MEMNAV_PORT$" \
       && ss -ltn | awk '{print $4}' | grep -Eq "(^|:)$NAVDP_PORT$"; then
     ready=true

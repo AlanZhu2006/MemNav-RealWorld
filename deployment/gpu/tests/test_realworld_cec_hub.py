@@ -1,4 +1,5 @@
 import io
+import hashlib
 import json
 
 import pytest
@@ -6,6 +7,7 @@ import requests
 
 from deployment.gpu.realworld_cec_hub import (
     NAVIGATION_SENSOR_CONTRACT,
+    TERMINAL_HANDOFF_SCHEMA,
     CecHybridRouter,
     HybridBackendError,
     UpstreamConfig,
@@ -36,11 +38,60 @@ class FakeSession:
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
+        if isinstance(response, FakeResponse) and isinstance(response.payload, dict):
+            payload = dict(response.payload)
+            data = kwargs.get("data") or {}
+            files = kwargs.get("files") or {}
+            image_item = files.get("image")
+            image_bytes = (
+                image_item[1].getvalue()
+                if image_item is not None and hasattr(image_item[1], "getvalue")
+                else None
+            )
+            if (
+                image_bytes is not None
+                and data.get("materialize_monocular_depth") == "1"
+                and url.endswith(("/memory_step", "/retrieval_probe_step"))
+            ):
+                frame_idx = int(payload.get("frame_idx", 0))
+                token = hashlib.sha256(
+                    b"test-depth-transaction" + image_bytes
+                    + str(frame_idx).encode()
+                ).hexdigest()
+                payload.update({
+                    "image_sha256": hashlib.sha256(image_bytes).hexdigest(),
+                    "monocular_depth_transaction_token": token,
+                    "monocular_depth_frame_index": frame_idx,
+                })
+            if (
+                image_bytes is not None
+                and isinstance(payload.get("monocular_depth_receipt"), dict)
+            ):
+                receipt = dict(payload["monocular_depth_receipt"])
+                receipt.update({
+                    "image_sha256": hashlib.sha256(image_bytes).hexdigest(),
+                    "monocular_depth_transaction_token": data.get(
+                        "monocular_depth_transaction_token"
+                    ),
+                    "frame_index": int(data.get(
+                        "monocular_depth_frame_index", receipt.get("frame_index", 0)
+                    )),
+                })
+                payload["monocular_depth_receipt"] = receipt
+            response = FakeResponse(payload, response.status_code)
         return response
 
 
 def config():
     return UpstreamConfig("http://mem", "http://nav", camera_height_m=0.5)
+
+
+def short_gap_config():
+    """Compact unit fixture with one frame still forming a causal window."""
+    return UpstreamConfig(
+        "http://mem", "http://nav", camera_height_m=0.5,
+        goal_min_frame_gap=1,
+    )
 
 
 def reset_responses():
@@ -57,10 +108,11 @@ def reset_responses():
                 "depth_source": "monocular_sidecar",
                 "metric_depth_sensor_consumed_by_config": False,
                 "monocular_depth_url_configured": True,
+                "monocular_depth_transaction_required": True,
             })]
 
 
-def nav_result(marker):
+def nav_result(marker, queue_length=1, memory_size=8):
     return FakeResponse({
         "trajectory": [[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]],
         "all_trajectory": [],
@@ -69,6 +121,8 @@ def nav_result(marker):
         "depth_source": "monocular_sidecar",
         "metric_depth_sensor_consumed": False,
         "monocular_depth_receipt": {"frame_index": 40},
+        "queue_lengths": [queue_length],
+        "memory_size": memory_size,
     })
 
 
@@ -92,6 +146,29 @@ def warmup_response(queue_length=1, memory_size=8):
     })
 
 
+def local_reject_response():
+    return FakeResponse({
+        "status": "precheck_fundamental_inliers",
+        "certificate_accepted": False,
+        "metric_scale_available": False,
+        "predicted_relative_xy_m": None,
+        "predicted_distance_m": None,
+    })
+
+
+def local_pose_response(x, y, *, yaw_right=0.0):
+    return FakeResponse({
+        "status": "ok",
+        "certificate_accepted": True,
+        "scale_free_direction_available": True,
+        "predicted_scale_free_relative_xy": [x, y],
+        "metric_scale_available": True,
+        "predicted_relative_xy_m": [x, y],
+        "predicted_distance_m": (x * x + y * y) ** 0.5,
+        "terminal_yaw_right_deg": yaw_right,
+    })
+
+
 def enter_revisit(router):
     router.memory_step(b"m")
     return router.begin_revisit()
@@ -103,6 +180,7 @@ def test_certificate_reject_calls_exact_native():
         warmup_response(),
         FakeResponse({"frame_idx": 3, "certified_visual_candidates": []}),
         FakeResponse({"ok": True, "accepted": False, "reason": "no_candidate"}),
+        local_reject_response(),
         nav_result("native"),
     ])
     router = CecHybridRouter(config(), session=session)
@@ -113,9 +191,10 @@ def test_certificate_reject_calls_exact_native():
     assert result["cec_takeover"] is False
     assert result["client_metric_depth_forwarded"] is False
     assert "depth" not in session.calls[-1][1]["files"]
-    assert [call[0] for call in session.calls[-3:]] == [
+    assert [call[0] for call in session.calls[-4:]] == [
         "http://mem/retrieval_probe_step",
         "http://mem/certified_relocalize",
+        "http://mem/local_pose_query",
         "http://nav/imagegoal_step",
     ]
 
@@ -133,6 +212,7 @@ def test_certificate_accept_projects_to_frozen_radius_and_calls_mixed():
             "aux_pose": [3.0, 4.0],
             "selected_anchor": 2,
         }),
+        local_reject_response(),
         nav_result("mixed"),
     ])
     router = CecHybridRouter(config(), session=session)
@@ -145,6 +225,76 @@ def test_certificate_accept_projects_to_frozen_radius_and_calls_mixed():
     point = json.loads(mixed_data["goal_data"])
     assert point == {"goal_x": [1.5], "goal_y": [2.0]}
     assert "depth" not in session.calls[-1][1]["files"]
+
+
+def test_direct_certified_bearing_supersedes_long_range_when_covisible():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(),
+        warmup_response(),
+        FakeResponse({
+            "frame_idx": 7,
+            "certified_visual_candidates": [{"anchor": 2}],
+        }),
+        FakeResponse({
+            "ok": True,
+            "accepted": True,
+            "reason": "accepted",
+            "pointgoal_units": "lingbot_raw_direction_only",
+            "aux_pose": [3.0, 4.0],
+            "selected_anchor": 2,
+        }),
+        local_pose_response(0.60, 0.20),
+        nav_result("local-mixed"),
+    ])
+    router = CecHybridRouter(config(), session=session)
+    do_reset(router)
+    enter_revisit(router)
+
+    result = router.plan_imagegoal(image=b"i", goal=b"g", depth=b"d")
+
+    assert result["marker"] == "local-mixed"
+    assert result["cec_controller"] == (
+        "navdp_image_direct_certified_bearing_mix"
+    )
+    assert result["terminal_handoff_disposition"] == "bearing_local"
+    assert result["terminal_local_latched"] is False
+    assert result["terminal_metric_scale_control_authority"] is False
+    assert session.calls[-2][0] == "http://mem/local_pose_query"
+    point = json.loads(session.calls[-1][1]["data"]["goal_data"])
+    assert point["goal_x"] == pytest.approx([2.371708245])
+    assert point["goal_y"] == pytest.approx([0.790569415])
+
+
+def test_rear_direct_pose_requests_atomic_turn_without_sending_bad_point_token():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(),
+        warmup_response(),
+        FakeResponse({
+            "frame_idx": 7,
+            "certified_visual_candidates": [{"anchor": 2}],
+        }),
+        FakeResponse({
+            "ok": True,
+            "accepted": True,
+            "reason": "accepted",
+            "pointgoal_units": "lingbot_raw_direction_only",
+            "aux_pose": [3.0, 4.0],
+            "selected_anchor": 2,
+        }),
+        local_pose_response(-0.695, -0.024),
+        nav_result("native-under-turn"),
+    ])
+    router = CecHybridRouter(config(), session=session)
+    do_reset(router)
+    enter_revisit(router)
+
+    result = router.plan_imagegoal(image=b"i", goal=b"g", depth=b"d")
+
+    assert result["marker"] == "native-under-turn"
+    assert result["cec_controller"] == "terminal_atomic_turn"
+    assert result["terminal_handoff_disposition"] == "atomic_turn"
+    assert result["terminal_turn_error_left_rad"] < -3.0
+    assert session.calls[-1][0] == "http://nav/imagegoal_step"
 
 
 def test_probe_failure_fails_closed_because_mono_depth_stream_is_shared():
@@ -213,6 +363,151 @@ def test_memory_step_records_and_is_rejected_after_begin_revisit():
         router.begin_revisit()
 
 
+def test_live_novel_plan_records_same_frame_and_skips_replay_at_switch():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(0),
+        local_reject_response(),
+        nav_result("novel", queue_length=1),
+        memory_step_response(1),
+        local_reject_response(),
+        nav_result("novel", queue_length=2),
+    ])
+    router = CecHybridRouter(config(), session=session)
+    do_reset(router)
+
+    first = router.plan_novel_and_record(image=b"m0", goal=b"q")
+    second = router.plan_novel_and_record(image=b"m1", goal=b"q")
+
+    assert first["novel_recording"] is True
+    assert second["frames_recorded"] == 2
+    assert router.navdp_live_recording_steps == 2
+    assert [call[0] for call in session.calls[2:]] == [
+        "http://mem/memory_step",
+        "http://mem/local_pose_query",
+        "http://nav/imagegoal_step",
+        "http://mem/memory_step",
+        "http://mem/local_pose_query",
+        "http://nav/imagegoal_step",
+    ]
+    calls_before_switch = len(session.calls)
+    switch = router.begin_revisit()
+    assert len(session.calls) == calls_before_switch
+    assert switch["navdp_warmup_mode"] == "live_novel_fifo"
+    assert switch["navdp_warmup_frames"] == 0
+    assert switch["navdp_queue_lengths"] == [2]
+
+
+def test_novel_direct_pose_enters_scale_free_bearing_without_role_or_cec():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(0),
+        local_pose_response(0.60, 0.20),
+        nav_result("novel-local", queue_length=1),
+    ])
+    router = CecHybridRouter(config(), session=session)
+    do_reset(router)
+
+    result = router.plan_novel_and_record(image=b"novel", goal=b"goal")
+
+    assert result["marker"] == "novel-local"
+    assert result["cec_takeover"] is False
+    assert result["terminal_proof_active"] is True
+    assert result["terminal_handoff_disposition"] == "bearing_local"
+    assert result["cec_controller"] == (
+        "navdp_image_direct_certified_bearing_mix"
+    )
+    assert result["terminal_metric_scale_control_authority"] is False
+    assert result["terminal_stop_authorized"] is False
+    assert session.calls[-2][0] == "http://mem/local_pose_query"
+    assert session.calls[-1][0] == "http://nav/navdp_step_ip_mixgoal"
+    point = json.loads(session.calls[-1][1]["data"]["goal_data"])
+    assert point["goal_x"] == pytest.approx([2.371708245])
+    assert point["goal_y"] == pytest.approx([0.790569415])
+
+
+def test_novel_rear_direct_pose_emits_certified_atomic_turn_receipt():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(0),
+        local_pose_response(-0.695, -0.024),
+        nav_result("native-under-turn", queue_length=1),
+    ])
+    router = CecHybridRouter(config(), session=session)
+    do_reset(router)
+
+    result = router.plan_novel_and_record(image=b"novel", goal=b"goal")
+
+    assert result["cec_takeover"] is False
+    assert result["terminal_proof_active"] is True
+    assert result["terminal_handoff_disposition"] == "atomic_turn"
+    assert result["terminal_turn_error_left_rad"] < -3.0
+    assert result["cec_controller"] == "terminal_atomic_turn"
+    assert session.calls[-1][0] == "http://nav/imagegoal_step"
+
+
+def test_novel_direct_pose_never_authorizes_stop_from_metric_scale_alone():
+    responses = reset_responses()
+    for frame_idx, queue_length in ((0, 1), (1, 2), (2, 3)):
+        responses.extend([
+            memory_step_response(frame_idx),
+            local_pose_response(0.03, 0.0, yaw_right=4.0),
+            nav_result("native-under-terminal", queue_length=queue_length),
+        ])
+    router = CecHybridRouter(config(), session=FakeSession(responses))
+    do_reset(router)
+
+    results = [
+        router.plan_novel_and_record(
+            image=f"novel-{index}".encode(), goal=b"goal"
+        )
+        for index in range(3)
+    ]
+
+    assert [item["terminal_handoff_disposition"] for item in results] == [
+        "bearing_local", "bearing_local", "bearing_local"
+    ]
+    assert all(item["terminal_stop_authorized"] is False for item in results)
+    assert results[-1]["cec_takeover"] is False
+    assert results[-1]["terminal_proof_active"] is True
+    assert results[-1]["terminal_stop_authority"] == (
+        "none_until_independent_visual_convergence"
+    )
+
+
+def test_novel_direct_proof_loss_returns_to_native_fallback():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(0),
+        local_pose_response(0.60, 0.20),
+        nav_result("novel-local", queue_length=1),
+        memory_step_response(1),
+        local_reject_response(),
+        nav_result("native-under-hold", queue_length=2),
+    ])
+    router = CecHybridRouter(config(), session=session)
+    do_reset(router)
+    router.plan_novel_and_record(image=b"novel-0", goal=b"goal")
+
+    result = router.plan_novel_and_record(image=b"novel-1", goal=b"goal")
+
+    assert result["terminal_handoff_disposition"] == "native"
+    assert result["terminal_local_latched"] is False
+    assert result["terminal_proof_active"] is False
+    assert result["cec_controller"] == "navdp_image_router"
+
+
+def test_live_novel_plan_rejects_missing_fifo_receipt():
+    bad_plan = nav_result("novel")
+    del bad_plan.payload["queue_lengths"]
+    session = FakeSession(
+        reset_responses() + [
+            memory_step_response(0), local_reject_response(), bad_plan
+        ]
+    )
+    router = CecHybridRouter(config(), session=session)
+    do_reset(router)
+    with pytest.raises(HybridBackendError, match="live FIFO receipt"):
+        router.plan_novel_and_record(image=b"m0", goal=b"q")
+    assert router.native_state_uncertain is True
+
+
 def test_begin_revisit_requires_recorded_frames():
     router = CecHybridRouter(config(), session=FakeSession(reset_responses()))
     do_reset(router)
@@ -239,6 +534,195 @@ def test_goal_candidate_recorded_without_memory_append(tmp_path):
     router.begin_revisit()
     with pytest.raises(ValueError, match="during memory recording"):
         router.goal_candidate(b"too-late")
+
+
+def test_auto_candidate_validation_rejects_without_registering():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(0),
+        FakeResponse({
+            "ok": True, "max_cos": 0.96, "argmax_idx": 0,
+            "frames_swept": 1, "frames_total": 1, "state_mutated": False,
+            "geometry": {"matches": 40, "inliers": 30,
+                         "inlier_ratio": 0.75},
+            "geometry_backend": "sift_fundamental_ransac",
+        }),
+    ])
+    router = CecHybridRouter(config(), session=session)
+    do_reset(router)
+    router.memory_step(b"memory-frame")
+
+    receipt = router.goal_candidate(
+        b"near-duplicate", validate_support=True
+    )
+
+    assert receipt["registered"] is False
+    assert receipt["capture_score"]["provisional_band"] == (
+        "reject_near_duplicate"
+    )
+    assert router.goal_candidates == []
+    assert router.frames_recorded == 1
+    support_form = session.calls[-1][1]["data"]
+    assert support_form["candidate_frame_idx"] == "1"
+    assert support_form["min_frame_gap"] == "16"
+
+
+def test_prepare_revisit_scores_selects_and_atomically_installs_goal():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(0),
+        # Candidate 0: supported and non-trivial.
+        FakeResponse({
+            "ok": True, "max_cos": 0.88, "argmax_idx": 0,
+            "frames_swept": 1, "frames_total": 1, "state_mutated": False,
+            "eligible_anchor_ceiling": 0,
+            "geometry": {"matches": 30, "inliers": 20,
+                         "inlier_ratio": 0.67},
+            "geometry_backend": "sift_fundamental_ransac",
+        }),
+        # Candidate 1: stronger geometry but a near duplicate, so rejected.
+        FakeResponse({
+            "ok": True, "max_cos": 0.95, "argmax_idx": 0,
+            "frames_swept": 1, "frames_total": 1, "state_mutated": False,
+            "geometry": {"matches": 60, "inliers": 50,
+                         "inlier_ratio": 0.83},
+            "geometry_backend": "sift_fundamental_ransac",
+        }),
+        warmup_response(),
+    ])
+    router = CecHybridRouter(short_gap_config(), session=session)
+    do_reset(router)
+    router.memory_step(b"memory-frame")
+    first = router.goal_candidate(b"supported-goal")
+    router.goal_candidate(b"near-duplicate-goal")
+
+    receipt = router.prepare_revisit()
+
+    assert receipt["phase"] == "revisit_query"
+    assert receipt["selected_goal"]["candidate_id"] == first["candidate_id"]
+    assert receipt["candidate_scores"][1]["provisional_band"] == (
+        "reject_near_duplicate"
+    )
+    assert router.active_goal["image"] == b"supported-goal"
+    assert router.last_prepare_receipt is not None
+    assert receipt["goal_min_frame_gap"] == 1
+    assert receipt["selected_goal"]["candidate_ceiling_override"] == 0
+    assert router.active_goal["candidate_ceiling_override"] == 0
+    # Both candidates are rescored against their immutable capture boundary;
+    # later history must never widen the eligible anchor set.
+    support_calls = [
+        kwargs["data"] for url, kwargs in session.calls
+        if url == "http://mem/goal_candidate_support"
+    ]
+    assert [row["candidate_frame_idx"] for row in support_calls] == ["1", "1"]
+    assert "goal_image_jpeg_base64" not in router.last_prepare_receipt
+    calls_after_commit = len(session.calls)
+    replay = router.prepare_revisit()
+    assert replay["idempotent_replay"] is True
+    assert replay["selected_goal"]["candidate_id"] == first["candidate_id"]
+    assert len(session.calls) == calls_after_commit
+
+
+def test_prepare_revisit_without_eligible_goal_is_non_mutating():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(0),
+        FakeResponse({
+            "ok": True, "max_cos": 0.70, "argmax_idx": 0,
+            "frames_swept": 1, "frames_total": 1, "state_mutated": False,
+            "geometry": {"matches": 12, "inliers": 8,
+                         "inlier_ratio": 0.67},
+            "geometry_backend": "sift_fundamental_ransac",
+        }),
+    ])
+    router = CecHybridRouter(config(), session=session)
+    do_reset(router)
+    router.memory_step(b"memory-frame")
+    router.goal_candidate(b"unsupported-goal")
+
+    with pytest.raises(ValueError, match="no goal candidate passed"):
+        router.prepare_revisit()
+
+    assert router.phase == "memory_recording"
+    assert router.active_goal is None
+    assert router.native_state_uncertain is False
+
+
+def test_pre_episode_goal_is_installed_without_forging_candidate_time():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(0),
+        local_reject_response(),
+        nav_result("novel", queue_length=1),
+    ])
+    router = CecHybridRouter(config(), session=session)
+    do_reset(router)
+    router.plan_novel_and_record(image=b"start-s", goal=b"novel-q")
+
+    receipt = router.prepare_revisit_goal(b"frozen-revisit-r")
+
+    assert receipt["phase"] == "revisit_query"
+    assert receipt["navdp_warmup_mode"] == "live_novel_fifo"
+    assert receipt["navdp_warmup_frames"] == 0
+    assert receipt["goal_selection_contract"] == (
+        "operator_frozen_external_v1"
+    )
+    assert receipt["selected_goal"]["candidate_id"] is None
+    assert receipt["selected_goal"]["captured_after_frame"] is None
+    assert receipt["selected_goal"]["goal_source"] == (
+        "operator_frozen_external"
+    )
+    assert router.goal_candidates == []
+    assert router.active_goal["image"] == b"frozen-revisit-r"
+
+    calls_after_commit = len(session.calls)
+    replay = router.prepare_revisit_goal(b"frozen-revisit-r")
+    assert replay["idempotent_replay"] is True
+    assert len(session.calls) == calls_after_commit
+    with pytest.raises(ValueError, match="different committed goal"):
+        router.prepare_revisit_goal(b"different-r")
+
+
+def test_prepared_goal_requires_client_ack_and_overrides_uploaded_bytes():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(0),
+        FakeResponse({
+            "ok": True, "max_cos": 0.80, "argmax_idx": 0,
+            "frames_swept": 1, "frames_total": 1, "state_mutated": False,
+            "eligible_anchor_ceiling": 0,
+            "geometry": {"matches": 30, "inliers": 20,
+                         "inlier_ratio": 0.67},
+            "geometry_backend": "sift_fundamental_ransac",
+        }),
+        warmup_response(),
+            FakeResponse({"frame_idx": 3, "certified_visual_candidates": []}),
+            FakeResponse({"ok": True, "accepted": False, "reason": "no_candidate"}),
+            local_reject_response(),
+            nav_result("native"),
+    ])
+    router = CecHybridRouter(short_gap_config(), session=session)
+    do_reset(router)
+    router.memory_step(b"memory-frame")
+    candidate = router.goal_candidate(b"committed-goal")
+    router.prepare_revisit()
+
+    with pytest.raises(ValueError, match="has not acknowledged"):
+        router.plan_imagegoal(image=b"current", goal=b"stale-goal")
+
+    result = router.plan_imagegoal(
+        image=b"current",
+        goal=b"stale-goal",
+        form={"installed_goal_sha256": candidate["sha256"]},
+    )
+    assert result["marker"] == "native"
+    # The retrieval probe must receive the hub-owned committed target, not the
+    # stale compatibility upload supplied by the client.
+    _, probe_kwargs = next(
+        (url, kwargs)
+        for url, kwargs in reversed(session.calls)
+        if url == "http://mem/retrieval_probe_step"
+    )
+    probe_goal = probe_kwargs["files"]["goal"][1].read()
+    assert probe_goal == b"committed-goal"
+    probe_form = probe_kwargs["data"]
+    assert probe_form["candidate_ceiling_override"] == "0"
+    assert result["cec_candidate_ceiling_override"] == 0
 
 
 def test_memory_step_failure_fails_closed():
@@ -268,12 +752,14 @@ def test_http_contract_and_busy_safe_validation():
     assert good.status_code == 200
     payload = good.get_json()
     assert payload["navigation_sensor_contract"] == NAVIGATION_SENSOR_CONTRACT
+    assert payload["terminal_handoff_schema"] == TERMINAL_HANDOFF_SCHEMA
     assert payload["metric_depth_sensor_consumed_by_policy"] is False
     navdp_reset = session.calls[1][1]["json"]
     assert navdp_reset["depth_source"] == "monocular_sidecar"
     assert session.calls[0][1]["json"]["camera_height"] == pytest.approx(0.5)
     health = client.get("/healthz").get_json()
     assert health["navigation_sensor_contract"] == NAVIGATION_SENSOR_CONTRACT
+    assert health["terminal_handoff_schema"] == TERMINAL_HANDOFF_SCHEMA
     assert health["phase"] == "memory_recording"
     assert health["frames_recorded"] == 0
     missing = client.post(
@@ -305,6 +791,7 @@ def test_http_step_accepts_rgb_only_and_discards_legacy_client_depth():
         warmup_response(),
         FakeResponse({"frame_idx": 3, "certified_visual_candidates": []}),
         FakeResponse({"ok": True, "accepted": False, "reason": "no_candidate"}),
+        local_reject_response(),
         nav_result("native"),
     ])
     client = create_app(CecHybridRouter(config(), session=session)).test_client()

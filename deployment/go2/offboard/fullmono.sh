@@ -7,6 +7,7 @@ set -euo pipefail
 
 OFFBOARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GO2_DIR="$(cd "$OFFBOARD_DIR/.." && pwd)"
+source "$OFFBOARD_DIR/runtime_contract.sh"
 
 GPU_HOST="${CEC_HUB_SSH_HOST:-work-pc}"
 GPU_REPO="${CEC_GPU_REPO:-/home/asus/Research/Memnav_Realworld}"
@@ -72,19 +73,16 @@ remote_health() {
 
 validate_health() {
   local payload="$1"
+  cec_validate_health_contract "$payload" "$GO2_DIR"
   python3 - "$payload" <<'PY'
 import json
 import math
 import sys
 
 p = json.loads(sys.argv[1])
-assert p.get("algo") == "cec_hybrid_navdp"
-assert p.get("navigation_sensor_contract") == "causal_monocular_rgb_v1"
-assert p.get("navdp_depth_source") == "monocular_sidecar"
-assert p.get("metric_depth_sensor_consumed_by_policy") is False
 height = float(p["camera_height_m"])
 assert math.isfinite(height) and 0.1 <= height <= 2.0
-print(f"health=fullmono-v2 camera_height_m={height:.3f}")
+print(f"health=fullmono-v3-bearing-v2 camera_height_m={height:.3f}")
 PY
 }
 

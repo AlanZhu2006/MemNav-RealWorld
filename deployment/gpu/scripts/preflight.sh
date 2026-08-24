@@ -20,6 +20,11 @@ grep -q 'monocular_depth_query' \
   2>/dev/null \
   && pass "MemNav protocol-v2 depth endpoint" \
   || fail "MemNav server lacks /monocular_depth_query"
+grep -q 'goal_candidate_support' \
+  "${MEMNAV_SERVER:-${MEMNAV_SOURCE_ROOT:-}/NavDP/baselines/memnav/memnav_server.py}" \
+  2>/dev/null \
+  && pass "MemNav read-only goal support endpoint" \
+  || fail "MemNav server lacks /goal_candidate_support"
 [[ -f "${LINGBOT_WEIGHTS:-}" ]] && pass "LingBot weights" || fail "LINGBOT_WEIGHTS"
 [[ -d "${LIGHTGLUE_REPO:-}" ]] && pass "LightGlue source" || fail "LIGHTGLUE_REPO"
 [[ -f "$REPO_ROOT/baselines/navdp/navdp_server.py" ]] \

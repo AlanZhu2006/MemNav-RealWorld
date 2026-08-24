@@ -3,13 +3,21 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import io
 import json
-from typing import Optional
+from typing import Any, Optional
 
 import cv2
 import numpy as np
 import requests
+
+from terminal_motion_override import (
+    EXPECTED_HANDOFF_SCHEMA as EXPECTED_TERMINAL_HANDOFF_SCHEMA,
+)
+
+EXPECTED_CEC_PROTOCOL_VERSION = 3
 
 
 class NavDPClient:
@@ -17,6 +25,8 @@ class NavDPClient:
         self.server_url = server_url.rstrip("/")
         self.timeout = (float(connect_timeout_s), float(request_timeout_s))
         self.session = requests.Session()
+        self.last_plan_receipt: dict[str, Any] = {}
+        self.last_phase_receipt: dict[str, Any] = {}
 
     @staticmethod
     def _encode_rgb(rgb: np.ndarray) -> bytes:
@@ -66,16 +76,158 @@ class NavDPClient:
             files={"image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg")},
         )
 
-    def goal_candidate(self, rgb: np.ndarray) -> dict:
-        """Protocol v3: register a goal-candidate photo excluded from memory."""
-        return self._post_phase_endpoint(
-            "/goal_candidate",
-            files={"image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg")},
+    def novel_imagegoal_step(
+        self,
+        goal_rgb: np.ndarray,
+        rgb: np.ndarray,
+        depth_m: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Record one causal frame while native NavDP executes a Novel goal."""
+        files = {
+            "image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg"),
+            "goal": ("goal.jpg", self._encode_rgb(goal_rgb), "image/jpeg"),
+            # Wire compatibility only; the hub never forwards metric depth.
+            "depth": ("depth.png", self._encode_depth(depth_m), "image/png"),
+        }
+        response = self.session.post(
+            f"{self.server_url}/novel_imagegoal_step",
+            files=files,
+            timeout=self.timeout,
         )
+        if response.status_code >= 400:
+            try:
+                detail = str(response.json().get("error", ""))
+            except Exception:
+                detail = response.text[:200]
+            raise RuntimeError(
+                "/novel_imagegoal_step rejected by hub "
+                f"({response.status_code}): {detail}"
+            )
+        result = response.json()
+        self.last_plan_receipt = {
+            key: value for key, value in result.items()
+            if key not in {"trajectory", "all_trajectory", "all_values"}
+        }
+        return (
+            np.asarray(result["trajectory"], dtype=np.float32),
+            np.asarray(result["all_trajectory"], dtype=np.float32),
+            np.asarray(result["all_values"], dtype=np.float32),
+        )
+
+    def goal_candidate(
+        self, rgb: np.ndarray, *, validate_support: bool = False
+    ) -> dict:
+        """Protocol v3: register a goal-candidate photo excluded from memory."""
+        response = self.session.post(
+            f"{self.server_url}/goal_candidate",
+            files={"image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg")},
+            data={"validate_support": "1" if validate_support else "0"},
+            timeout=self.timeout,
+        )
+        if response.status_code >= 400:
+            try:
+                detail = str(response.json().get("error", ""))
+            except Exception:
+                detail = response.text[:200]
+            raise RuntimeError(
+                f"/goal_candidate rejected by hub ({response.status_code}): {detail}"
+            )
+        return response.json()
 
     def begin_revisit(self) -> dict:
         """Protocol v3: switch to revisit_query; hub warms NavDP and verifies."""
-        return self._post_phase_endpoint("/begin_revisit")
+        receipt = self._post_phase_endpoint("/begin_revisit")
+        self.last_phase_receipt = dict(receipt)
+        return receipt
+
+    def prepare_revisit(self) -> tuple[dict, np.ndarray]:
+        """Atomically score/select a candidate, switch phase and install it.
+
+        The hub owns the exact candidate JPEG.  The decoded RGB is returned for
+        local display; subsequent control requests acknowledge the selected
+        SHA-256 while the hub continues to use its committed bytes.
+        """
+        receipt = self._post_phase_endpoint("/prepare_revisit")
+        encoded = receipt.get("goal_image_jpeg_base64")
+        selected = receipt.get("selected_goal")
+        if not isinstance(encoded, str) or not isinstance(selected, dict):
+            raise RuntimeError("prepare_revisit omitted the selected goal payload")
+        try:
+            jpeg = base64.b64decode(encoded, validate=True)
+        except Exception as error:
+            raise RuntimeError(f"invalid selected goal encoding: {error}") from error
+        expected = str(selected.get("sha256", ""))
+        try:
+            int(selected["candidate_id"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise RuntimeError("selected goal omitted a valid candidate id") from error
+        actual = hashlib.sha256(jpeg).hexdigest()
+        if not expected or actual != expected:
+            raise RuntimeError("selected goal SHA-256 mismatch")
+        decoded = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+        if decoded is None:
+            raise RuntimeError("selected goal JPEG is not decodable")
+        rgb = cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
+        status_receipt = {
+            key: value for key, value in receipt.items()
+            if key != "goal_image_jpeg_base64"
+        }
+        self.last_phase_receipt = status_receipt
+        return status_receipt, rgb
+
+    def prepare_revisit_goal(
+        self, goal_rgb: np.ndarray
+    ) -> tuple[dict, np.ndarray]:
+        """Install one pre-episode frozen Revisit goal and switch phase."""
+        response = self.session.post(
+            f"{self.server_url}/prepare_revisit_goal",
+            files={
+                "goal": (
+                    "goal.jpg",
+                    self._encode_rgb(goal_rgb),
+                    "image/jpeg",
+                )
+            },
+            timeout=self.timeout,
+        )
+        if response.status_code >= 400:
+            try:
+                detail = str(response.json().get("error", ""))
+            except Exception:
+                detail = response.text[:200]
+            raise RuntimeError(
+                "/prepare_revisit_goal rejected by hub "
+                f"({response.status_code}): {detail}"
+            )
+        receipt = response.json()
+        encoded = receipt.get("goal_image_jpeg_base64")
+        selected = receipt.get("selected_goal")
+        if not isinstance(encoded, str) or not isinstance(selected, dict):
+            raise RuntimeError(
+                "prepare_revisit_goal omitted the committed goal payload"
+            )
+        try:
+            jpeg = base64.b64decode(encoded, validate=True)
+        except Exception as error:
+            raise RuntimeError(f"invalid committed goal encoding: {error}") from error
+        expected = str(selected.get("sha256", ""))
+        actual = hashlib.sha256(jpeg).hexdigest()
+        if not expected or actual != expected:
+            raise RuntimeError(
+                "committed external goal SHA-256 does not match its receipt"
+            )
+        decoded = cv2.imdecode(
+            np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR
+        )
+        if decoded is None:
+            raise RuntimeError("committed external goal JPEG is not decodable")
+        rgb = cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
+        status_receipt = {
+            key: value for key, value in receipt.items()
+            if key != "goal_image_jpeg_base64"
+        }
+        self.last_phase_receipt = status_receipt
+        return status_receipt, rgb
 
     def health(self) -> dict:
         response = self.session.get(f"{self.server_url}/healthz", timeout=self.timeout)
@@ -94,7 +246,22 @@ class NavDPClient:
             f"{self.server_url}/navigator_reset", json=payload, timeout=self.timeout
         )
         response.raise_for_status()
-        return str(response.json().get("algo", "unknown"))
+        receipt = response.json()
+        algorithm = str(receipt.get("algo", "unknown"))
+        if algorithm == "cec_hybrid_navdp":
+            if (
+                receipt.get("protocol_version")
+                != EXPECTED_CEC_PROTOCOL_VERSION
+                or receipt.get("terminal_handoff_schema")
+                != EXPECTED_TERMINAL_HANDOFF_SCHEMA
+            ):
+                raise RuntimeError(
+                    "CEC hub/Jetson runtime contract mismatch: "
+                    f"protocol={receipt.get('protocol_version')!r}, "
+                    "terminal_handoff_schema="
+                    f"{receipt.get('terminal_handoff_schema')!r}"
+                )
+        return algorithm
 
     def pointgoal_step(
         self,
@@ -155,20 +322,34 @@ class NavDPClient:
         )
 
     def imagegoal_step(
-        self, goal_rgb: np.ndarray, rgb: np.ndarray, depth_m: np.ndarray
+        self,
+        goal_rgb: np.ndarray,
+        rgb: np.ndarray,
+        depth_m: np.ndarray,
+        installed_goal_sha256: Optional[str] = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         files = {
             "image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg"),
             "goal": ("goal.jpg", self._encode_rgb(goal_rgb), "image/jpeg"),
             "depth": ("depth.png", self._encode_depth(depth_m), "image/png"),
         }
+        request_args: dict[str, Any] = {
+            "files": files,
+            "timeout": self.timeout,
+        }
+        if installed_goal_sha256:
+            request_args["data"] = {
+                "installed_goal_sha256": str(installed_goal_sha256)
+            }
         response = self.session.post(
-            f"{self.server_url}/imagegoal_step",
-            files=files,
-            timeout=self.timeout,
+            f"{self.server_url}/imagegoal_step", **request_args
         )
         response.raise_for_status()
         result = response.json()
+        self.last_plan_receipt = {
+            key: value for key, value in result.items()
+            if key not in {"trajectory", "all_trajectory", "all_values"}
+        }
         return (
             np.asarray(result["trajectory"], dtype=np.float32),
             np.asarray(result["all_trajectory"], dtype=np.float32),

@@ -13,7 +13,15 @@ source "$SCRIPT_DIR/common.sh"
 : "${DEPENDENCY_ROOT:?Set DEPENDENCY_ROOT in deployment/gpu/.env}"
 
 MEMNAV_SERVER="${MEMNAV_SERVER:-$MEMNAV_SOURCE_ROOT/NavDP/baselines/memnav/memnav_server.py}"
-BUFFER_ROOT="${CEC_BUFFER_ROOT:-$CEC_OUT_ROOT/buffer}"
+if [[ -n "${CEC_BUFFER_ROOT:-}" ]]; then
+  BUFFER_ROOT="$CEC_BUFFER_ROOT"
+else
+  # The in-process episode counter restarts at zero with each service process.
+  # A per-process namespace prevents a restart from erasing the preceding
+  # real-world ep_0000/ep_0001 trace.
+  RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)_$$"
+  BUFFER_ROOT="$CEC_OUT_ROOT/buffer/run_$RUN_STAMP"
+fi
 require_executable "$MEMNAV_PY"
 require_file "$MEMNAV_SERVER"
 require_file "$MEMNAV_CKPT"
@@ -23,6 +31,7 @@ require_dir "$LINGBOT_REPO"
 require_dir "$LIGHTGLUE_REPO"
 require_dir "$DEPENDENCY_ROOT"
 mkdir -p "$BUFFER_ROOT"
+echo "realworld_memnav_buffer_root=$BUFFER_ROOT"
 
 extra_args=()
 if [[ "${CEC_EAGER_DEPTH_CACHE:-0}" == "1" ]]; then
