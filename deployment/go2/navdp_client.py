@@ -7,6 +7,7 @@ import base64
 import hashlib
 import io
 import json
+import math
 from typing import Any, Optional
 
 import cv2
@@ -18,6 +19,7 @@ from terminal_motion_override import (
 )
 
 EXPECTED_CEC_PROTOCOL_VERSION = 3
+EVALUATION_DEPTH_PNG_SCALE_M = 1.0e-4
 
 
 class NavDPClient:
@@ -27,6 +29,9 @@ class NavDPClient:
         self.session = requests.Session()
         self.last_plan_receipt: dict[str, Any] = {}
         self.last_phase_receipt: dict[str, Any] = {}
+        self.last_goal_jpeg: bytes | None = None
+        self.last_goal_evaluation_depth_png: bytes | None = None
+        self.last_goal_evaluation_depth_scale_m: float | None = None
 
     @staticmethod
     def _encode_rgb(rgb: np.ndarray) -> bytes:
@@ -46,7 +51,9 @@ class NavDPClient:
         if depth.ndim != 2:
             raise ValueError(f"depth image must have shape (H, W), got {depth.shape}")
         depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
-        encoded_depth = np.clip(depth * 10000.0, 0.0, 65535.0).astype(np.uint16)
+        encoded_depth = np.clip(
+            depth / EVALUATION_DEPTH_PNG_SCALE_M, 0.0, 65535.0
+        ).astype(np.uint16)
         ok, encoded = cv2.imencode(".png", encoded_depth)
         if not ok:
             raise RuntimeError("failed to encode depth image")
@@ -115,13 +122,29 @@ class NavDPClient:
         )
 
     def goal_candidate(
-        self, rgb: np.ndarray, *, validate_support: bool = False
+        self,
+        rgb: np.ndarray,
+        *,
+        validate_support: bool = False,
+        evaluation_depth_m: np.ndarray | None = None,
     ) -> dict:
         """Protocol v3: register a goal-candidate photo excluded from memory."""
+        files = {"image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg")}
+        if evaluation_depth_m is not None:
+            files["evaluation_depth"] = (
+                "evaluation_depth.png",
+                self._encode_depth(evaluation_depth_m),
+                "image/png",
+            )
+        data = {"validate_support": "1" if validate_support else "0"}
+        if evaluation_depth_m is not None:
+            data["evaluation_depth_scale_m"] = str(
+                EVALUATION_DEPTH_PNG_SCALE_M
+            )
         response = self.session.post(
             f"{self.server_url}/goal_candidate",
-            files={"image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg")},
-            data={"validate_support": "1" if validate_support else "0"},
+            files=files,
+            data=data,
             timeout=self.timeout,
         )
         if response.status_code >= 400:
@@ -134,20 +157,32 @@ class NavDPClient:
             )
         return response.json()
 
-    def begin_revisit(self) -> dict:
+    def begin_revisit(self, query_start_rgb: np.ndarray | None = None) -> dict:
         """Protocol v3: switch to revisit_query; hub warms NavDP and verifies."""
-        receipt = self._post_phase_endpoint("/begin_revisit")
+        files = None
+        if query_start_rgb is not None:
+            files = {"query_start": (
+                "query_start.jpg", self._encode_rgb(query_start_rgb), "image/jpeg"
+            )}
+        receipt = self._post_phase_endpoint("/begin_revisit", files=files)
         self.last_phase_receipt = dict(receipt)
         return receipt
 
-    def prepare_revisit(self) -> tuple[dict, np.ndarray]:
+    def prepare_revisit(
+        self, query_start_rgb: np.ndarray | None = None
+    ) -> tuple[dict, np.ndarray]:
         """Atomically score/select a candidate, switch phase and install it.
 
         The hub owns the exact candidate JPEG.  The decoded RGB is returned for
         local display; subsequent control requests acknowledge the selected
         SHA-256 while the hub continues to use its committed bytes.
         """
-        receipt = self._post_phase_endpoint("/prepare_revisit")
+        files = None
+        if query_start_rgb is not None:
+            files = {"query_start": (
+                "query_start.jpg", self._encode_rgb(query_start_rgb), "image/jpeg"
+            )}
+        receipt = self._post_phase_endpoint("/prepare_revisit", files=files)
         encoded = receipt.get("goal_image_jpeg_base64")
         selected = receipt.get("selected_goal")
         if not isinstance(encoded, str) or not isinstance(selected, dict):
@@ -164,30 +199,61 @@ class NavDPClient:
         actual = hashlib.sha256(jpeg).hexdigest()
         if not expected or actual != expected:
             raise RuntimeError("selected goal SHA-256 mismatch")
+        self.last_goal_jpeg = jpeg
+        depth_encoded = receipt.get("goal_evaluation_depth_png_base64")
+        self.last_goal_evaluation_depth_png = (
+            None
+            if depth_encoded is None
+            else base64.b64decode(str(depth_encoded), validate=True)
+        )
+        depth_scale = receipt.get("goal_evaluation_depth_scale_m")
+        self.last_goal_evaluation_depth_scale_m = (
+            None if depth_scale is None else float(depth_scale)
+        )
+        if self.last_goal_evaluation_depth_png is not None and (
+            self.last_goal_evaluation_depth_scale_m is None
+            or not math.isfinite(self.last_goal_evaluation_depth_scale_m)
+            or self.last_goal_evaluation_depth_scale_m <= 0.0
+        ):
+            raise RuntimeError(
+                "selected evaluator depth has no valid metre scale"
+            )
         decoded = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
         if decoded is None:
             raise RuntimeError("selected goal JPEG is not decodable")
         rgb = cv2.cvtColor(decoded, cv2.COLOR_BGR2RGB)
         status_receipt = {
             key: value for key, value in receipt.items()
-            if key != "goal_image_jpeg_base64"
+            if key not in {
+                "goal_image_jpeg_base64",
+                "goal_evaluation_depth_png_base64",
+            }
         }
         self.last_phase_receipt = status_receipt
         return status_receipt, rgb
 
     def prepare_revisit_goal(
-        self, goal_rgb: np.ndarray
+        self,
+        goal_rgb: np.ndarray,
+        query_start_rgb: np.ndarray | None = None,
     ) -> tuple[dict, np.ndarray]:
         """Install one pre-episode frozen Revisit goal and switch phase."""
+        files = {
+            "goal": (
+                "goal.jpg",
+                self._encode_rgb(goal_rgb),
+                "image/jpeg",
+            )
+        }
+        if query_start_rgb is not None:
+            files["query_start"] = (
+                "query_start.jpg",
+                self._encode_rgb(query_start_rgb),
+                "image/jpeg",
+            )
         response = self.session.post(
             f"{self.server_url}/prepare_revisit_goal",
-            files={
-                "goal": (
-                    "goal.jpg",
-                    self._encode_rgb(goal_rgb),
-                    "image/jpeg",
-                )
-            },
+            files=files,
             timeout=self.timeout,
         )
         if response.status_code >= 400:
@@ -216,6 +282,7 @@ class NavDPClient:
             raise RuntimeError(
                 "committed external goal SHA-256 does not match its receipt"
             )
+        self.last_goal_jpeg = jpeg
         decoded = cv2.imdecode(
             np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR
         )
@@ -226,8 +293,45 @@ class NavDPClient:
             key: value for key, value in receipt.items()
             if key != "goal_image_jpeg_base64"
         }
+        self.last_goal_evaluation_depth_png = None
+        self.last_goal_evaluation_depth_scale_m = None
         self.last_phase_receipt = status_receipt
         return status_receipt, rgb
+
+    def dataset_status(self) -> dict:
+        response = self.session.get(
+            f"{self.server_url}/dataset/status", timeout=self.timeout
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def start_dataset(
+        self, dataset_id: str, *, metadata: dict[str, Any] | None = None
+    ) -> dict:
+        response = self.session.post(
+            f"{self.server_url}/dataset/start",
+            json={"dataset_id": dataset_id, "metadata": dict(metadata or {})},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def seal_dataset(self) -> dict:
+        response = self.session.post(
+            f"{self.server_url}/dataset/seal", json={}, timeout=self.timeout
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def load_dataset(self, dataset_id: str) -> dict:
+        timeout = (self.timeout[0], max(3600.0, self.timeout[1]))
+        response = self.session.post(
+            f"{self.server_url}/dataset/load",
+            json={"dataset_id": dataset_id},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        return response.json()
 
     def health(self) -> dict:
         response = self.session.get(f"{self.server_url}/healthz", timeout=self.timeout)

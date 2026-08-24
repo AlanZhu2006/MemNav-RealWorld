@@ -10,7 +10,17 @@ CEC_GOAL_SCORE_STRIDE="${CEC_GOAL_SCORE_STRIDE:-8}"
 CEC_GOAL_MIN_FRAME_GAP="${CEC_GOAL_MIN_FRAME_GAP:-16}"
 CEC_GOAL_MIN_INLIERS="${CEC_GOAL_MIN_INLIERS:-16}"
 CEC_GOAL_MAX_COS="${CEC_GOAL_MAX_COS:-0.90}"
-mkdir -p "$CEC_GOAL_CANDIDATE_DIR"
+CEC_EPISODIC_DATASET_ROOT="${CEC_EPISODIC_DATASET_ROOT:-$CEC_OUT_ROOT/episodic_datasets}"
+CEC_EPISODIC_DATASET_MIN_FRAMES="${CEC_EPISODIC_DATASET_MIN_FRAMES:-160}"
+mkdir -p "$CEC_GOAL_CANDIDATE_DIR" "$CEC_EPISODIC_DATASET_ROOT"
+dataset_args=()
+if [[ -n "${CEC_EPISODIC_DATASET_ID:-}" ]]; then
+  dataset_args+=(--auto-dataset-id "$CEC_EPISODIC_DATASET_ID")
+  dataset_args+=(
+    --auto-dataset-metadata-json
+    "${CEC_EPISODIC_DATASET_METADATA_JSON:-{}}"
+  )
+fi
 
 cd "$REPO_ROOT"
 exec env PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
@@ -23,4 +33,7 @@ exec env PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
     --goal-score-stride "$CEC_GOAL_SCORE_STRIDE" \
     --goal-min-frame-gap "$CEC_GOAL_MIN_FRAME_GAP" \
     --goal-min-inliers "$CEC_GOAL_MIN_INLIERS" \
-    --goal-max-cos "$CEC_GOAL_MAX_COS"
+    --goal-max-cos "$CEC_GOAL_MAX_COS" \
+    --episodic-dataset-root "$CEC_EPISODIC_DATASET_ROOT" \
+    --episodic-dataset-min-frames "$CEC_EPISODIC_DATASET_MIN_FRAMES" \
+    "${dataset_args[@]}"

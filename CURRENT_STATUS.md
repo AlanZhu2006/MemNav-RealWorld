@@ -2,6 +2,11 @@
 
 Snapshot: **2026-08-25, protocol-v3 + direct-bearing-v2 safety release**
 
+新增的两阶段真机框架已经把长程手柄 survey 冻结为 exact-byte episodic dataset，并能在
+独立的第二次运行中校验、重放、安装目标和初始化 formal query。入口与剩余边界见
+`TWO_PASS_REVISIT_RUNBOOK_20260825.md`。该更新解决实验生命周期和持久化，不改变下文
+“自动 arrival/STOP 尚未建立”的结论。
+
 ## Bottom line
 
 The two-machine Full-Mono CEC stack is synchronized and fail-closed, and it

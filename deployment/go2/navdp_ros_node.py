@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
+from pathlib import Path
 import threading
 import time
 from typing import Optional
@@ -93,6 +95,7 @@ class NavDPGo2Adapter(Node):
         self._goal_candidates_captured = 0
         self._last_auto_candidate_after_frame = -1
         self._auto_candidate_guard_remaining = 0
+        self._auto_candidate_capture_started_after_frame = 0
         self._active_goal_id: Optional[int] = None
         self._active_goal_sha256: Optional[str] = None
         self._last_phase_receipt: dict = {}
@@ -160,6 +163,11 @@ class NavDPGo2Adapter(Node):
                 self._capture_goal_candidate_service,
             )
             self.create_service(
+                SetBool,
+                "~/set_auto_goal_candidate_capture",
+                self._set_auto_goal_candidate_capture_service,
+            )
+            self.create_service(
                 Trigger, "~/begin_revisit", self._begin_revisit_service
             )
 
@@ -207,6 +215,8 @@ class NavDPGo2Adapter(Node):
             "goal_topic": "/navdp/relative_goal",
             "image_goal_path": "",
             "revisit_image_goal_path": "",
+            "selected_goal_image_path": "",
+            "selected_goal_depth_path": "",
             "image_goal_debug_topic": "/navdp/image_goal",
             "cmd_vel_topic": "/navdp/cmd_vel",
             "path_topic": "/navdp/trajectory",
@@ -223,9 +233,11 @@ class NavDPGo2Adapter(Node):
             "plan_while_disabled": True,
             "two_phase_episode": False,
             "navigate_during_memory_recording": False,
+            "pause_memory_recording": False,
             "auto_goal_candidate_interval_frames": 24,
             "auto_goal_candidate_max": 6,
             "auto_goal_candidate_post_guard_frames": 4,
+            "auto_goal_candidate_capture_enabled": True,
             "auto_select_goal_candidate": True,
             "planning_rate_hz": 2.0,
             "control_rate_hz": 20.0,
@@ -278,6 +290,9 @@ class NavDPGo2Adapter(Node):
         self.navigate_during_memory_recording = bool(
             self.get_parameter("navigate_during_memory_recording").value
         )
+        self.pause_memory_recording = bool(
+            self.get_parameter("pause_memory_recording").value
+        )
         self.auto_goal_candidate_interval_frames = max(
             0,
             int(self.get_parameter("auto_goal_candidate_interval_frames").value),
@@ -292,6 +307,11 @@ class NavDPGo2Adapter(Node):
                     "auto_goal_candidate_post_guard_frames"
                 ).value
             ),
+        )
+        self.auto_goal_candidate_capture_enabled = bool(
+            self.get_parameter(
+                "auto_goal_candidate_capture_enabled"
+            ).value
         )
         self.auto_select_goal_candidate = bool(
             self.get_parameter("auto_select_goal_candidate").value
@@ -313,6 +333,8 @@ class NavDPGo2Adapter(Node):
             "goal_topic",
             "image_goal_path",
             "revisit_image_goal_path",
+            "selected_goal_image_path",
+            "selected_goal_depth_path",
             "image_goal_debug_topic",
             "cmd_vel_topic",
             "path_topic",
@@ -550,6 +572,7 @@ class NavDPGo2Adapter(Node):
     def _capture_goal_candidate_service(self, _request, response):
         with self._lock:
             rgb = None if self._rgb is None else self._rgb.copy()
+            depth_m = None if self._depth_m is None else self._depth_m.copy()
             initialized = self._server_initialized
             phase = self._phase
         if not initialized or rgb is None:
@@ -564,7 +587,9 @@ class NavDPGo2Adapter(Node):
             return response
         try:
             with self._client_lock:
-                receipt = self._client.goal_candidate(rgb)
+                receipt = self._client.goal_candidate(
+                    rgb, evaluation_depth_m=depth_m
+                )
         except Exception as exc:
             response.success = False
             response.message = f"{type(exc).__name__}: {exc}"
@@ -577,11 +602,45 @@ class NavDPGo2Adapter(Node):
         response.message = json.dumps(receipt, ensure_ascii=False)
         return response
 
+    def _set_auto_goal_candidate_capture_service(self, request, response):
+        """Arm automatic candidate capture only at a declared return leg.
+
+        The adapter has no trustworthy global pose with which to infer the
+        physical turnaround.  Making this boundary explicit prevents an
+        outbound view from silently becoming the formal Revisit target.
+        """
+        with self._lock:
+            if not self._server_initialized or self._phase != "memory_recording":
+                response.success = False
+                response.message = (
+                    "automatic candidate capture requires initialized "
+                    f"memory_recording, not {self._phase}"
+                )
+                return response
+            enabled = bool(request.data)
+            self.auto_goal_candidate_capture_enabled = enabled
+            self._last_auto_candidate_after_frame = -1
+            self._auto_candidate_guard_remaining = 0
+            self._auto_candidate_capture_started_after_frame = (
+                self._frames_recorded
+            )
+            receipt = {
+                "enabled": enabled,
+                "started_after_frame": self._frames_recorded,
+                "phase": self._phase,
+                "motion_authority_changed": False,
+            }
+        self._publish_receipt("auto_goal_candidate_capture", receipt)
+        response.success = True
+        response.message = json.dumps(receipt, ensure_ascii=False)
+        return response
+
     def _begin_revisit_service(self, _request, response):
         with self._lock:
             initialized = self._server_initialized
             phase = self._phase
             busy = self._inference_busy
+            query_start_rgb = None if self._rgb is None else self._rgb.copy()
             # Reserve the only stateful inference slot atomically with the
             # idle check.  Without this reservation, the timer worker can
             # start one final Novel request between this check and acquisition
@@ -605,12 +664,17 @@ class NavDPGo2Adapter(Node):
             with self._client_lock:
                 if self._revisit_image_goal is not None:
                     receipt, selected_goal = self._client.prepare_revisit_goal(
-                        self._revisit_image_goal
+                        self._revisit_image_goal,
+                        query_start_rgb=query_start_rgb,
                     )
                 elif self.auto_select_goal_candidate:
-                    receipt, selected_goal = self._client.prepare_revisit()
+                    receipt, selected_goal = self._client.prepare_revisit(
+                        query_start_rgb=query_start_rgb
+                    )
                 else:
-                    receipt = self._client.begin_revisit()
+                    receipt = self._client.begin_revisit(
+                        query_start_rgb=query_start_rgb
+                    )
                     selected_goal = None
         except Exception as exc:
             with self._lock:
@@ -620,8 +684,14 @@ class NavDPGo2Adapter(Node):
             return response
         with self._lock:
             self._phase = "revisit_query"
+            self.pause_memory_recording = False
             self._inference_busy = False
-            self._last_phase_receipt = dict(receipt)
+            self._frames_recorded = int(
+                receipt.get("frames_recorded", self._frames_recorded)
+            )
+            candidate_scores = receipt.get("candidate_scores")
+            if isinstance(candidate_scores, list):
+                self._goal_candidates_captured = len(candidate_scores)
             if selected_goal is not None:
                 selected = receipt.get("selected_goal", {})
                 self._image_goal = selected_goal.copy()
@@ -630,12 +700,56 @@ class NavDPGo2Adapter(Node):
                     None if candidate_id is None else int(candidate_id)
                 )
                 self._active_goal_sha256 = str(selected["sha256"])
+                self._persist_selected_goal_artifacts(receipt)
+            self._last_phase_receipt = dict(receipt)
         self.get_logger().info(f"revisit phase started: {receipt}")
         self._publish_receipt("prepare_revisit", receipt)
         self._publish_image_goal()
         response.success = True
         response.message = json.dumps(receipt, ensure_ascii=False)
         return response
+
+    @staticmethod
+    def _atomic_write(path: Path, payload: bytes) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.tmp")
+        temporary.write_bytes(payload)
+        temporary.replace(path)
+
+    def _persist_selected_goal_artifacts(self, receipt: dict) -> None:
+        """Persist the committed goal for the isolated evaluator only.
+
+        Navigation continues to use the RTX-owned committed JPEG.  The depth
+        file has no route back into NavDP and is written only so a formal run
+        can launch the independent visual arrival evaluator without manually
+        copying a target image between stages.
+        """
+
+        goal_jpeg = self._client.last_goal_jpeg
+        depth_png = self._client.last_goal_evaluation_depth_png
+        depth_scale_m = self._client.last_goal_evaluation_depth_scale_m
+        selected_goal_image_path = getattr(
+            self, "selected_goal_image_path", ""
+        )
+        selected_goal_depth_path = getattr(
+            self, "selected_goal_depth_path", ""
+        )
+        if selected_goal_image_path and goal_jpeg:
+            goal_path = Path(selected_goal_image_path).expanduser()
+            self._atomic_write(goal_path, goal_jpeg)
+            receipt["jetson_selected_goal_image_path"] = str(goal_path)
+            receipt["jetson_selected_goal_image_sha256"] = hashlib.sha256(
+                goal_jpeg
+            ).hexdigest()
+        if selected_goal_depth_path and depth_png:
+            depth_path = Path(selected_goal_depth_path).expanduser()
+            self._atomic_write(depth_path, depth_png)
+            receipt["jetson_selected_goal_depth_path"] = str(depth_path)
+            receipt["jetson_selected_goal_depth_sha256"] = hashlib.sha256(
+                depth_png
+            ).hexdigest()
+            receipt["selected_goal_depth_policy_authority"] = False
+            receipt["selected_goal_depth_scale_m"] = depth_scale_m
 
     def _set_enabled(self, enabled: bool, source: str) -> None:
         with self._lock:
@@ -720,6 +834,7 @@ class NavDPGo2Adapter(Node):
                         self._goal_candidates_captured = 0
                         self._last_auto_candidate_after_frame = -1
                         self._auto_candidate_guard_remaining = 0
+                        self._auto_candidate_capture_started_after_frame = 0
                         self._active_goal_id = None
                         self._active_goal_sha256 = None
                         self._last_phase_receipt = {}
@@ -746,6 +861,13 @@ class NavDPGo2Adapter(Node):
                     )
                 planned_in_recording = False
                 if recording:
+                    if self.pause_memory_recording:
+                        finished = time.monotonic()
+                        with self._lock:
+                            self._last_inference_s = finished - started
+                            self._last_error = ""
+                            self._stop_reason = "memory_recording_paused"
+                        continue
                     # The default remains record-only.  Formal autonomous
                     # Novel->Revisit trials opt into a single hub transaction
                     # that writes this RGB to CEC memory and executes frozen
@@ -765,11 +887,16 @@ class NavDPGo2Adapter(Node):
                         # a trivial near-self match in the recorded history.
                         continue
                     with self._lock:
+                        candidate_elapsed = (
+                            self._frames_recorded
+                            - self._auto_candidate_capture_started_after_frame
+                        )
                         auto_candidate = (
-                            self.auto_goal_candidate_interval_frames > 0
-                            and self._frames_recorded
+                            self.auto_goal_candidate_capture_enabled
+                            and self.auto_goal_candidate_interval_frames > 0
+                            and candidate_elapsed
                             >= self.auto_goal_candidate_interval_frames
-                            and self._frames_recorded
+                            and candidate_elapsed
                             % self.auto_goal_candidate_interval_frames == 0
                             and self._last_auto_candidate_after_frame
                             != self._frames_recorded
@@ -780,7 +907,9 @@ class NavDPGo2Adapter(Node):
                         try:
                             with self._client_lock:
                                 candidate_receipt = self._client.goal_candidate(
-                                    rgb, validate_support=True
+                                    rgb,
+                                    validate_support=True,
+                                    evaluation_depth_m=depth_m,
                                 )
                             if candidate_receipt.get("registered") is True:
                                 finished = time.monotonic()
@@ -1325,6 +1454,7 @@ class NavDPGo2Adapter(Node):
                 "navigate_during_memory_recording": (
                     self.navigate_during_memory_recording
                 ),
+                "pause_memory_recording": self.pause_memory_recording,
                 "goal_candidates_captured": self._goal_candidates_captured,
                 "auto_goal_candidate_interval_frames": (
                     self.auto_goal_candidate_interval_frames
@@ -1332,6 +1462,12 @@ class NavDPGo2Adapter(Node):
                 "auto_goal_candidate_max": self.auto_goal_candidate_max,
                 "auto_goal_candidate_post_guard_frames": (
                     self.auto_goal_candidate_post_guard_frames
+                ),
+                "auto_goal_candidate_capture_enabled": (
+                    self.auto_goal_candidate_capture_enabled
+                ),
+                "auto_candidate_capture_started_after_frame": (
+                    self._auto_candidate_capture_started_after_frame
                 ),
                 "auto_candidate_guard_remaining": (
                     self._auto_candidate_guard_remaining

@@ -1,5 +1,9 @@
 # Full-Mono Runtime Runbook
 
+> 两次独立运行的长程 Revisit 数据集与一键 formal-ready 流程见
+> `TWO_PASS_REVISIT_RUNBOOK_20260825.md`。新正式实验优先使用该流程；本文件后面的
+> 单次在线 recording -> revisit 命令保留作兼容和机制调试。
+
 This runbook is fail-closed. Completing a software deployment does not authorize
 camera startup, ROS motion, or Go2 movement.
 

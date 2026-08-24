@@ -13,6 +13,11 @@ class _Response:
     message = None
 
 
+class _SetBoolRequest:
+    def __init__(self, data):
+        self.data = data
+
+
 class _Logger:
     def info(self, _message):
         return None
@@ -23,7 +28,8 @@ class _BlockingClient:
         self.entered = threading.Event()
         self.release = threading.Event()
 
-    def begin_revisit(self):
+    def begin_revisit(self, query_start_rgb=None):
+        assert query_start_rgb is not None
         self.entered.set()
         assert self.release.wait(timeout=2.0)
         return {"phase": "revisit_query", "frames_recorded": 7}
@@ -37,6 +43,8 @@ def _adapter(client):
     adapter._server_initialized = True
     adapter._phase = "memory_recording"
     adapter._inference_busy = False
+    import numpy as np
+    adapter._rgb = np.zeros((4, 6, 3), dtype=np.uint8)
     adapter._revisit_image_goal = None
     adapter.auto_select_goal_candidate = False
     adapter._last_phase_receipt = {}
@@ -91,3 +99,24 @@ def test_busy_begin_revisit_does_not_clear_worker_ownership():
     assert adapter._phase == "memory_recording"
     assert adapter._inference_busy is True
     assert not client.entered.is_set()
+
+
+def test_return_boundary_arms_candidates_without_changing_motion_authority():
+    adapter = _adapter(_BlockingClient())
+    adapter._frames_recorded = 137
+    adapter.auto_goal_candidate_capture_enabled = False
+    adapter._last_auto_candidate_after_frame = 96
+    adapter._auto_candidate_guard_remaining = 3
+    adapter._auto_candidate_capture_started_after_frame = 0
+
+    response = _Response()
+    adapter._set_auto_goal_candidate_capture_service(
+        _SetBoolRequest(True), response
+    )
+
+    assert response.success is True
+    assert adapter.auto_goal_candidate_capture_enabled is True
+    assert adapter._auto_candidate_capture_started_after_frame == 137
+    assert adapter._last_auto_candidate_after_frame == -1
+    assert adapter._auto_candidate_guard_remaining == 0
+    assert '"motion_authority_changed": false' in response.message

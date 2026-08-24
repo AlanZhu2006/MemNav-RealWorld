@@ -25,10 +25,14 @@ done
 goal_path="${NAVDP_IMAGE_GOAL_PATH:-$GO2_DIR/goals/image_goal.png}"
 revisit_goal_path="${NAVDP_REVISIT_IMAGE_GOAL_PATH:-}"
 novel_recording_navigation="${NAVDP_NAVIGATE_DURING_MEMORY_RECORDING:-false}"
+pause_memory_recording="${NAVDP_PAUSE_MEMORY_RECORDING:-false}"
 auto_goal_interval="${NAVDP_AUTO_GOAL_CANDIDATE_INTERVAL_FRAMES:-24}"
 auto_goal_max="${NAVDP_AUTO_GOAL_CANDIDATE_MAX:-6}"
 auto_goal_guard="${NAVDP_AUTO_GOAL_CANDIDATE_POST_GUARD_FRAMES:-4}"
+auto_goal_capture_enabled="${NAVDP_AUTO_GOAL_CANDIDATE_CAPTURE_ENABLED:-true}"
 auto_select_goal="${NAVDP_AUTO_SELECT_GOAL_CANDIDATE:-true}"
+selected_goal_image_path="${NAVDP_SELECTED_GOAL_IMAGE_PATH:-}"
+selected_goal_depth_path="${NAVDP_SELECTED_GOAL_DEPTH_PATH:-}"
 max_linear_mps="${NAVDP_MAX_LINEAR_MPS:-}"
 max_angular_rps="${NAVDP_MAX_ANGULAR_RPS:-}"
 control_profile="${NAVDP_CONTROL_PROFILE:-formal}"
@@ -126,7 +130,7 @@ if [[ "$with_camera" == true ]]; then
   fi
 fi
 tmux new-window -t "$SESSION" -n adapter \
-  "export NAVDP_BACKEND='navdp' NAVDP_MODE='imagegoal' NAVDP_TWO_PHASE='true' NAVDP_NAVIGATE_DURING_MEMORY_RECORDING='$novel_recording_navigation' NAVDP_AUTO_GOAL_CANDIDATE_INTERVAL_FRAMES='$auto_goal_interval' NAVDP_AUTO_GOAL_CANDIDATE_MAX='$auto_goal_max' NAVDP_AUTO_GOAL_CANDIDATE_POST_GUARD_FRAMES='$auto_goal_guard' NAVDP_AUTO_SELECT_GOAL_CANDIDATE='$auto_select_goal' NAVDP_MAX_LINEAR_MPS='$max_linear_mps' NAVDP_MAX_ANGULAR_RPS='$max_angular_rps' NAVDP_SERVER_URL='http://127.0.0.1:${LOCAL_PORT}' NAVDP_IMAGE_GOAL_PATH='$goal_path' NAVDP_REVISIT_IMAGE_GOAL_PATH='$revisit_goal_path'; exec '$GO2_DIR/scripts/run_adapter.sh'"
+  "export NAVDP_BACKEND='navdp' NAVDP_MODE='imagegoal' NAVDP_TWO_PHASE='true' NAVDP_NAVIGATE_DURING_MEMORY_RECORDING='$novel_recording_navigation' NAVDP_PAUSE_MEMORY_RECORDING='$pause_memory_recording' NAVDP_AUTO_GOAL_CANDIDATE_INTERVAL_FRAMES='$auto_goal_interval' NAVDP_AUTO_GOAL_CANDIDATE_MAX='$auto_goal_max' NAVDP_AUTO_GOAL_CANDIDATE_POST_GUARD_FRAMES='$auto_goal_guard' NAVDP_AUTO_GOAL_CANDIDATE_CAPTURE_ENABLED='$auto_goal_capture_enabled' NAVDP_AUTO_SELECT_GOAL_CANDIDATE='$auto_select_goal' NAVDP_MAX_LINEAR_MPS='$max_linear_mps' NAVDP_MAX_ANGULAR_RPS='$max_angular_rps' NAVDP_SERVER_URL='http://127.0.0.1:${LOCAL_PORT}' NAVDP_IMAGE_GOAL_PATH='$goal_path' NAVDP_REVISIT_IMAGE_GOAL_PATH='$revisit_goal_path' NAVDP_SELECTED_GOAL_IMAGE_PATH='$selected_goal_image_path' NAVDP_SELECTED_GOAL_DEPTH_PATH='$selected_goal_depth_path'; exec '$GO2_DIR/scripts/run_adapter.sh'"
 if [[ "$with_go2" == true ]]; then
   tmux new-window -t "$SESSION" -n go2 "exec '$GO2_DIR/scripts/run_go2_bridge.sh'"
 fi

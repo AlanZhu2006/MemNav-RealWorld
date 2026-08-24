@@ -39,6 +39,10 @@ from typing import Any, Mapping
 from flask import Flask, jsonify, request
 import requests
 
+from deployment.gpu.episodic_dataset import (
+    DatasetContractError,
+    EpisodicDatasetStore,
+)
 from deployment.gpu.revisit_bearing_adapter import adapt_revisit_pointgoal
 from deployment.gpu.revisit_local_pose_adapter import (
     SCHEMA_VERSION as TERMINAL_HANDOFF_SCHEMA,
@@ -165,9 +169,17 @@ class CecHybridRouter:
         config: UpstreamConfig,
         *,
         session: requests.Session | None = None,
+        dataset_store: EpisodicDatasetStore | None = None,
+        auto_dataset_id: str | None = None,
+        auto_dataset_metadata: Mapping[str, Any] | None = None,
     ) -> None:
         self.config = config
         self.session = session or requests.Session()
+        self.dataset_store = dataset_store
+        self.auto_dataset_id = (
+            None if auto_dataset_id in (None, "") else str(auto_dataset_id)
+        )
+        self.auto_dataset_metadata = dict(auto_dataset_metadata or {})
         self.initialized = False
         self.memory_degraded = False
         self.native_state_uncertain = False
@@ -184,10 +196,25 @@ class CecHybridRouter:
         self.navdp_live_memory_size: int | None = None
         self.terminal_local_latched = False
         self.terminal_stop_streak = 0
+        self.loaded_dataset_id: str | None = None
+        self.loaded_dataset_manifest_sha256: str | None = None
         self.recorded_tail: deque[tuple[int, bytes]] = deque(
             maxlen=NAVDP_WARMUP_MAX_FRAMES * NAVDP_WARMUP_STRIDE)
 
     def reset(self, payload: Mapping[str, Any]) -> dict[str, Any]:
+        resume_empty_auto_dataset = False
+        if self.dataset_store is not None and self.dataset_store.recording:
+            dataset_status = self.dataset_store.status()
+            resume_empty_auto_dataset = (
+                self.auto_dataset_id is not None
+                and dataset_status.get("dataset_id") == self.auto_dataset_id
+                and int(dataset_status.get("memory_frames", -1)) == 0
+                and int(dataset_status.get("goal_candidates", -1)) == 0
+            )
+            if not resume_empty_auto_dataset:
+                raise ValueError(
+                    "an episodic dataset is still recording; seal it before reset"
+                )
         intrinsic = _finite_intrinsic(payload.get("intrinsic"))
         navdp_payload = dict(payload)
         navdp_payload["intrinsic"] = intrinsic
@@ -219,6 +246,8 @@ class CecHybridRouter:
         self.navdp_live_memory_size = None
         self.terminal_local_latched = False
         self.terminal_stop_streak = 0
+        self.loaded_dataset_id = None
+        self.loaded_dataset_manifest_sha256 = None
         self.recorded_tail.clear()
         try:
             memnav = _json_object(
@@ -266,6 +295,26 @@ class CecHybridRouter:
             )
         self.initialized = True
         self.phase = PHASE_RECORDING
+        dataset_receipt = None
+        if self.auto_dataset_id is not None and not resume_empty_auto_dataset:
+            if self.dataset_store is None:
+                self.native_state_uncertain = True
+                raise HybridBackendError(
+                    "auto dataset requested but episodic storage is disabled"
+                )
+            try:
+                dataset_receipt = self.dataset_store.start(
+                    self.auto_dataset_id,
+                    metadata=self.auto_dataset_metadata,
+                )
+            except (DatasetContractError, OSError) as error:
+                self.native_state_uncertain = True
+                raise HybridBackendError(
+                    "auto dataset start failed after upstream reset: "
+                    f"{type(error).__name__}: {error}"
+                ) from error
+        elif resume_empty_auto_dataset:
+            dataset_receipt = self.dataset_store.status()
         return {
             "algo": "cec_hybrid_navdp",
             "protocol_version": PROTOCOL_VERSION,
@@ -280,6 +329,7 @@ class CecHybridRouter:
             "metric_depth_sensor_consumed_by_policy": False,
             "client_depth_contract": CLIENT_DEPTH_CONTRACT,
             "camera_height_m": camera_height_m,
+            "episodic_dataset": dataset_receipt,
         }
 
     def _validate_monocular_plan(
@@ -448,6 +498,22 @@ class CecHybridRouter:
             ) from error
         self.frames_recorded += 1
         self.recorded_tail.append((self.frames_recorded, image))
+        if self.dataset_store is not None:
+            try:
+                self.dataset_store.append_memory(
+                    frame_index=self.frames_recorded - 1,
+                    image=image,
+                    upstream_sha256=payload.get("image_sha256"),
+                )
+            except (DatasetContractError, OSError) as error:
+                # MemNav has already advanced.  Losing the exact-byte dataset
+                # receipt makes the two states irreconcilable, so do not keep
+                # navigating on an unauditable stream.
+                self.memory_degraded = True
+                raise HybridBackendError(
+                    "episodic dataset append failed after memory advance; "
+                    f"reset is required: {type(error).__name__}: {error}"
+                ) from error
         result = {
             "phase": self.phase,
             "frame_idx": payload.get("frame_idx"),
@@ -549,7 +615,12 @@ class CecHybridRouter:
         return result
 
     def goal_candidate(
-        self, image: bytes, *, validate_support: bool = False
+        self,
+        image: bytes,
+        *,
+        validate_support: bool = False,
+        evaluation_depth: bytes | None = None,
+        evaluation_depth_scale_m: float | None = None,
     ) -> dict[str, Any]:
         """Register one goal-candidate photo that is NOT appended to memory.
 
@@ -573,6 +644,17 @@ class CecHybridRouter:
             )
         if not image:
             raise ValueError("image is required")
+        if evaluation_depth is not None:
+            if (
+                evaluation_depth_scale_m is None
+                or not math.isfinite(float(evaluation_depth_scale_m))
+                or float(evaluation_depth_scale_m) <= 0.0
+            ):
+                raise ValueError(
+                    "evaluation depth requires a finite positive metre scale"
+                )
+        elif evaluation_depth_scale_m is not None:
+            raise ValueError("evaluation depth scale supplied without depth")
         digest = hashlib.sha256(image).hexdigest()
         record = {
             "candidate_id": len(self.goal_candidates),
@@ -589,7 +671,26 @@ class CecHybridRouter:
             )
             if not record["registered"]:
                 return record
-        self.goal_candidates.append(dict(record, image=image))
+        candidate = dict(
+            record,
+            image=image,
+            evaluation_depth=evaluation_depth,
+            evaluation_depth_scale_m=evaluation_depth_scale_m,
+        )
+        if self.dataset_store is not None:
+            try:
+                self.dataset_store.append_candidate(
+                    record=record,
+                    image=image,
+                    evaluation_depth=evaluation_depth,
+                    evaluation_depth_scale_m=evaluation_depth_scale_m,
+                )
+            except (DatasetContractError, OSError) as error:
+                raise HybridBackendError(
+                    "episodic goal-candidate persistence failed; "
+                    f"{type(error).__name__}: {error}"
+                ) from error
+        self.goal_candidates.append(candidate)
         if self.goal_candidate_dir is not None:
             path = (
                 f"{self.goal_candidate_dir}/candidate_"
@@ -694,7 +795,9 @@ class CecHybridRouter:
             "state_mutated": support.get("state_mutated"),
         }
 
-    def prepare_revisit(self) -> dict[str, Any]:
+    def prepare_revisit(
+        self, *, query_start_image: bytes | None = None
+    ) -> dict[str, Any]:
         """Select, install and freeze one recorded goal before phase switch.
 
         Scoring is read-only.  If no candidate satisfies the frozen support
@@ -707,13 +810,22 @@ class CecHybridRouter:
             and self.active_goal is not None
             and self.last_prepare_receipt is not None
         ):
-            return {
+            replay = {
                 **self.last_prepare_receipt,
                 "idempotent_replay": True,
                 "goal_image_jpeg_base64": base64.b64encode(
                     self.active_goal["image"]
                 ).decode("ascii"),
             }
+            depth = self.active_goal.get("evaluation_depth")
+            if isinstance(depth, bytes) and depth:
+                replay["goal_evaluation_depth_png_base64"] = (
+                    base64.b64encode(depth).decode("ascii")
+                )
+                replay["goal_evaluation_depth_scale_m"] = float(
+                    self.active_goal["evaluation_depth_scale_m"]
+                )
+            return replay
         if self.phase != PHASE_RECORDING:
             raise ValueError(
                 "prepare_revisit requires the memory recording phase"
@@ -745,7 +857,7 @@ class CecHybridRouter:
             ),
         )
         selected = self.goal_candidates[int(selected_score["candidate_id"])]
-        switch = self.begin_revisit()
+        switch = self.begin_revisit(query_start_image=query_start_image)
         # The support query was frozen at candidate capture.  Carry that exact
         # upper bound into every online retrieval for this automatically
         # selected goal; otherwise a later near-adjacent history frame could
@@ -775,16 +887,32 @@ class CecHybridRouter:
             ),
             "idempotent_replay": False,
         }
+        evaluation_depth = selected.get("evaluation_depth")
+        if isinstance(evaluation_depth, bytes) and evaluation_depth:
+            receipt["goal_evaluation_depth_png_base64"] = base64.b64encode(
+                evaluation_depth
+            ).decode("ascii")
+            receipt["goal_evaluation_depth_scale_m"] = float(
+                selected["evaluation_depth_scale_m"]
+            )
         # Keep a status-safe copy; the image bytes remain available via the
         # active goal and are not duplicated in /healthz.
         self.last_prepare_receipt = {
             key: value
             for key, value in receipt.items()
-            if key != "goal_image_jpeg_base64"
+            if key not in {
+                "goal_image_jpeg_base64",
+                "goal_evaluation_depth_png_base64",
+            }
         }
         return receipt
 
-    def prepare_revisit_goal(self, goal: bytes) -> dict[str, Any]:
+    def prepare_revisit_goal(
+        self,
+        goal: bytes,
+        *,
+        query_start_image: bytes | None = None,
+    ) -> dict[str, Any]:
         """Atomically install a pre-episode frozen goal and start Revisit.
 
         Real-world experiments often freeze the Revisit target before motion,
@@ -820,7 +948,7 @@ class CecHybridRouter:
                 "prepare_revisit_goal requires the memory recording phase"
             )
 
-        switch = self.begin_revisit()
+        switch = self.begin_revisit(query_start_image=query_start_image)
         selected_goal = {
             "candidate_id": None,
             "captured_after_frame": None,
@@ -844,7 +972,9 @@ class CecHybridRouter:
         }
         return receipt
 
-    def begin_revisit(self) -> dict[str, Any]:
+    def begin_revisit(
+        self, *, query_start_image: bytes | None = None
+    ) -> dict[str, Any]:
         """Switch to the query phase; the next goal query freezes the session."""
         if not self.initialized:
             raise HybridBackendError("router is not initialized")
@@ -863,7 +993,42 @@ class CecHybridRouter:
             raise ValueError(
                 "begin_revisit requires at least one recorded memory frame"
             )
-        if self.navdp_live_recording_steps:
+        warmup_frame_indices: list[int | str]
+        if self.loaded_dataset_id is not None:
+            # A separately recorded survey is long-term memory, not the
+            # current NavDP observation FIFO.  Prime the frozen controller
+            # with the physical query-start view instead of pretending that
+            # the survey's last frame happened one control tick ago.
+            if not query_start_image:
+                raise ValueError(
+                    "a loaded dataset requires the current query-start RGB"
+                )
+            try:
+                payload = _json_object(
+                    self.session.post(
+                        f"{self.config.navdp_url}/memory_replay_step",
+                        files={
+                            "image": _file(
+                                "query_start.jpg", query_start_image, "image/jpeg"
+                            )
+                        },
+                        timeout=self.config.timeout,
+                    ),
+                    "NavDP independent-query warm-up",
+                )
+            except Exception as error:
+                self.native_state_uncertain = True
+                raise HybridBackendError(
+                    "NavDP independent-query warm-up failed; reset is required: "
+                    f"{type(error).__name__}: {error}"
+                ) from error
+            warmup: list[tuple[int, bytes]] = []
+            queue_lengths = payload.get("queue_lengths")
+            memory_size = payload.get("memory_size")
+            warmup_mode = "independent_formal_query_start"
+            warmup_count = 1
+            warmup_frame_indices = ["query_start_current"]
+        elif self.navdp_live_recording_steps:
             if self.navdp_live_recording_steps != self.frames_recorded:
                 self.native_state_uncertain = True
                 raise HybridBackendError(
@@ -874,6 +1039,8 @@ class CecHybridRouter:
             queue_lengths = self.navdp_live_queue_lengths
             memory_size = self.navdp_live_memory_size
             warmup_mode = "live_novel_fifo"
+            warmup_count = 0
+            warmup_frame_indices = []
         else:
             # A teleoperated prefix never advanced NavDP. Reconstruct its FIFO
             # from the same strided tail used by the simulator replay.
@@ -903,13 +1070,15 @@ class CecHybridRouter:
                 queue_lengths = payload.get("queue_lengths")
                 memory_size = payload.get("memory_size")
             warmup_mode = "replayed_teleop_prefix"
+            warmup_count = len(warmup)
+            warmup_frame_indices = [index for index, _ in warmup]
         if not isinstance(memory_size, int) or memory_size <= 0:
             self.native_state_uncertain = True
             raise HybridBackendError(
                 "NavDP warm-up omitted memory size; reset is required"
             )
         expected_queue_length = min(
-            self.navdp_live_recording_steps or len(warmup), memory_size
+            self.navdp_live_recording_steps or warmup_count, memory_size
         )
         if queue_lengths != [expected_queue_length]:
             self.native_state_uncertain = True
@@ -924,10 +1093,97 @@ class CecHybridRouter:
             "revisit_started_after_frame": self.revisit_started_after_frame,
             "goal_session_contract": "first_goal_query_after_begin_revisit",
             "navdp_warmup_mode": warmup_mode,
-            "navdp_warmup_frames": len(warmup),
-            "navdp_warmup_frame_indices": [index for index, _ in warmup],
+            "navdp_warmup_frames": warmup_count,
+            "navdp_warmup_frame_indices": warmup_frame_indices,
             "navdp_queue_lengths": queue_lengths,
             "navdp_memory_size": memory_size,
+            "loaded_dataset_id": self.loaded_dataset_id,
+            "loaded_dataset_manifest_sha256": (
+                self.loaded_dataset_manifest_sha256
+            ),
+        }
+
+    def start_dataset(
+        self,
+        dataset_id: str,
+        *,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if self.dataset_store is None:
+            raise ValueError("episodic dataset storage is disabled")
+        if not self.initialized or self.phase != PHASE_RECORDING:
+            raise ValueError("dataset recording requires initialized memory_recording")
+        if self.frames_recorded or self.goal_candidates:
+            raise ValueError("dataset recording must start before the first frame")
+        return self.dataset_store.start(dataset_id, metadata=metadata)
+
+    def dataset_status(self, *, include_sealed: bool = True) -> dict[str, Any]:
+        if self.dataset_store is None:
+            return {"enabled": False, "sealed_datasets": []}
+        status = {
+            "enabled": True,
+            **self.dataset_store.status(),
+            "loaded_dataset_id": self.loaded_dataset_id,
+            "loaded_dataset_manifest_sha256": (
+                self.loaded_dataset_manifest_sha256
+            ),
+        }
+        if include_sealed:
+            status["sealed_datasets"] = self.dataset_store.list_sealed()
+        return status
+
+    def seal_dataset(self) -> dict[str, Any]:
+        if self.dataset_store is None:
+            raise ValueError("episodic dataset storage is disabled")
+        if self.phase != PHASE_RECORDING:
+            raise ValueError("dataset can only be sealed during memory_recording")
+        return self.dataset_store.seal(protocol={
+            "cec_protocol_version": PROTOCOL_VERSION,
+            "navigation_sensor_contract": NAVIGATION_SENSOR_CONTRACT,
+            "goal_min_frame_gap": self.config.goal_min_frame_gap,
+            "goal_min_inliers": self.config.goal_min_inliers,
+            "goal_max_cos": self.config.goal_max_cos,
+            "metric_depth_sensor_consumed_by_policy": False,
+        })
+
+    def load_dataset(self, dataset_id: str) -> dict[str, Any]:
+        if self.dataset_store is None:
+            raise ValueError("episodic dataset storage is disabled")
+        if self.dataset_store.recording:
+            raise ValueError("seal the active dataset before loading another")
+        if not self.initialized or self.phase != PHASE_RECORDING:
+            raise ValueError("dataset loading requires initialized memory_recording")
+        if self.frames_recorded or self.goal_candidates:
+            raise ValueError("dataset loading requires a freshly reset empty stream")
+        loaded = self.dataset_store.load(dataset_id)
+        manifest_raw = (loaded.root / "manifest.json").read_bytes()
+        for expected, image in loaded.memory_frames():
+            receipt = self.memory_step(image)
+            if int(receipt.get("frame_idx", -1)) != int(expected["frame_index"]):
+                self.memory_degraded = True
+                raise HybridBackendError(
+                    "dataset replay frame identity diverged; reset is required"
+                )
+        restored: list[dict[str, Any]] = []
+        for record, image, evaluation_depth in loaded.goal_candidates():
+            restored.append(dict(
+                record,
+                image=image,
+                evaluation_depth=evaluation_depth,
+            ))
+        self.goal_candidates = restored
+        self.loaded_dataset_id = str(loaded.manifest["dataset_id"])
+        self.loaded_dataset_manifest_sha256 = hashlib.sha256(
+            manifest_raw
+        ).hexdigest()
+        return {
+            "dataset_id": self.loaded_dataset_id,
+            "manifest_sha256": self.loaded_dataset_manifest_sha256,
+            "frames_replayed": self.frames_recorded,
+            "goal_candidates_restored": len(self.goal_candidates),
+            "phase": self.phase,
+            "navdp_fifo_replayed_from_dataset": False,
+            "query_start_rgb_required": True,
         }
 
     def plan_imagegoal(
@@ -1130,6 +1386,7 @@ def create_app(router: CecHybridRouter) -> Flask:
                 else router.active_goal.get("sha256")
             ),
             "last_prepare_receipt": router.last_prepare_receipt,
+            "episodic_dataset": router.dataset_status(include_sealed=False),
             "terminal_local_latched": router.terminal_local_latched,
             "terminal_stop_streak": router.terminal_stop_streak,
             "memory_degraded": router.memory_degraded,
@@ -1212,6 +1469,15 @@ def create_app(router: CecHybridRouter) -> Flask:
                         validate_support=(
                             request.form.get("validate_support", "0") == "1"
                         ),
+                        evaluation_depth=(
+                            request.files["evaluation_depth"].read()
+                            if "evaluation_depth" in request.files else None
+                        ),
+                        evaluation_depth_scale_m=(
+                            float(request.form["evaluation_depth_scale_m"])
+                            if "evaluation_depth_scale_m" in request.form
+                            else None
+                        ),
                     )
                 )
             except ValueError as error:
@@ -1227,7 +1493,12 @@ def create_app(router: CecHybridRouter) -> Flask:
             return jsonify({"error": "hub_busy"}), 409
         try:
             try:
-                result = router.begin_revisit()
+                result = router.begin_revisit(
+                    query_start_image=(
+                        request.files["query_start"].read()
+                        if "query_start" in request.files else None
+                    )
+                )
                 app.logger.info(
                     "cec_begin_revisit frames_recorded=%s",
                     result.get("frames_recorded"),
@@ -1246,7 +1517,12 @@ def create_app(router: CecHybridRouter) -> Flask:
             return jsonify({"error": "hub_busy"}), 409
         try:
             try:
-                result = router.prepare_revisit()
+                result = router.prepare_revisit(
+                    query_start_image=(
+                        request.files["query_start"].read()
+                        if "query_start" in request.files else None
+                    )
+                )
                 app.logger.info(
                     "cec_prepare_revisit goal=%s frames=%s warmup=%s",
                     result.get("selected_goal", {}).get("candidate_id"),
@@ -1274,7 +1550,11 @@ def create_app(router: CecHybridRouter) -> Flask:
         try:
             try:
                 result = router.prepare_revisit_goal(
-                    request.files["goal"].read()
+                    request.files["goal"].read(),
+                    query_start_image=(
+                        request.files["query_start"].read()
+                        if "query_start" in request.files else None
+                    ),
                 )
                 app.logger.info(
                     "cec_prepare_external_revisit goal_sha=%s frames=%s "
@@ -1288,6 +1568,64 @@ def create_app(router: CecHybridRouter) -> Flask:
                 return jsonify({"error": str(error), "phase": router.phase}), 400
             except HybridBackendError as error:
                 return jsonify({"error": str(error), "reset_required": True}), 503
+        finally:
+            call_lock.release()
+
+    @app.get("/dataset/status")
+    def dataset_status():
+        try:
+            return jsonify(router.dataset_status())
+        except (DatasetContractError, OSError) as error:
+            return jsonify({"error": str(error)}), 500
+
+    @app.post("/dataset/start")
+    def dataset_start():
+        if not call_lock.acquire(blocking=False):
+            return jsonify({"error": "hub_busy"}), 409
+        try:
+            payload = request.get_json(silent=True) or {}
+            metadata = payload.get("metadata")
+            if metadata is not None and not isinstance(metadata, dict):
+                return jsonify({"error": "metadata must be an object"}), 400
+            try:
+                return jsonify(router.start_dataset(
+                    str(payload.get("dataset_id", "")),
+                    metadata=metadata,
+                ))
+            except (ValueError, DatasetContractError) as error:
+                return jsonify({"error": str(error)}), 400
+        finally:
+            call_lock.release()
+
+    @app.post("/dataset/seal")
+    def dataset_seal():
+        if not call_lock.acquire(blocking=False):
+            return jsonify({"error": "hub_busy"}), 409
+        try:
+            try:
+                return jsonify(router.seal_dataset())
+            except (ValueError, DatasetContractError, OSError) as error:
+                return jsonify({"error": str(error)}), 400
+        finally:
+            call_lock.release()
+
+    @app.post("/dataset/load")
+    def dataset_load():
+        if not call_lock.acquire(blocking=False):
+            return jsonify({"error": "hub_busy"}), 409
+        try:
+            payload = request.get_json(silent=True) or {}
+            try:
+                return jsonify(router.load_dataset(
+                    str(payload.get("dataset_id", ""))
+                ))
+            except (ValueError, DatasetContractError, OSError) as error:
+                return jsonify({"error": str(error)}), 400
+            except HybridBackendError as error:
+                return jsonify({
+                    "error": str(error),
+                    "reset_required": True,
+                }), 503
         finally:
             call_lock.release()
 
@@ -1350,9 +1688,44 @@ def main() -> None:
     )
     parser.add_argument("--goal-min-inliers", type=int, default=GOAL_MIN_INLIERS)
     parser.add_argument("--goal-max-cos", type=float, default=GOAL_MAX_COS)
+    parser.add_argument(
+        "--episodic-dataset-root",
+        default=None,
+        help="root for immutable two-pass real-world Revisit datasets",
+    )
+    parser.add_argument(
+        "--episodic-dataset-min-frames",
+        type=int,
+        default=160,
+        help="minimum exact RGB frames required before a survey can be sealed",
+    )
+    parser.add_argument(
+        "--auto-dataset-id",
+        default=None,
+        help="open this dataset atomically with the first navigator reset",
+    )
+    parser.add_argument(
+        "--auto-dataset-metadata-json",
+        default="{}",
+        help="JSON object recorded in an automatically opened dataset",
+    )
     args = parser.parse_args()
     if args.host not in {"127.0.0.1", "::1", "localhost"}:
         parser.error("real-world hub must bind to loopback; use an SSH tunnel")
+    dataset_store = (
+        None
+        if args.episodic_dataset_root is None
+        else EpisodicDatasetStore(
+            args.episodic_dataset_root,
+            minimum_frames=max(1, args.episodic_dataset_min_frames),
+        )
+    )
+    try:
+        auto_dataset_metadata = json.loads(args.auto_dataset_metadata_json)
+    except json.JSONDecodeError as error:
+        parser.error(f"invalid --auto-dataset-metadata-json: {error}")
+    if not isinstance(auto_dataset_metadata, dict):
+        parser.error("--auto-dataset-metadata-json must contain an object")
     router = CecHybridRouter(UpstreamConfig(
         memnav_url=args.memnav_url.rstrip("/"),
         navdp_url=args.navdp_url.rstrip("/"),
@@ -1363,7 +1736,9 @@ def main() -> None:
         goal_min_frame_gap=max(1, args.goal_min_frame_gap),
         goal_min_inliers=max(1, args.goal_min_inliers),
         goal_max_cos=float(args.goal_max_cos),
-    ))
+    ), dataset_store=dataset_store,
+       auto_dataset_id=args.auto_dataset_id,
+       auto_dataset_metadata=auto_dataset_metadata)
     if args.goal_candidate_dir:
         os.makedirs(args.goal_candidate_dir, exist_ok=True)
         router.goal_candidate_dir = args.goal_candidate_dir

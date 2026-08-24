@@ -145,6 +145,15 @@ start_stack() {
       || die "RTX tmux session exists but its hub is unhealthy; run '$0 stop'"
     validate_health "$health" >/dev/null \
       || die "existing RTX session advertises the wrong policy contract"
+    if [[ -n "${CEC_EPISODIC_DATASET_ID:-}" ]]; then
+      python3 - "$health" "$CEC_EPISODIC_DATASET_ID" <<'PY' >/dev/null \
+        || die "existing RTX session is not recording the requested dataset; run '$0 stop'"
+import json, sys
+p = json.loads(sys.argv[1])["episodic_dataset"]
+assert p["recording"] is True
+assert p["dataset_id"] == sys.argv[2]
+PY
+    fi
     echo "Reusing healthy RTX policy session: $GPU_SESSION"
   else
     echo "Starting RTX policy stack through $GPU_HOST ..."
@@ -158,6 +167,10 @@ start_stack() {
     fi
     if [[ -n "${CEC_GOAL_CANDIDATE_DIR:-}" ]]; then
       remote_env+=" CEC_GOAL_CANDIDATE_DIR=$(shell_quote "$CEC_GOAL_CANDIDATE_DIR")"
+    fi
+    if [[ -n "${CEC_EPISODIC_DATASET_ID:-}" ]]; then
+      remote_env+=" CEC_EPISODIC_DATASET_ID=$(shell_quote "$CEC_EPISODIC_DATASET_ID")"
+      remote_env+=" CEC_EPISODIC_DATASET_METADATA_JSON=$(shell_quote "${CEC_EPISODIC_DATASET_METADATA_JSON:-{}}")"
     fi
     remote_exec \
       "cd ${quoted_repo} && ${remote_env} bash deployment/gpu/scripts/preflight.sh && ${remote_env} bash deployment/gpu/scripts/run_policy_stack.sh"

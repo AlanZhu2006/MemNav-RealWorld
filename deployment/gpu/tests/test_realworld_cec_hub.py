@@ -5,6 +5,7 @@ import json
 import pytest
 import requests
 
+from deployment.gpu.episodic_dataset import EpisodicDatasetStore
 from deployment.gpu.realworld_cec_hub import (
     NAVIGATION_SENSOR_CONTRACT,
     TERMINAL_HANDOFF_SCHEMA,
@@ -874,3 +875,84 @@ def test_warmup_queue_mismatch_latches_native_state_uncertain():
     with pytest.raises(HybridBackendError, match="queue length mismatch"):
         router.begin_revisit()
     assert router.native_state_uncertain is True
+
+
+def test_sealed_dataset_replay_keeps_long_memory_out_of_navdp_fifo(tmp_path):
+    store = EpisodicDatasetStore(tmp_path, minimum_frames=1)
+    recording = CecHybridRouter(
+        short_gap_config(),
+        session=FakeSession(reset_responses() + [memory_step_response(0)]),
+        dataset_store=store,
+    )
+    do_reset(recording)
+    recording.start_dataset("out-back")
+    recording.memory_step(b"historical-memory")
+    recording.goal_candidate(
+        b"memory-excluded-goal",
+        evaluation_depth=b"evaluator-depth",
+        evaluation_depth_scale_m=1.0e-4,
+    )
+    sealed = recording.seal_dataset()
+    assert sealed["goal_memory_exact_sha_overlap"] == 0
+
+    replay_session = FakeSession(
+        reset_responses() + [memory_step_response(0), warmup_response()]
+    )
+    replay = CecHybridRouter(
+        short_gap_config(), session=replay_session, dataset_store=store
+    )
+    do_reset(replay)
+    loaded = replay.load_dataset("out-back")
+    assert loaded["frames_replayed"] == 1
+    assert loaded["navdp_fifo_replayed_from_dataset"] is False
+    assert replay.goal_candidates[0]["evaluation_depth_scale_m"] == 1.0e-4
+    switch = replay.begin_revisit(query_start_image=b"physical-query-start")
+    assert switch["navdp_warmup_mode"] == "independent_formal_query_start"
+    assert switch["navdp_warmup_frame_indices"] == ["query_start_current"]
+    warmup_url, warmup_kwargs = replay_session.calls[-1]
+    assert warmup_url == "http://nav/memory_replay_step"
+    assert (
+        warmup_kwargs["files"]["image"][1].read()
+        == b"physical-query-start"
+    )
+
+
+def test_auto_dataset_starts_inside_first_reset(tmp_path):
+    store = EpisodicDatasetStore(tmp_path, minimum_frames=1)
+    router = CecHybridRouter(
+        config(),
+        session=FakeSession(reset_responses()),
+        dataset_store=store,
+        auto_dataset_id="survey-01",
+        auto_dataset_metadata={"motion": "hand_controller"},
+    )
+    receipt = do_reset(router)
+    assert receipt["episodic_dataset"]["dataset_id"] == "survey-01"
+    assert store.status()["recording"] is True
+
+
+def test_empty_auto_dataset_survives_reset_retry_but_nonempty_one_blocks_reset(
+    tmp_path,
+):
+    store = EpisodicDatasetStore(tmp_path, minimum_frames=1)
+    session = FakeSession(reset_responses() + reset_responses() + [
+        memory_step_response(0)
+    ])
+    router = CecHybridRouter(
+        config(),
+        session=session,
+        dataset_store=store,
+        auto_dataset_id="survey-retry",
+    )
+
+    first = do_reset(router)
+    second = do_reset(router)
+    assert first["episodic_dataset"]["dataset_id"] == "survey-retry"
+    assert second["episodic_dataset"]["dataset_id"] == "survey-retry"
+    assert len(session.calls) == 4
+
+    router.memory_step(b"first-recorded-frame")
+    with pytest.raises(ValueError, match="still recording"):
+        do_reset(router)
+    # The rejected reset performs no upstream mutation.
+    assert len(session.calls) == 5

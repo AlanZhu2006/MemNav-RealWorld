@@ -173,6 +173,24 @@ class NavDPClientPhaseProtocolTests(unittest.TestCase):
         self.assertFalse(receipt["registered"])
         self.assertEqual(session.data[0], {"validate_support": "1"})
 
+    def test_goal_candidate_carries_depth_for_evaluator_only(self):
+        client, session = self._client(
+            [_PhaseResponse({"candidate_id": 0, "registered": True})]
+        )
+        rgb = np.full((8, 12, 3), 90, dtype=np.uint8)
+        depth = np.full((8, 12), 1.25, dtype=np.float32)
+        client.goal_candidate(rgb, evaluation_depth_m=depth)
+        _, files, _ = session.calls[0]
+        self.assertEqual(set(files), {"image", "evaluation_depth"})
+        self.assertEqual(files["evaluation_depth"][2], "image/png")
+        self.assertEqual(
+            session.data[0],
+            {
+                "validate_support": "0",
+                "evaluation_depth_scale_m": "0.0001",
+            },
+        )
+
     def test_begin_revisit_returns_warmup_receipt(self):
         client, session = self._client(
             [_PhaseResponse({"phase": "revisit_query", "frames_recorded": 42,
@@ -201,6 +219,33 @@ class NavDPClientPhaseProtocolTests(unittest.TestCase):
         self.assertEqual(decoded.shape, rgb.shape)
         self.assertEqual(session.calls[0][0],
                          "http://127.0.0.1:18889/prepare_revisit")
+
+    def test_loaded_dataset_prepare_sends_query_start_and_keeps_eval_depth(self):
+        rgb = np.full((8, 12, 3), [20, 80, 140], dtype=np.uint8)
+        query = np.full((8, 12, 3), [90, 40, 10], dtype=np.uint8)
+        jpeg = NavDPClient._encode_rgb(rgb)
+        depth_png = NavDPClient._encode_depth(
+            np.full((8, 12), 1.0, dtype=np.float32)
+        )
+        digest = hashlib.sha256(jpeg).hexdigest()
+        client, session = self._client([_PhaseResponse({
+            "phase": "revisit_query",
+            "selected_goal": {"candidate_id": 0, "sha256": digest},
+            "goal_image_jpeg_base64": base64.b64encode(jpeg).decode("ascii"),
+            "goal_evaluation_depth_png_base64": (
+                base64.b64encode(depth_png).decode("ascii")
+            ),
+            "goal_evaluation_depth_scale_m": 1.0e-4,
+        })])
+
+        receipt, _ = client.prepare_revisit(query_start_rgb=query)
+
+        _, files, _ = session.calls[0]
+        self.assertEqual(set(files), {"query_start"})
+        self.assertEqual(client.last_goal_jpeg, jpeg)
+        self.assertEqual(client.last_goal_evaluation_depth_png, depth_png)
+        self.assertEqual(client.last_goal_evaluation_depth_scale_m, 1.0e-4)
+        self.assertNotIn("goal_evaluation_depth_png_base64", receipt)
 
     def test_prepare_external_revisit_uploads_and_verifies_frozen_goal(self):
         rgb = np.full((8, 12, 3), [30, 90, 150], dtype=np.uint8)
