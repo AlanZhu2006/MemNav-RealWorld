@@ -4,6 +4,7 @@ import unittest
 import base64
 import hashlib
 
+import cv2
 import numpy as np
 
 
@@ -187,9 +188,14 @@ class NavDPClientPhaseProtocolTests(unittest.TestCase):
             session.data[0],
             {
                 "validate_support": "0",
-                "evaluation_depth_scale_m": "0.0001",
+                "evaluation_depth_scale_m": "0.001",
             },
         )
+        encoded_depth = files["evaluation_depth"][1]
+        decoded_depth = cv2.imdecode(
+            np.frombuffer(encoded_depth, dtype=np.uint8), cv2.IMREAD_UNCHANGED
+        )
+        self.assertEqual(int(decoded_depth[0, 0]), 1250)
 
     def test_begin_revisit_returns_warmup_receipt(self):
         client, session = self._client(
@@ -235,7 +241,7 @@ class NavDPClientPhaseProtocolTests(unittest.TestCase):
             "goal_evaluation_depth_png_base64": (
                 base64.b64encode(depth_png).decode("ascii")
             ),
-            "goal_evaluation_depth_scale_m": 1.0e-4,
+            "goal_evaluation_depth_scale_m": 1.0e-3,
         })])
 
         receipt, _ = client.prepare_revisit(query_start_rgb=query)
@@ -244,7 +250,7 @@ class NavDPClientPhaseProtocolTests(unittest.TestCase):
         self.assertEqual(set(files), {"query_start"})
         self.assertEqual(client.last_goal_jpeg, jpeg)
         self.assertEqual(client.last_goal_evaluation_depth_png, depth_png)
-        self.assertEqual(client.last_goal_evaluation_depth_scale_m, 1.0e-4)
+        self.assertEqual(client.last_goal_evaluation_depth_scale_m, 1.0e-3)
         self.assertNotIn("goal_evaluation_depth_png_base64", receipt)
 
     def test_prepare_external_revisit_uploads_and_verifies_frozen_goal(self):

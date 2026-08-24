@@ -19,7 +19,8 @@ from terminal_motion_override import (
 )
 
 EXPECTED_CEC_PROTOCOL_VERSION = 3
-EVALUATION_DEPTH_PNG_SCALE_M = 1.0e-4
+NAVDP_WIRE_DEPTH_PNG_SCALE_M = 1.0e-4
+EVALUATION_DEPTH_PNG_SCALE_M = 1.0e-3
 
 
 class NavDPClient:
@@ -44,7 +45,7 @@ class NavDPClient:
         return encoded.tobytes()
 
     @staticmethod
-    def _encode_depth(depth_m: np.ndarray) -> bytes:
+    def _encode_depth_at_scale(depth_m: np.ndarray, scale_m: float) -> bytes:
         depth = np.asarray(depth_m, dtype=np.float32)
         if depth.ndim == 3:
             depth = depth[..., 0]
@@ -52,12 +53,26 @@ class NavDPClient:
             raise ValueError(f"depth image must have shape (H, W), got {depth.shape}")
         depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
         encoded_depth = np.clip(
-            depth / EVALUATION_DEPTH_PNG_SCALE_M, 0.0, 65535.0
+            depth / float(scale_m), 0.0, 65535.0
         ).astype(np.uint16)
         ok, encoded = cv2.imencode(".png", encoded_depth)
         if not ok:
             raise RuntimeError("failed to encode depth image")
         return encoded.tobytes()
+
+    @classmethod
+    def _encode_depth(cls, depth_m: np.ndarray) -> bytes:
+        """Encode the frozen NavDP HTTP wire format (0.1 mm/unit)."""
+        return cls._encode_depth_at_scale(
+            depth_m, NAVDP_WIRE_DEPTH_PNG_SCALE_M
+        )
+
+    @classmethod
+    def _encode_evaluation_depth(cls, depth_m: np.ndarray) -> bytes:
+        """Encode the existing real-world evaluator format (1 mm/unit)."""
+        return cls._encode_depth_at_scale(
+            depth_m, EVALUATION_DEPTH_PNG_SCALE_M
+        )
 
     def _post_phase_endpoint(self, route: str, files: Optional[dict] = None) -> dict:
         """POST a protocol-v3 phase endpoint, surfacing hub contract errors."""
@@ -133,7 +148,7 @@ class NavDPClient:
         if evaluation_depth_m is not None:
             files["evaluation_depth"] = (
                 "evaluation_depth.png",
-                self._encode_depth(evaluation_depth_m),
+                self._encode_evaluation_depth(evaluation_depth_m),
                 "image/png",
             )
         data = {"validate_support": "1" if validate_support else "0"}

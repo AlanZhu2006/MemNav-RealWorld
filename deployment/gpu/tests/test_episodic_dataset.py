@@ -36,7 +36,7 @@ def test_round_trip_is_canonical_and_keeps_depth_evaluator_only(tmp_path):
         record=candidate(image=b"goal"),
         image=b"goal",
         evaluation_depth=b"depth-png",
-        evaluation_depth_scale_m=1.0e-4,
+        evaluation_depth_scale_m=1.0e-3,
     )
 
     sealed = store.seal(protocol={"metric_depth_sensor_consumed": False})
@@ -54,7 +54,7 @@ def test_round_trip_is_canonical_and_keeps_depth_evaluator_only(tmp_path):
     assert restored[0][1:] == (b"goal", b"depth-png")
     record = restored[0][0]
     assert record["evaluation_depth_policy_authority"] is False
-    assert record["evaluation_depth_scale_m"] == 1.0e-4
+    assert record["evaluation_depth_scale_m"] == 1.0e-3
     raw = (loaded.root / "manifest.json").read_bytes()
     assert raw.endswith(b"\n")
     assert json.loads(raw)["metadata"]["operator"] == "hand_controller"

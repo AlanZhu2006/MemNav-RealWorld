@@ -890,7 +890,7 @@ def test_sealed_dataset_replay_keeps_long_memory_out_of_navdp_fifo(tmp_path):
     recording.goal_candidate(
         b"memory-excluded-goal",
         evaluation_depth=b"evaluator-depth",
-        evaluation_depth_scale_m=1.0e-4,
+        evaluation_depth_scale_m=1.0e-3,
     )
     sealed = recording.seal_dataset()
     assert sealed["goal_memory_exact_sha_overlap"] == 0
@@ -905,7 +905,7 @@ def test_sealed_dataset_replay_keeps_long_memory_out_of_navdp_fifo(tmp_path):
     loaded = replay.load_dataset("out-back")
     assert loaded["frames_replayed"] == 1
     assert loaded["navdp_fifo_replayed_from_dataset"] is False
-    assert replay.goal_candidates[0]["evaluation_depth_scale_m"] == 1.0e-4
+    assert replay.goal_candidates[0]["evaluation_depth_scale_m"] == 1.0e-3
     switch = replay.begin_revisit(query_start_image=b"physical-query-start")
     assert switch["navdp_warmup_mode"] == "independent_formal_query_start"
     assert switch["navdp_warmup_frame_indices"] == ["query_start_current"]

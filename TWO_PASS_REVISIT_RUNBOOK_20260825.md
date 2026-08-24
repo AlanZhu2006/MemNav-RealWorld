@@ -36,8 +36,8 @@ episodic_datasets/<dataset_id>/
 - goal candidate 明确记录 `appended_to_memory=false`；
 - goal JPEG 与任一 memory JPEG 的 SHA-256 交集必须为零；
 - aligned depth 明确记录 `evaluation_depth_policy_authority=false`；
-- aligned-depth PNG 同时冻结米制比例 `evaluation_depth_scale_m=1e-4`，避免评测器
-  把编码单位误读为 RealSense 原始毫米；
+- aligned-depth PNG 使用既有 evaluator 的毫米格式，并冻结米制比例
+  `evaluation_depth_scale_m=1e-3`；它与 NavDP HTTP wire 的 `1e-4` 编码明确隔离；
 - 已有 dataset id 不能覆盖或续写。
 
 候选图不能是 memory 中的完全重复帧。否则 Revisit 会退化为 JPEG 自匹配，不能作为
