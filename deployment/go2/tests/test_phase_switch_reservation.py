@@ -43,6 +43,8 @@ def _adapter(client):
     adapter._server_initialized = True
     adapter._phase = "memory_recording"
     adapter._inference_busy = False
+    adapter._frames_recorded = 0
+    adapter._goal_candidates_captured = 0
     import numpy as np
     adapter._rgb = np.zeros((4, 6, 3), dtype=np.uint8)
     adapter._revisit_image_goal = None
