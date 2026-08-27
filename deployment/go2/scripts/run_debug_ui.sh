@@ -11,18 +11,17 @@ if [[ ! -f "$RVIZ_CONFIG" ]]; then
   exit 1
 fi
 
-requested_display="${NAVDP_DISPLAY:-${DISPLAY:-}}"
-if [[ -z "$requested_display" || "$requested_display" =~ ^:[0-9]+([.][0-9]+)?$ ]]; then
+if [[ -z "${XAUTHORITY:-}" ]]; then
   if [[ -r "/run/user/$(id -u)/gdm/Xauthority" ]]; then
     export XAUTHORITY="/run/user/$(id -u)/gdm/Xauthority"
-  elif [[ -z "${XAUTHORITY:-}" && -r "$HOME/.Xauthority" ]]; then
+  elif [[ -r "$HOME/.Xauthority" ]]; then
     export XAUTHORITY="$HOME/.Xauthority"
   fi
 fi
-
-if [[ -n "${NAVDP_DISPLAY:-}" ]]; then
+if [[ -z "${DISPLAY:-}" && -n "${NAVDP_DISPLAY:-}" ]]; then
   export DISPLAY="$NAVDP_DISPLAY"
-elif [[ -z "${DISPLAY:-}" || "$DISPLAY" =~ ^:[0-9]+([.][0-9]+)?$ ]]; then
+fi
+if [[ -z "${DISPLAY:-}" ]]; then
   best_display=""
   best_area=0
   for socket in /tmp/.X11-unix/X*; do
@@ -46,10 +45,6 @@ elif [[ -z "${DISPLAY:-}" || "$DISPLAY" =~ ^:[0-9]+([.][0-9]+)?$ ]]; then
 fi
 if [[ -z "${DISPLAY:-}" ]]; then
   echo "No graphical DISPLAY found. Run RViz on a desktop or use SSH X forwarding." >&2
-  exit 1
-fi
-if ! xdpyinfo >/dev/null 2>&1; then
-  echo "Cannot open DISPLAY=$DISPLAY with XAUTHORITY=${XAUTHORITY:-unset}." >&2
   exit 1
 fi
 

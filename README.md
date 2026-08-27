@@ -47,19 +47,19 @@ a formal SR/SPL result. The external view shows physical Go2 motion; the RViz
 dashboard shows the ImageGoal, current RGB, aligned safety depth, visual match,
 candidate trajectories, selected trajectory and live control state.
 
-<table>
+<table width="100%">
   <tr>
-    <td width="40%" align="center">
+    <td width="35%" align="center" valign="top">
       <strong>Third-person view</strong><br>
       <a href="media/demo/revisit_reference_third_view.mp4">
-        <img src="media/demo/revisit_reference_third_view.gif" width="360" alt="Third-person Unitree Go2 engineering demo">
+        <img src="media/demo/revisit_reference_third_view.gif" width="65%" alt="Third-person Unitree Go2 engineering demo">
       </a><br>
       <a href="media/demo/revisit_reference_third_view.mp4">H.264 MP4</a>
     </td>
-    <td width="60%" align="center">
+    <td width="65%" align="center" valign="top">
       <strong>First-person RViz dashboard</strong><br>
       <a href="media/demo/revisit_reference_dashboard.mp4">
-        <img src="media/demo/revisit_reference_dashboard.gif" width="640" alt="NavDP first-person RViz dashboard engineering demo">
+        <img src="media/demo/revisit_reference_dashboard.gif" width="100%" alt="NavDP first-person RViz dashboard engineering demo">
       </a><br>
       <a href="media/demo/revisit_reference_dashboard.mp4">H.264 MP4</a>
     </td>
