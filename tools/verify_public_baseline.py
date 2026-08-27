@@ -18,6 +18,7 @@ REQUIRED_PATHS = (
     "CURRENT_STATUS.md",
     "RUNBOOK.md",
     "EXPERIMENT_DATA_COLLECTION.md",
+    "REALWORLD_EVALUATION.md",
     "SOURCE_MANIFEST.md",
     "THIRD_PARTY_NOTICES.md",
     "media/go2_showcase.jpg",
@@ -30,6 +31,7 @@ REQUIRED_PATHS = (
     "manifests/realworld_fullmono_v2.json",
     "manifests/realworld_fullmono_v3.json",
     "manifests/realworld_fullmono_v4.json",
+    "manifests/realworld_evaluation_plan_v1.json",
     "FULL_MONO_RELEASE_20260821.md",
     "deployment/go2/navdp_ros_node.py",
     "deployment/go2/navdp_client.py",
@@ -309,6 +311,40 @@ def main() -> int:
         and "artifact_inventory" in capture_manifest_source
         and "sha256_file" in capture_manifest_source,
         "capture evidence is hash-bound without motion authority",
+        failures,
+    )
+
+    evaluation_plan = json.loads(
+        (root / "manifests/realworld_evaluation_plan_v1.json").read_text()
+    )
+    evaluation_shape = evaluation_plan.get("expected_shape", {})
+    evaluation_scenes = evaluation_plan.get("scenes", [])
+    evaluation_trials = [
+        trial
+        for scene in evaluation_scenes
+        for trial in scene.get("trials", [])
+    ]
+    check(
+        evaluation_plan.get("status") == "planned_no_formal_runs"
+        and evaluation_shape
+        == {"scenes": 4, "trials_per_scene": 5, "total_episodes": 20}
+        and len(evaluation_scenes) == 4
+        and all(len(scene.get("trials", [])) == 5 for scene in evaluation_scenes),
+        "four-scene five-repeat evaluation is registered",
+        failures,
+    )
+    check(
+        evaluation_plan.get("claims", {}).get("formal_realworld_sr_spl")
+        is False
+        and evaluation_plan.get("claims", {}).get(
+            "autonomous_imagegoal_arrival_verified"
+        )
+        is False
+        and evaluation_plan.get("claims", {}).get("completed_formal_runs") == 0
+        and all(trial.get("status") == "planned" for trial in evaluation_trials)
+        and all(trial.get("success") is None for trial in evaluation_trials)
+        and all(trial.get("spl") is None for trial in evaluation_trials),
+        "planned evaluation contains no fabricated SR/SPL",
         failures,
     )
 

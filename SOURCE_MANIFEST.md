@@ -34,6 +34,8 @@ auditable overlay instead of an anonymous source dump.
 | `deployment/go2/experiment_capture_manifest.py` | Run identity, third-view import, artifact SHA-256 and finalization contract |
 | `deployment/go2/experiment_topic_logger.py` | Human-readable JSONL mirror of status, CEC and evaluator receipts |
 | `tools/{transcode_demo_media.sh,build_demo_previews.py}` | Browser H.264, poster and inline-GIF publication helpers |
+| `REALWORLD_EVALUATION.md` | Planned four-scene, five-repeat SR/SPL and dual-view publication registry; contains no result claims |
+| `manifests/realworld_evaluation_plan_v1.json` | Machine-readable 20-run campaign template with null metrics until evidence is finalized |
 
 The MemNav model service remains an external research dependency because its
 licensed checkpoints, LingBot weights, LightGlue dependency tree and research

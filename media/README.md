@@ -27,3 +27,23 @@ The demo establishes presentation format only. It is not bound to a sealed
 formal-run manifest and therefore is not evidence for SR/SPL or autonomous
 arrival. Raw experiment evidence remains ignored under `runtime/`; publication
 uses the workflow in `EXPERIMENT_DATA_COLLECTION.md`.
+
+## Planned formal campaign namespace
+
+The blank four-scene campaign in `REALWORLD_EVALUATION.md` reserves the
+following browser-derivative names after independent review and manifest
+finalization:
+
+```text
+scene01_formal_01_third_view.mp4
+scene01_formal_01_third_view.gif
+scene01_formal_01_dashboard.mp4
+scene01_formal_01_dashboard.gif
+scene01_formal_01_poster.jpg
+```
+
+Replace `scene01/formal_01` for Scene 01--04 and Formal 01--05. Source camera
+masters remain outside Git; only H.264/GIF/poster derivatives may use this
+namespace. A filename alone never establishes a formal result: every published
+run must also link the finalized capture manifest, dataset manifest, independent
+success/path record and SR/SPL calculation.

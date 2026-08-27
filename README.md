@@ -86,6 +86,29 @@ planner. NavDP remains the sole local trajectory policy, but its observation
 depth is reconstructed from the same causal monocular stream. See
 [ARCHITECTURE.md](ARCHITECTURE.md) for state and failure semantics.
 
+## Planned Real-World Evaluation
+
+The registered first campaign follows the same publication structure as
+[TopoFocus Real-World](https://github.com/AlanZhu2006/topofocus_realworld):
+four frozen scenes, five formal rollouts per scene,
+per-run SR/SPL metrics and paired third-view/RViz evidence. No formal run has
+been entered yet; every dash below is an intentionally blank value, not zero.
+
+| Scene | Target / setting | Planned | Completed | Successes | SR | Mean SPL |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Scene 01 | `TBD` | `5` | `0` | `—` | `—` | `—` |
+| Scene 02 | `TBD` | `5` | `0` | `—` | `—` | `—` |
+| Scene 03 | `TBD` | `5` | `0` | `—` | `—` | `—` |
+| Scene 04 | `TBD` | `5` | `0` | `—` | `—` | `—` |
+| **Overall** | CEC-certified bearing + frozen NavDP | **`20`** | **`0`** | **`—`** | **`—`** | **`—`** |
+
+`SPL_i = S_i L_i / max(L_i, P_i)`, where `L_i` is the independently
+predeclared shortest feasible scene path and `P_i` is an independently
+measured physical Go2 path. Results remain blocked until the separate arrival
+and path-measurement contracts are frozen. See the
+[full five-run scene registry](REALWORLD_EVALUATION.md) and
+[machine-readable plan](manifests/realworld_evaluation_plan_v1.json).
+
 ## Safety Contract
 
 - Motion is locked at startup and requires an explicit ROS service call.
@@ -108,6 +131,7 @@ tethering for first motion, or the Unitree hand controller.
 | <code>deployment/gpu/</code> | Auditable CEC router, fixed-bearing adapter, GPU launch scripts and tests |
 | <code>baselines/navdp/</code> | Frozen NavDP plus audited mono-sidecar and state-safe inference interfaces |
 | <code>baselines/x-navdp/</code> | Upstream X-NavDP baseline and Jetson compatibility fixes |
+| <code>REALWORLD_EVALUATION.md</code> | Planned four-scene, five-repeat SR/SPL registry with empty rollout/media slots |
 | <code>REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md</code> | Dated integration evidence and measured limitations |
 
 Model checkpoints, research datasets, local environments, runtime buffers and
@@ -247,6 +271,7 @@ See [CURRENT_STATUS.md](CURRENT_STATUS.md) before any new experiment.
 - [RUNBOOK.md](RUNBOOK.md): current start, inspect, stop and revisit sequence.
 - [TWO_PASS_REVISIT_RUNBOOK_20260825.md](TWO_PASS_REVISIT_RUNBOOK_20260825.md): immutable survey and formal replay procedure.
 - [EXPERIMENT_DATA_COLLECTION.md](EXPERIMENT_DATA_COLLECTION.md): ROS bag, receipt and dual-view recording workflow.
+- [REALWORLD_EVALUATION.md](REALWORLD_EVALUATION.md): blank four-scene, five-run SR/SPL and media publication registry.
 - [ARCHITECTURE.md](ARCHITECTURE.md): responsibilities, routing and fail-closed behavior.
 - [CURRENT_STATUS.md](CURRENT_STATUS.md): verified gates and remaining physical acceptance.
 - [SOURCE_MANIFEST.md](SOURCE_MANIFEST.md): source snapshot and excluded artifacts.

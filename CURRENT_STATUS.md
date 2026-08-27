@@ -12,6 +12,11 @@ JSONL 和 RViz dashboard，第三人称原片导入后与同一 run ID、Git rev
 manifest 绑定。当前仓库中的双视角视频只是 engineering reference demo，不改变正式结果
 边界。完整操作见 `EXPERIMENT_DATA_COLLECTION.md`。
 
+同日注册了 `4 scenes x 5 repeats = 20 runs` 的首轮 CEC-certified bearing + frozen
+NavDP 评测模板，公开页、逐 run 媒体槽位和机器 manifest 均保持空白。该登记只冻结
+未来结果的形状，不代表已经执行实验，也不改变 arrival/STOP 和 SR/SPL 尚未建立的结论。
+见 `REALWORLD_EVALUATION.md`。
+
 ## Bottom line
 
 The two-machine Full-Mono CEC stack is synchronized and fail-closed, and it
