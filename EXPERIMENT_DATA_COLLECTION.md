@@ -1,0 +1,158 @@
+# Real-World Experiment Data Collection
+
+Snapshot: **2026-08-27**
+
+This workflow records one NavDP/Go2 trial as a synchronized evidence bundle:
+
+1. ROS 2 bag data for policy state, CEC receipts, trajectories, commands,
+   evaluator output and safety state;
+2. line-oriented JSON copies of `/navdp/status`, `/navdp/cec_receipt`,
+   `/navdp/imagegoal_evaluation` and the experiment start/stop events;
+3. an automatic H.264 recording of the live RViz desktop;
+4. an externally recorded third-person video, imported byte-for-byte after the
+   run;
+5. a frozen manifest containing the Git revision, configuration identity,
+   outcome, file sizes and SHA-256 values.
+
+The collector is observational. It does not publish velocity, enable the
+adapter, clear estop or call the Unitree SDK.
+
+## Evidence roles
+
+| Evidence | Capture authority | Purpose |
+| --- | --- | --- |
+| RTX episodic dataset | Full-Mono hub | Exact causal memory RGBs, excluded goal candidates and their immutable manifest |
+| ROS bag | Jetson collector | Policy/status/control/evaluator timeline; optional full RGB-D replay |
+| Receipt JSONL | Jetson collector | Human-readable phase, goal-selection, CEC and arrival-audit events |
+| RViz dashboard MP4 | Jetson GStreamer | First-person camera, goal, visual match, aligned safety depth, paths and live state |
+| Third-view master | External camera/operator | Physical motion, contacts, operator intervention and scene outcome |
+| Capture manifest | Jetson collector | Binds all artifacts to one run ID and Git revision with SHA-256 |
+
+The third-view camera is intentionally independent of the robot. The Jetson
+cannot start a phone recording, so the operator starts it immediately after
+the collector and performs one visible sync clap. ROS `/navdp/experiment_event`
+records exact software-side `START` and `STOP` UTC events.
+
+## One-time preflight
+
+Start the formal stack with RViz first. Motion remains locked:
+
+~~~bash
+cd /home/nvidia/twork/NavDP
+bash deployment/go2/offboard/revisit_experiment.sh formal-start DATASET_ID \
+  --with-rviz
+
+bash deployment/go2/offboard/experiment_capture.sh preflight
+~~~
+
+Preflight requires the installed ROS bag recorder, `tmux`, a readable X11
+display and the existing GStreamer H.264 components. It does not start a
+recording or touch motion authority.
+
+## Start a formal capture
+
+Use one unique run ID across the dashboard, third-view camera, evaluator output
+and final notes:
+
+~~~bash
+bash deployment/go2/offboard/experiment_capture.sh start \
+  revisit_scene01_trial01 \
+  --dataset DATASET_ID \
+  --trial-kind revisit \
+  --profile audit
+~~~
+
+The recommended `audit` profile records:
+
+- `/navdp/status`, `/navdp/cec_receipt` and `/navdp/imagegoal_evaluation`;
+- selected/candidate paths, command velocity, enable/estop state and Go2 state;
+- ImageGoal, visual-match debug image, camera calibration and RViz markers;
+- the RViz desktop at 12 fps, H.264, scaled to at most 1600 pixels wide.
+
+It does not duplicate the raw camera stream because the RTX episodic dataset
+already owns the exact causal RGB memory. Use `--profile full` only when raw
+D435i RGB and aligned depth are required for an offline sensor replay. The full
+profile can consume several gigabytes per minute and must be preceded by a
+disk-bandwidth and free-space check.
+
+After the command reports `START`, begin the independent third-person camera
+and make one visible sync clap. Only then start the evaluator and perform the
+separate onsite estop-clear and motion-enable procedure from the runbook.
+
+## Stop and seal
+
+First assert estop or complete the evaluator's terminal procedure. Then stop
+the evidence processes gracefully:
+
+~~~bash
+bash deployment/go2/offboard/experiment_capture.sh stop \
+  revisit_scene01_trial01
+
+bash deployment/go2/offboard/experiment_capture.sh attach-third-view \
+  revisit_scene01_trial01 /path/from/camera/third_view.mp4
+
+bash deployment/go2/offboard/experiment_capture.sh finalize \
+  revisit_scene01_trial01 success \
+  --notes "operator-confirmed physical outcome; evaluator report attached"
+
+bash deployment/go2/offboard/experiment_capture.sh verify \
+  revisit_scene01_trial01
+~~~
+
+`finalize` refuses a formal bundle unless all of the following exist:
+
+- a closed ROS bag with storage and `metadata.yaml`;
+- a non-empty RViz dashboard MP4;
+- a byte-preserved imported third-view video;
+- non-empty status and CEC JSONL logs.
+
+An aborted engineering run may use `--allow-incomplete`; the manifest then
+records `formal_complete=false`. Missing evidence is never silently promoted
+to a formal result.
+
+## Runtime layout
+
+By default every run is written under:
+
+~~~text
+runtime/go2/experiment_capture/<RUN_ID>/
+├── manifest.json
+├── MANIFEST.sha256
+├── FINALIZED
+├── rosbag/
+├── logs/
+│   ├── status.jsonl
+│   ├── cec_receipt.jsonl
+│   ├── imagegoal_evaluation.jsonl
+│   └── experiment_event.jsonl
+├── media/
+│   ├── dashboard.mp4
+│   └── third_view.mp4
+└── receipts/
+~~~
+
+Runtime evidence remains ignored by Git. Formal publication should copy only
+the selected, independently reviewed derivatives into `media/demo/` and bind
+their hashes in `media/README.md` or a dated experiment manifest.
+
+## Browser-ready publication
+
+The repository includes deterministic local helpers for the same publication
+pattern used by TopoFocus Real-World: a browser H.264 MP4, a poster and an
+accelerated inline GIF.
+
+~~~bash
+# Normalize a third-view phone master (example: H.265 portrait input).
+bash tools/transcode_demo_media.sh \
+  /path/to/third_view_master.mp4 /tmp/third_view_browser.mp4 \
+  360 640 1200 15
+
+.venv-navdp/bin/python tools/build_demo_previews.py \
+  --video /tmp/third_view_browser.mp4 \
+  --poster /tmp/third_view_poster.jpg \
+  --gif /tmp/third_view_preview.gif \
+  --width 360 --frames 48 --duration-s 8
+~~~
+
+The source master must remain separately archived. A README preview is display
+evidence, not a substitute for the sealed runtime manifest or raw recording.

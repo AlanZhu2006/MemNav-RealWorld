@@ -128,6 +128,19 @@ bash deployment/go2/offboard/revisit_experiment.sh \
 因此“一键启动”指一键达到**可审计、运动锁止的 formal-ready 状态**，不是无人值守给
 电机授权。当前自动到达/STOP 尚未通过物理标定，脚本故意没有 `arm` 子命令。
 
+在启动独立 evaluator 和现场运动授权之前，先建立本轮双视角证据会话：
+
+```bash
+bash deployment/go2/offboard/experiment_capture.sh preflight
+bash deployment/go2/offboard/experiment_capture.sh start \
+  office_loop_01_formal_01 \
+  --dataset office_loop_01 --trial-kind revisit --profile audit
+```
+
+它自动记录 ROS bag、CEC/status JSONL 和 RViz dashboard，不改变 `disabled + estop`。
+第三人称相机在命令返回后启动并做一次同步拍手。停止、导入外部视频和 SHA-256 封存步骤
+见 `EXPERIMENT_DATA_COLLECTION.md`。
+
 状态和停止：
 
 ```bash
@@ -145,6 +158,7 @@ bash deployment/go2/offboard/revisit_experiment.sh stop
 - 长程 memory 与 NavDP 短期 FIFO 的时间尺度隔离；
 - 当前 query-start RGB 的正式短期初始化；
 - 目标 JPEG/SHA 在线安装和 Jetson evaluator artifact；
+- 每轮 ROS bag、CEC/status 收据、RViz 与第三人称视频的统一 run manifest；
 - Jetson 单入口 survey / seal / formal / status / stop；
 - 全流程默认无运动权限。
 

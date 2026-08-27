@@ -17,6 +17,12 @@ deployment/go2/goals/*
 !deployment/go2/goals/.gitkeep
 deployment/go2/releases/
 !media/go2_showcase.jpg
+!media/system_architecture.png
+!media/demo/
+!media/demo/revisit_reference_dashboard.mp4
+!media/demo/revisit_reference_dashboard_poster.jpg
+!media/demo/revisit_reference_third_view.mp4
+!media/demo/revisit_reference_third_view_poster.jpg
 *.download
 *.invalid.*
 assets/scenes/Materials/*

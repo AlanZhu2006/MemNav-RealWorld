@@ -1,11 +1,16 @@
 # Current Full-Mono Real-World Status
 
-Snapshot: **2026-08-25, protocol-v3 + direct-bearing-v2 safety release**
+Snapshot: **2026-08-27, protocol-v3 + direct-bearing-v2 + evidence capture**
 
 新增的两阶段真机框架已经把长程手柄 survey 冻结为 exact-byte episodic dataset，并能在
 独立的第二次运行中校验、重放、安装目标和初始化 formal query。入口与剩余边界见
 `TWO_PASS_REVISIT_RUNBOOK_20260825.md`。该更新解决实验生命周期和持久化，不改变下文
 “自动 arrival/STOP 尚未建立”的结论。
+
+2026-08-27 增加了不具备运动权限的实验采集侧车：每轮自动保存 ROS bag、CEC/status
+JSONL 和 RViz dashboard，第三人称原片导入后与同一 run ID、Git revision 和 SHA-256
+manifest 绑定。当前仓库中的双视角视频只是 engineering reference demo，不改变正式结果
+边界。完整操作见 `EXPERIMENT_DATA_COLLECTION.md`。
 
 ## Bottom line
 
@@ -117,6 +122,8 @@ Established:
    refine it;
 4. monocular PnP direction and metric distance require different authority;
 5. stale or partially synchronized terminal schemas now fail closed.
+6. formal-run evidence now has a single run ID and hash-bound ROS/dashboard/
+   third-view collection contract.
 
 Not established:
 

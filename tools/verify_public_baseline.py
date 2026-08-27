@@ -17,10 +17,15 @@ REQUIRED_PATHS = (
     "ARCHITECTURE.md",
     "CURRENT_STATUS.md",
     "RUNBOOK.md",
+    "EXPERIMENT_DATA_COLLECTION.md",
     "SOURCE_MANIFEST.md",
     "THIRD_PARTY_NOTICES.md",
     "media/go2_showcase.jpg",
-    "media/system_architecture.svg",
+    "media/system_architecture.png",
+    "media/demo/revisit_reference_third_view.mp4",
+    "media/demo/revisit_reference_third_view.gif",
+    "media/demo/revisit_reference_dashboard.mp4",
+    "media/demo/revisit_reference_dashboard.gif",
     "manifests/realworld_deployment_v1.json",
     "manifests/realworld_fullmono_v2.json",
     "manifests/realworld_fullmono_v3.json",
@@ -32,12 +37,17 @@ REQUIRED_PATHS = (
     "deployment/go2/offboard/runtime_contract.sh",
     "deployment/go2/go2_cmd_bridge.py",
     "deployment/go2/offboard/run_offboard_stack.sh",
+    "deployment/go2/offboard/experiment_capture.sh",
+    "deployment/go2/experiment_capture_manifest.py",
+    "deployment/go2/experiment_topic_logger.py",
     "deployment/gpu/realworld_cec_hub.py",
     "deployment/gpu/monocular_depth_runtime.py",
     "deployment/gpu/revisit_bearing_adapter.py",
     "deployment/gpu/revisit_local_pose_adapter.py",
     "deployment/gpu/audit_visual_convergence.py",
     "deployment/gpu/env.example",
+    "tools/transcode_demo_media.sh",
+    "tools/build_demo_previews.py",
 )
 
 FORBIDDEN_SUFFIXES = (".ckpt", ".pth", ".pt", ".pyc", ".download")
@@ -45,7 +55,7 @@ FORBIDDEN_PARTS = ("__pycache__", ".venv-navdp", ".cache", "runtime")
 ALLOWED_GOAL_FILE = "deployment/go2/goals/.gitkeep"
 EXPECTED_HASHES = {
     "deployment/gpu/realworld_cec_hub.py": (
-        "501858a5961f844098ad20d26e4a28763ac29937b37e3a9501c1caead746ee61"
+        "1964c64e171b1e9976dad666df8c82be364182ca23a90e87161b4a7dd1f60be6"
     ),
     "deployment/gpu/monocular_depth_runtime.py": (
         "9b88cbd091b83dbe15846ec0b47d329d715273f0557abffe319a463936c9c138"
@@ -63,7 +73,7 @@ EXPECTED_HASHES = {
         "1a0ea960c36e231d4424c1a3837d7b3cf88dce0ef7d4737068d371bfa888054e"
     ),
     "deployment/go2/navdp_client.py": (
-        "1d4cc28b7c8a5d9d864d0443bc9ab32c0e7124a19b39e2481ff41de6d5fefcf9"
+        "ded9824071dd022a914260283972a8995d86d2feb59a3fb8384a69a9d3d88e6e"
     ),
     "deployment/go2/offboard/runtime_contract.sh": (
         "bfa64b010a335e5bd1528c6033a636773d4631d443631da7f4c5e0d135858f97"
@@ -71,8 +81,20 @@ EXPECTED_HASHES = {
     "media/go2_showcase.jpg": (
         "a7b5a226e3e89d08aa04d932a4531dce7b2593e4a5d7e2693b5997f89652cd08"
     ),
-    "media/system_architecture.svg": (
-        "741f627a7557d1dd7c1018790702eb8528bd47904114d5ef265a97ae157783f2"
+    "media/system_architecture.png": (
+        "1dd30e72de523a4a14dc307dc7f0522687fa2c82f85ca9368873d9b9ce172298"
+    ),
+    "media/demo/revisit_reference_third_view.mp4": (
+        "6f91aa9b9f95fb47ebc1529a24e055d37b087463b5e9ba7290fa642502dd8819"
+    ),
+    "media/demo/revisit_reference_third_view.gif": (
+        "eb4238dd4f2920d6c4d85857dbb0274f5a6457fab1ce7e917ac3cd9cd1d913b5"
+    ),
+    "media/demo/revisit_reference_dashboard.mp4": (
+        "1aa1496da2517fcb2fe656c56a9097d2294948802d2fd1853ed0b8c10f40d7e0"
+    ),
+    "media/demo/revisit_reference_dashboard.gif": (
+        "cec03c51334f2a397f3c78462e750c881ae27244a7425705658a5fadd9e67df9"
     ),
 }
 
@@ -265,6 +287,28 @@ def main() -> int:
         and "EXPECTED_TERMINAL_HANDOFF_SCHEMA" in client_source
         and "terminal_handoff_schema" in contract_source,
         "hub/executor schema handshake is implemented",
+        failures,
+    )
+    capture_source = (
+        root / "deployment/go2/offboard/experiment_capture.sh"
+    ).read_text()
+    capture_manifest_source = (
+        root / "deployment/go2/experiment_capture_manifest.py"
+    ).read_text()
+    check(
+        "/navdp/cec_receipt" in capture_source
+        and "ros2 bag record" in capture_source
+        and "gst-launch-1.0" in capture_source
+        and "attach-third-view" in capture_source,
+        "dual-view experiment capture is declared",
+        failures,
+    )
+    check(
+        "motion_authority_changed_by_capture" in capture_manifest_source
+        and '"motion_authority_changed_by_capture": False' in capture_manifest_source
+        and "artifact_inventory" in capture_manifest_source
+        and "sha256_file" in capture_manifest_source,
+        "capture evidence is hash-bound without motion authority",
         failures,
     )
 

@@ -28,8 +28,8 @@ packages on the Jetson.
 ## System Architecture
 
 <p align="center">
-  <a href="media/system_architecture.svg">
-    <img src="media/system_architecture.svg" width="100%" alt="MemNav and NavDP dual-machine architecture for Unitree Go2">
+  <a href="media/system_architecture.png">
+    <img src="media/system_architecture.png" width="100%" alt="One causal RGB stream with LingBot short-range geometry, CEC long-range memory, frozen NavDP control and Jetson-local safety">
   </a>
 </p>
 
@@ -40,15 +40,46 @@ reached by an SSH tunnel. The Jetson converts that path into
 depth-clearance, command-age, estop and operator-enable checks pass. Jetson
 depth is never forwarded into the navigation policy.
 
+## Real-Robot Demo
+
+The clips below are engineering reference footage supplied on 2026-08-27, not
+a formal SR/SPL result. The external view shows physical Go2 motion; the RViz
+dashboard shows the ImageGoal, current RGB, aligned safety depth, visual match,
+candidate trajectories, selected trajectory and live control state.
+
+<table>
+  <tr>
+    <td width="40%" align="center">
+      <strong>Third-person view</strong><br>
+      <a href="media/demo/revisit_reference_third_view.mp4">
+        <img src="media/demo/revisit_reference_third_view.gif" width="360" alt="Third-person Unitree Go2 engineering demo">
+      </a><br>
+      <a href="media/demo/revisit_reference_third_view.mp4">H.264 MP4</a>
+    </td>
+    <td width="60%" align="center">
+      <strong>First-person RViz dashboard</strong><br>
+      <a href="media/demo/revisit_reference_dashboard.mp4">
+        <img src="media/demo/revisit_reference_dashboard.gif" width="640" alt="NavDP first-person RViz dashboard engineering demo">
+      </a><br>
+      <a href="media/demo/revisit_reference_dashboard.mp4">H.264 MP4</a>
+    </td>
+  </tr>
+</table>
+
+Formal runs use one run ID to bind the ROS bag, readable CEC/status receipts,
+RViz recording and external third-view master into a SHA-256 manifest. See
+[EXPERIMENT_DATA_COLLECTION.md](EXPERIMENT_DATA_COLLECTION.md).
+
 ### Online ImageGoal Route
 
-1. The Jetson sends current RGB and the fixed goal image; aligned depth remains local for safety.
-2. MemNav appends the RGB exactly once. The same frozen LingBot stream exposes dense short-range mono depth and sparse long-range proof evidence.
-3. CEC either certifies a revisit bearing or abstains.
-4. An accepted bearing is normalized and projected to a frozen 2.5 m local PointGoal.
-5. Frozen NavDP always consumes the LingBot mono-depth sidecar. CEC rejection uses exact mono-native ImageGoal NavDP.
-6. A failed causal stream update latches <code>reset_required</code>; it cannot silently fall back to metric depth.
-7. The Jetson tracks the returned local path at a tested default limit of <code>0.30 m/s</code>.
+1. A survey pass records exact causal RGB memory and memory-excluded supported goal candidates.
+2. The sealed dataset is restarted and verified before the formal Revisit pass.
+3. The task-boundary transaction selects and installs one candidate, then reconstructs NavDP's short observation FIFO.
+4. Each query appends current RGB exactly once; LingBot exposes dense short-range mono depth and sparse long-range proof evidence from the same state.
+5. CEC either certifies a scale-free revisit bearing or abstains.
+6. An accepted bearing is normalized onto a frozen 2.5 m local PointGoal; rejection uses exact mono-native ImageGoal NavDP.
+7. A failed causal stream update latches <code>reset_required</code>; it cannot silently fall back to metric depth.
+8. The Jetson tracks the returned local path at a tested default limit of <code>0.30 m/s</code>.
 
 MemNav is therefore a certified directional memory layer, not a metric global
 planner. NavDP remains the sole local trajectory policy, but its observation
@@ -73,13 +104,15 @@ tethering for first motion, or the Unitree hand controller.
 | --- | --- |
 | <code>deployment/go2/</code> | D435i, ROS 2 adapter, RViz, ImageGoal evaluator, Go2 bridge and tests |
 | <code>deployment/go2/offboard/</code> | Jetson-to-workstation SSH tunnel and dual-machine launcher |
+| <code>deployment/go2/offboard/experiment_capture.sh</code> | ROS bag, receipt, RViz and third-view evidence binding for each run |
 | <code>deployment/gpu/</code> | Auditable CEC router, fixed-bearing adapter, GPU launch scripts and tests |
 | <code>baselines/navdp/</code> | Frozen NavDP plus audited mono-sidecar and state-safe inference interfaces |
 | <code>baselines/x-navdp/</code> | Upstream X-NavDP baseline and Jetson compatibility fixes |
 | <code>REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md</code> | Dated integration evidence and measured limitations |
 
-Model checkpoints, research datasets, local environments, runtime buffers,
-captured goal images and experiment results are intentionally excluded.
+Model checkpoints, research datasets, local environments, runtime buffers and
+raw experiment evidence are intentionally excluded. Curated engineering demo
+derivatives are indexed in [media/README.md](media/README.md).
 
 ## Reproduction
 
@@ -176,6 +209,17 @@ ros2 service call /navdp_go2_adapter/set_enabled \
   std_srvs/srv/SetBool "{data: true}"
 ~~~
 
+For a formal trial, start the evidence-only recorder before arming:
+
+~~~bash
+bash deployment/go2/offboard/experiment_capture.sh preflight
+bash deployment/go2/offboard/experiment_capture.sh start RUN_ID \
+  --dataset DATASET_ID --trial-kind revisit --profile audit
+~~~
+
+The exact stop, third-view import and manifest-finalization workflow is in
+[EXPERIMENT_DATA_COLLECTION.md](EXPERIMENT_DATA_COLLECTION.md).
+
 Immediate stop:
 
 ~~~bash
@@ -187,12 +231,12 @@ bash deployment/go2/offboard/stop_offboard_stack.sh
 
 ## Current Status
 
-As of **2026-08-21**, protocol-v3 Full-Mono code (two-phase episode contract) is synchronized across this
-repository, the RTX 4090 workspace and the Jetson live overlay. Unit tests,
-syntax checks, release hashes, SSH transport and a health-only loopback
-preflight pass. The full model stack, camera-only 10-minute run, bearing-sign
-calibration, fault injection and tethered powered motion remain pending. No
-Full-Mono real-world SR/SPL claim is made here.
+As of **2026-08-27**, the repository contains the protocol-v3/bearing-v2
+Full-Mono stack, immutable two-pass Revisit datasets, online goal installation,
+persistent CEC receipts and the dual-view experiment collector described here.
+The base Go2 tracker and safety chain have moved successfully in prior field
+operation, but autonomous ImageGoal arrival/STOP calibration and formal
+Full-Mono SR/SPL remain unverified.
 
 See [CURRENT_STATUS.md](CURRENT_STATUS.md) before any new experiment.
 
@@ -201,6 +245,8 @@ See [CURRENT_STATUS.md](CURRENT_STATUS.md) before any new experiment.
 - [FULL_MONO_RELEASE_20260821.md](FULL_MONO_RELEASE_20260821.md): synchronized protocol-v2 release and three-way receipt.
 - [FULL_MONO_RELEASE_20260821_V3.md](FULL_MONO_RELEASE_20260821_V3.md): protocol-v3 two-phase episode contract release note.
 - [RUNBOOK.md](RUNBOOK.md): current start, inspect, stop and revisit sequence.
+- [TWO_PASS_REVISIT_RUNBOOK_20260825.md](TWO_PASS_REVISIT_RUNBOOK_20260825.md): immutable survey and formal replay procedure.
+- [EXPERIMENT_DATA_COLLECTION.md](EXPERIMENT_DATA_COLLECTION.md): ROS bag, receipt and dual-view recording workflow.
 - [ARCHITECTURE.md](ARCHITECTURE.md): responsibilities, routing and fail-closed behavior.
 - [CURRENT_STATUS.md](CURRENT_STATUS.md): verified gates and remaining physical acceptance.
 - [SOURCE_MANIFEST.md](SOURCE_MANIFEST.md): source snapshot and excluded artifacts.

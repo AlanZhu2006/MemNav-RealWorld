@@ -195,6 +195,35 @@ ros2 topic echo /navdp/status --qos-durability transient_local
 
 原项目的典型开发方法也是“策略 HTTP server + teleop/eval client”：服务端输出 `trajectory/all_trajectory/all_values`，teleop 或仿真评测端把候选路径画到俯视图。X-NavDP 自带可视化还会写入 `vis_output/.../*.mp4`；真机部署关闭了那条 Matplotlib/MP4 路径以节省 Jetson 推理资源，改由上述 ROS Marker/RViz 做实时可视化。
 
+### 7.1 正式实验双视角采集
+
+正式实验不再只依赖手工录屏。栈和 RViz 已启动、但还没有解除急停时，先执行：
+
+```bash
+bash deployment/go2/offboard/experiment_capture.sh preflight
+bash deployment/go2/offboard/experiment_capture.sh start RUN_ID \
+  --dataset DATASET_ID --trial-kind revisit --profile audit
+```
+
+脚本自动记录 ROS bag、`/navdp/status`、完整 CEC 收据、evaluator 状态和 RViz
+desktop H.264 视频，但不会发布速度、使能 adapter 或解除急停。命令返回后启动独立手机/相机
+的第三人称录像，并做一次可见的同步拍手，再按正式 runbook 单独启动 evaluator 和运动授权。
+
+实验结束必须先急停，再封存采集：
+
+```bash
+bash deployment/go2/offboard/experiment_capture.sh stop RUN_ID
+bash deployment/go2/offboard/experiment_capture.sh attach-third-view \
+  RUN_ID /path/to/third_view.mp4
+bash deployment/go2/offboard/experiment_capture.sh finalize \
+  RUN_ID success --notes "operator-confirmed outcome"
+bash deployment/go2/offboard/experiment_capture.sh verify RUN_ID
+```
+
+每个文件的大小和 SHA-256 会写入不可变 manifest。缺 ROS bag、RViz 视频、第三人称视频、
+status 或 CEC 收据时，正式 finalize 默认失败。完整证据边界见仓库根目录
+`EXPERIMENT_DATA_COLLECTION.md`。
+
 ## 8. 接入 Go2
 
 当前成功网络约定是 Jetson `eth0=192.168.123.100/24`，Go2 `192.168.123.161`：
