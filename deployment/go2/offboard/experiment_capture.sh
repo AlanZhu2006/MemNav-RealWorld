@@ -85,7 +85,7 @@ resolve_xauthority() {
     [[ -r "/proc/$pid/environ" ]] || continue
     value="$(
       tr '\0' '\n' <"/proc/$pid/environ" |
-        sed -n 's/^XAUTHORITY=//p' | head -n 1
+        sed -n 's/^XAUTHORITY=//p'
     )"
     if [[ -n "$value" && -r "$value" ]]; then
       printf '%s' "$value"
@@ -109,16 +109,12 @@ resolve_display() {
     printf '%s' "$requested"
     return
   fi
-  if [[ -n "${DISPLAY:-}" ]] && xdpyinfo >/dev/null 2>&1; then
-    printf '%s' "$DISPLAY"
-    return
-  fi
   local pid rviz_display
   while read -r pid; do
     [[ -r "/proc/$pid/environ" ]] || continue
     rviz_display="$(
       tr '\0' '\n' <"/proc/$pid/environ" |
-        sed -n 's/^DISPLAY=//p' | head -n 1
+        sed -n 's/^DISPLAY=//p'
     )"
     if [[ -n "$rviz_display" ]] \
         && DISPLAY="$rviz_display" xdpyinfo >/dev/null 2>&1; then
@@ -126,6 +122,10 @@ resolve_display() {
       return
     fi
   done < <(pgrep -x rviz2 2>/dev/null || true)
+  if [[ -n "${DISPLAY:-}" ]] && xdpyinfo >/dev/null 2>&1; then
+    printf '%s' "$DISPLAY"
+    return
+  fi
   local socket candidate dimensions width height area
   local best_display=""
   local best_area=0
@@ -153,7 +153,7 @@ resolve_display() {
 display_dimensions() {
   local display="$1"
   DISPLAY="$display" xdpyinfo |
-    awk '/dimensions:/ {print $2; exit}'
+    awk '/dimensions:/ {value=$2} END {print value}'
 }
 
 require_capture_commands() {
@@ -189,9 +189,10 @@ preflight() {
   done
   require_capture_commands
   local display dimensions xauthority
+  xauthority="$(resolve_xauthority)"
+  [[ -z "$xauthority" ]] || export XAUTHORITY="$xauthority"
   display="$(resolve_display "$requested_display")"
   dimensions="$(display_dimensions "$display")"
-  xauthority="$(resolve_xauthority)"
   [[ -n "$dimensions" ]] || die "cannot determine dimensions for DISPLAY=$display"
   navdp_source_ros
   ros2 bag record --help >/dev/null
@@ -293,8 +294,9 @@ start_capture() {
   session="$(session_name "$run_id")"
   [[ ! -e "$root" ]] || die "run already exists: $root"
   ! tmux has-session -t "$session" 2>/dev/null || die "capture session already exists: $session"
-  display="$(resolve_display "$requested_display")"
   xauthority="$(resolve_xauthority)"
+  [[ -z "$xauthority" ]] || export XAUTHORITY="$xauthority"
+  display="$(resolve_display "$requested_display")"
   dimensions="$(display_dimensions "$display")"
   source_width="${dimensions%x*}"
   source_height="${dimensions#*x}"

@@ -161,7 +161,7 @@ NAVDP_TMUX_SESSION=navdp-debug \
   --backend x --mode startgoal --with-rviz
 ```
 
-`run_debug_ui.sh` 会自动寻找 Jetson 本地桌面的 `DISPLAY=:0/:1`。如果从没有图形转发的纯 SSH 终端运行，可在 Jetson 桌面终端执行，或配置 SSH X forwarding。界面启动后发布目标：
+`run_debug_ui.sh` 会自动选择 Jetson 上分辨率最大的本地桌面；当前无头 HDMI 的 `:0` 只有 `640x480`，因此 VNC 实验应自动落到 `:1` 的 `1280x720`。如需强制指定可设置 `NAVDP_DISPLAY=:1`。正式采集器会跟随 RViz 所在的显示器，避免录到错误桌面。如果从没有图形转发的纯 SSH 终端运行，也可以配置 SSH X forwarding。界面启动后发布目标：
 
 ```bash
 source /opt/ros/humble/setup.bash

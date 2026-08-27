@@ -7,12 +7,7 @@ Panels:
         - /Global Options1
         - /NavDP Debug1
       Splitter Ratio: 0.55
-    Tree Height: 720
-  - Class: rviz_common/Views
-    Expanded:
-      - /Current View1
-    Name: Views
-    Splitter Ratio: 0.5
+    Tree Height: 160
 Visualization Manager:
   Class: ""
   Displays:
@@ -109,21 +104,7 @@ Visualization Manager:
           Max Value: 1
           Median window: 5
           Min Value: 0
-          Name: Image Goal
-          Normalize Range: true
-          Topic:
-            Depth: 1
-            Durability Policy: Transient Local
-            History Policy: Keep Last
-            Reliability Policy: Reliable
-            Value: /navdp/image_goal
-          Value: true
-        - Class: rviz_default_plugins/Image
-          Enabled: true
-          Max Value: 1
-          Median window: 5
-          Min Value: 0
-          Name: ImageGoal Visual Match
+          Name: Goal / Current Visual Match
           Normalize Range: true
           Topic:
             Depth: 1
@@ -168,12 +149,10 @@ Visualization Manager:
     Saved: ~
 Window Geometry:
   Displays:
-    collapsed: false
-  Height: 900
+    collapsed: true
+  Height: 700
   Hide Left Dock: false
   Hide Right Dock: false
-  Views:
-    collapsed: true
-  Width: 1500
-  X: 20
-  Y: 20
+  Width: 1240
+  X: 0
+  Y: 0
