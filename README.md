@@ -6,9 +6,14 @@ Certified Episodic Compass (CEC), and frozen NavDP. The Jetson Orin NX keeps
 aligned depth only inside the local collision-safety layer, together with
 trajectory tracking, motor safety and final stop authority on the robot.
 
-> 中文部署细节见
-> [deployment/go2/README_CN.md](deployment/go2/README_CN.md)，双机联调记录见
-> [FULL_MONO_RELEASE_20260821.md](FULL_MONO_RELEASE_20260821.md)。
+## Experiment Handbook
+
+The complete Chinese field protocol, from scene registration and sealed Survey
+through supervised motion, dual-view evidence, SR/SPL and failure handling, is
+maintained in
+[REALWORLD_EXPERIMENT_HANDBOOK_CN.md](REALWORLD_EXPERIMENT_HANDBOOK_CN.md).
+Use it as the primary experiment and handoff entry point, together with the
+latest claim boundary in [CURRENT_STATUS.md](CURRENT_STATUS.md).
 
 ## Reference Platform
 
@@ -131,6 +136,7 @@ tethering for first motion, or the Unitree hand controller.
 | <code>deployment/gpu/</code> | Auditable CEC router, fixed-bearing adapter, GPU launch scripts and tests |
 | <code>baselines/navdp/</code> | Frozen NavDP plus audited mono-sidecar and state-safe inference interfaces |
 | <code>baselines/x-navdp/</code> | Upstream X-NavDP baseline and Jetson compatibility fixes |
+| <code>REALWORLD_EXPERIMENT_HANDBOOK_CN.md</code> | Complete Chinese experiment, safety, evidence, metric and handoff protocol |
 | <code>REALWORLD_EVALUATION.md</code> | Planned four-scene, five-repeat SR/SPL registry with empty rollout/media slots |
 | <code>REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md</code> | Dated integration evidence and measured limitations |
 
@@ -266,6 +272,7 @@ See [CURRENT_STATUS.md](CURRENT_STATUS.md) before any new experiment.
 
 ## Documentation
 
+- [REALWORLD_EXPERIMENT_HANDBOOK_CN.md](REALWORLD_EXPERIMENT_HANDBOOK_CN.md): single-entry Chinese field experiment and handoff manual.
 - [FULL_MONO_RELEASE_20260821.md](FULL_MONO_RELEASE_20260821.md): synchronized protocol-v2 release and three-way receipt.
 - [FULL_MONO_RELEASE_20260821_V3.md](FULL_MONO_RELEASE_20260821_V3.md): protocol-v3 two-phase episode contract release note.
 - [RUNBOOK.md](RUNBOOK.md): current start, inspect, stop and revisit sequence.

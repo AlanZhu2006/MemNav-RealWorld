@@ -2,6 +2,10 @@
 
 Snapshot: **2026-08-27, protocol-v3 + direct-bearing-v2 + evidence capture**
 
+现场实验、交接、双机架构、两阶段数据、控制安全、证据采集和SR/SPL的统一操作入口为
+`REALWORLD_EXPERIMENT_HANDBOOK_CN.md`。本文件继续作为最新claim boundary；若旧日期文档
+与本文件冲突，以本文件和当前代码为准。
+
 新增的两阶段真机框架已经把长程手柄 survey 冻结为 exact-byte episodic dataset，并能在
 独立的第二次运行中校验、重放、安装目标和初始化 formal query。入口与剩余边界见
 `TWO_PASS_REVISIT_RUNBOOK_20260825.md`。该更新解决实验生命周期和持久化，不改变下文
