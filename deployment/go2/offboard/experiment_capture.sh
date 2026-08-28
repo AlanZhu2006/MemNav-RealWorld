@@ -169,7 +169,7 @@ resolve_display() {
 display_dimensions() {
   local display="$1"
   DISPLAY="$display" xdpyinfo |
-    awk '/dimensions:/ {print $2; exit}'
+    awk '/dimensions:/ {value=$2} END {print value}'
 }
 
 require_capture_commands() {
