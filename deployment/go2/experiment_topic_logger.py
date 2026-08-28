@@ -15,6 +15,7 @@ TOPICS = {
     "/navdp/status": "status.jsonl",
     "/navdp/cec_receipt": "cec_receipt.jsonl",
     "/navdp/imagegoal_evaluation": "imagegoal_evaluation.jsonl",
+    "/navdp/gt/status": "odin_gt_status.jsonl",
     "/navdp/experiment_event": "experiment_event.jsonl",
 }
 

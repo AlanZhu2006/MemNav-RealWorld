@@ -32,6 +32,16 @@ FULL_SENSOR_TOPICS=(
   /camera/camera/color/image_raw
   /camera/camera/aligned_depth_to_color/image_raw
 )
+ODIN_GT_TOPICS=(
+  /navdp/gt/status
+  /odin1/odometry
+  /odin1/odometry_high
+  /odin1/odometry_highfreq
+  /odin1/path
+  /odin1/cloud_slam
+  /tf
+  /tf_static
+)
 
 usage() {
   cat <<'EOF'
@@ -39,10 +49,11 @@ Usage (run on Jetson while the NavDP stack and RViz are already running):
   experiment_capture.sh preflight [--display DISPLAY]
   experiment_capture.sh start RUN_ID [--dataset DATASET_ID]
       [--trial-kind revisit|novel|calibration|debug]
-      [--profile audit|full] [--display DISPLAY]
+      [--profile audit|full] [--gt-source none|odin1] [--display DISPLAY]
   experiment_capture.sh status RUN_ID
   experiment_capture.sh stop RUN_ID
   experiment_capture.sh attach-third-view RUN_ID VIDEO
+  experiment_capture.sh attach-odin-gt RUN_ID GT_RESULT SPL_RECEIPT
   experiment_capture.sh finalize RUN_ID OUTCOME [--notes TEXT]
       [--allow-incomplete]
   experiment_capture.sh verify RUN_ID
@@ -53,6 +64,11 @@ Profiles:
          authority. This is the recommended formal-run profile.
   full   Adds raw D435i RGB and aligned depth to the rosbag. Use only when disk
          bandwidth and capacity have been checked; policy authority is unchanged.
+
+GT source:
+  none   Preserves the current evidence contract.
+  odin1  Adds the independent Odin odometry/map-TF/status lane. Finalization
+         then requires attached GT result and frozen A* SPL receipts.
 
 OUTCOME is one of: success, failure, timeout, operator_intervention,
 system_failure, collision, aborted.
@@ -170,11 +186,16 @@ require_capture_commands() {
 }
 
 require_live_topics() {
+  local gt_source="${1:-none}"
   navdp_source_ros
   local topics
   topics="$(timeout 8 ros2 topic list 2>/dev/null || true)"
   grep -Fxq /navdp/status <<<"$topics" || die "/navdp/status is not live"
   grep -Fxq /navdp/cec_receipt <<<"$topics" || die "/navdp/cec_receipt is not live"
+  if [[ "$gt_source" == odin1 ]]; then
+    grep -Fxq /navdp/gt/status <<<"$topics" || die "/navdp/gt/status is not live"
+    grep -Fxq /odin1/odometry <<<"$topics" || die "/odin1/odometry is not live"
+  fi
   pgrep -x rviz2 >/dev/null 2>&1 || die "RViz is not running; start with --with-rviz"
 }
 
@@ -269,12 +290,14 @@ start_capture() {
   local dataset_id=""
   local trial_kind="revisit"
   local profile="audit"
+  local gt_source="none"
   local requested_display=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dataset) [[ $# -ge 2 ]] || die "--dataset requires a value"; dataset_id="$2"; shift ;;
       --trial-kind) [[ $# -ge 2 ]] || die "--trial-kind requires a value"; trial_kind="$2"; shift ;;
       --profile) [[ $# -ge 2 ]] || die "--profile requires a value"; profile="$2"; shift ;;
+      --gt-source) [[ $# -ge 2 ]] || die "--gt-source requires a value"; gt_source="$2"; shift ;;
       --display) [[ $# -ge 2 ]] || die "--display requires a value"; requested_display="$2"; shift ;;
       *) die "unknown start option: $1" ;;
     esac
@@ -283,10 +306,11 @@ start_capture() {
   [[ "$trial_kind" =~ ^(revisit|novel|calibration|debug)$ ]] \
     || die "unsupported trial kind: $trial_kind"
   [[ "$profile" =~ ^(audit|full)$ ]] || die "unsupported capture profile: $profile"
+  [[ "$gt_source" =~ ^(none|odin1)$ ]] || die "unsupported GT source: $gt_source"
   [[ -z "$dataset_id" ]] || validate_id "$dataset_id"
 
   require_capture_commands
-  require_live_topics
+  require_live_topics "$gt_source"
   local root session display xauthority dimensions source_width source_height
   local capture_width capture_height
   root="$(run_root "$run_id")"
@@ -311,10 +335,14 @@ start_capture() {
   if [[ "$profile" == full ]]; then
     topics+=("${FULL_SENSOR_TOPICS[@]}")
   fi
+  if [[ "$gt_source" == odin1 ]]; then
+    topics+=("${ODIN_GT_TOPICS[@]}")
+  fi
   local manifest_args=(
     create --run-root "$root" --run-id "$run_id"
     --dataset-id "$dataset_id" --trial-kind "$trial_kind"
     --capture-profile "$profile" --workspace "$NAVDP_ROOT"
+    --gt-source "$gt_source"
   )
   local topic
   for topic in "${topics[@]}"; do
@@ -348,6 +376,7 @@ start_capture() {
   echo "  run id:       $run_id"
   echo "  run root:     $root"
   echo "  profile:      $profile"
+  echo "  GT source:    $gt_source"
   echo "  dashboard:    $display -> ${capture_width}x${capture_height} @ 12 fps"
   echo "  motion change: none"
   echo
@@ -416,6 +445,19 @@ attach_third_view() {
     --run-root "$(run_root "$run_id")" --role third_view --source "$source"
 }
 
+attach_odin_gt() {
+  local run_id="$1"
+  local result="$2"
+  local spl_receipt="$3"
+  validate_id "$run_id"
+  local root
+  root="$(run_root "$run_id")"
+  python3 "$MANIFEST_TOOL" attach-reference \
+    --run-root "$root" --role odin_gt_result --source "$result"
+  python3 "$MANIFEST_TOOL" attach-reference \
+    --run-root "$root" --role odin_spl_receipt --source "$spl_receipt"
+}
+
 finalize_capture() {
   local run_id="$1"
   local outcome="$2"
@@ -450,6 +492,7 @@ case "$action" in
   status) [[ $# -eq 1 ]] || die "status requires RUN_ID"; status_capture "$1" ;;
   stop) [[ $# -eq 1 ]] || die "stop requires RUN_ID"; stop_capture "$1" ;;
   attach-third-view) [[ $# -eq 2 ]] || die "attach-third-view requires RUN_ID VIDEO"; attach_third_view "$1" "$2" ;;
+  attach-odin-gt) [[ $# -eq 3 ]] || die "attach-odin-gt requires RUN_ID GT_RESULT SPL_RECEIPT"; attach_odin_gt "$1" "$2" "$3" ;;
   finalize) [[ $# -ge 2 ]] || die "finalize requires RUN_ID OUTCOME"; run_id="$1"; outcome="$2"; shift 2; finalize_capture "$run_id" "$outcome" "$@" ;;
   verify) [[ $# -eq 1 ]] || die "verify requires RUN_ID"; verify_capture "$1" ;;
   -h|--help|help|"") usage ;;

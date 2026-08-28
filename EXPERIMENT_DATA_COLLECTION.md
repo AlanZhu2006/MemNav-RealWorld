@@ -1,6 +1,6 @@
 # Real-World Experiment Data Collection
 
-Snapshot: **2026-08-27**
+Snapshot: **2026-08-28**
 
 This workflow records one NavDP/Go2 trial as a synchronized evidence bundle:
 
@@ -27,6 +27,7 @@ adapter, clear estop or call the Unitree SDK.
 | RViz dashboard MP4 | Jetson GStreamer | First-person camera, goal, visual match, aligned safety depth, paths and live state |
 | Third-view master | External camera/operator | Physical motion, contacts, operator intervention and scene outcome |
 | Capture manifest | Jetson collector | Binds all artifacts to one run ID and Git revision with SHA-256 |
+| Optional Odin1 reference | Independent GT sidecar | Stable relocalization, metric goal region, odometry `P_i`, frozen A* `L_i` and SPL receipt; never a policy input |
 
 The third-view camera is intentionally independent of the robot. The Jetson
 cannot start a phone recording, so the operator starts it immediately after
@@ -59,7 +60,8 @@ bash deployment/go2/offboard/experiment_capture.sh start \
   revisit_scene01_trial01 \
   --dataset DATASET_ID \
   --trial-kind revisit \
-  --profile audit
+  --profile audit \
+  --gt-source none
 ~~~
 
 The recommended `audit` profile records:
@@ -74,6 +76,12 @@ already owns the exact causal RGB memory. Use `--profile full` only when raw
 D435i RGB and aligned depth are required for an offline sensor replay. The full
 profile can consume several gigabytes per minute and must be preceded by a
 disk-bandwidth and free-space check.
+
+For the optional independent Odin1 evaluation lane, start it first and wait
+for `reference_ready=true`, then replace the last flag with
+`--gt-source odin1`. This adds Odin odometry/cloud/path/TF and
+`/navdp/gt/status` to the bag and JSONL logger. It does not expose Odin data to
+NavDP. The full setup and run order are in `deployment/odin1_gt/README_CN.md`.
 
 After the command reports `START`, begin the independent third-person camera
 and make one visible sync clap. Only then start the evaluator and perform the
@@ -91,6 +99,12 @@ bash deployment/go2/offboard/experiment_capture.sh stop \
 bash deployment/go2/offboard/experiment_capture.sh attach-third-view \
   revisit_scene01_trial01 /path/from/camera/third_view.mp4
 
+# Required only when start used --gt-source odin1:
+bash deployment/go2/offboard/experiment_capture.sh attach-odin-gt \
+  revisit_scene01_trial01 \
+  runtime/odin1_gt/formal/revisit_scene01_trial01/monitor/result.json \
+  runtime/odin1_gt/formal/revisit_scene01_trial01/spl_receipt.json
+
 bash deployment/go2/offboard/experiment_capture.sh finalize \
   revisit_scene01_trial01 success \
   --notes "operator-confirmed physical outcome; evaluator report attached"
@@ -105,6 +119,11 @@ bash deployment/go2/offboard/experiment_capture.sh verify \
 - a non-empty RViz dashboard MP4;
 - a byte-preserved imported third-view video;
 - non-empty status and CEC JSONL logs.
+
+An Odin-backed bundle additionally requires non-empty
+`logs/odin_gt_status.jsonl`, `receipts/odin_gt_result.json` and
+`receipts/odin_spl_receipt.json`. These files must be attached from the
+hash-sealed Odin result/scorer; hand-written metrics do not satisfy the gate.
 
 An aborted engineering run may use `--allow-incomplete`; the manifest then
 records `formal_complete=false`. Missing evidence is never silently promoted
@@ -124,11 +143,14 @@ runtime/go2/experiment_capture/<RUN_ID>/
 │   ├── status.jsonl
 │   ├── cec_receipt.jsonl
 │   ├── imagegoal_evaluation.jsonl
+│   ├── odin_gt_status.jsonl            # when gt_source=odin1
 │   └── experiment_event.jsonl
 ├── media/
 │   ├── dashboard.mp4
 │   └── third_view.mp4
 └── receipts/
+    ├── odin_gt_result.json             # when gt_source=odin1
+    └── odin_spl_receipt.json           # when gt_source=odin1
 ~~~
 
 Runtime evidence remains ignored by Git. Formal publication should copy only

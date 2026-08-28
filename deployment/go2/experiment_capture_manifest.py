@@ -29,6 +29,10 @@ OUTCOMES = (
     "aborted",
 )
 VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv"}
+REFERENCE_ROLES = {
+    "odin_gt_result": "odin_gt_result.json",
+    "odin_spl_receipt": "odin_spl_receipt.json",
+}
 
 
 class CaptureManifestError(RuntimeError):
@@ -102,11 +106,14 @@ def create_manifest(
     capture_profile: str,
     topics: Iterable[str],
     workspace: Path,
+    gt_source: str = "none",
 ) -> dict[str, Any]:
     run_id = validate_run_id(run_id)
     run_root = run_root.resolve()
     if run_root.exists():
         raise CaptureManifestError(f"run path already exists: {run_root}")
+    if gt_source not in {"none", "odin1"}:
+        raise CaptureManifestError(f"unsupported GT source: {gt_source}")
     run_root.mkdir(parents=True)
     for child in ("logs", "media", "receipts"):
         (run_root / child).mkdir()
@@ -116,6 +123,7 @@ def create_manifest(
         "dataset_id": dataset_id or None,
         "trial_kind": trial_kind,
         "capture_profile": capture_profile,
+        "gt_source": gt_source,
         "state": "recording",
         "created_utc": utc_now(),
         "captured_utc": None,
@@ -203,6 +211,77 @@ def attach_video(run_root: Path, *, role: str, source: Path) -> dict[str, Any]:
     return receipt
 
 
+def attach_reference(
+    run_root: Path, *, role: str, source: Path
+) -> dict[str, Any]:
+    payload = read_manifest(run_root)
+    if payload.get("state") == "finalized":
+        raise CaptureManifestError("a finalized run cannot accept new reference evidence")
+    if role not in REFERENCE_ROLES:
+        raise CaptureManifestError(f"unsupported reference role: {role}")
+    if payload.get("gt_source") != "odin1":
+        raise CaptureManifestError("Odin reference evidence requires gt_source=odin1")
+    source = source.expanduser().resolve()
+    if not source.is_file() or source.stat().st_size <= 0:
+        raise CaptureManifestError(f"reference evidence is missing or empty: {source}")
+    try:
+        reference_payload = json.loads(source.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise CaptureManifestError(f"invalid reference JSON: {error}") from error
+    expected_schema = {
+        "odin_gt_result": "memnav-odin1-gt-result-v1",
+        "odin_spl_receipt": "memnav-odin1-spl-receipt-v1",
+    }[role]
+    if reference_payload.get("schema") != expected_schema:
+        raise CaptureManifestError(
+            f"{role} expected schema {expected_schema}, got "
+            f"{reference_payload.get('schema')}"
+        )
+    if reference_payload.get("run_id") != payload.get("run_id"):
+        raise CaptureManifestError(
+            f"{role} run_id does not match the capture manifest"
+        )
+    if role == "odin_spl_receipt":
+        result_path = run_root.resolve() / "receipts" / REFERENCE_ROLES[
+            "odin_gt_result"
+        ]
+        if not result_path.is_file():
+            raise CaptureManifestError(
+                "attach odin_gt_result before the Odin SPL receipt"
+            )
+        if (
+            reference_payload.get("inputs", {})
+            .get("gt_result", {})
+            .get("sha256")
+            != sha256_file(result_path)
+        ):
+            raise CaptureManifestError(
+                "Odin SPL receipt is not hash-bound to the attached GT result"
+            )
+        result_payload = json.loads(result_path.read_text(encoding="utf-8"))
+        metrics = reference_payload.get("metrics", {})
+        if metrics.get("S_i") != int(bool(result_payload.get("success"))):
+            raise CaptureManifestError(
+                "Odin SPL success does not match the attached GT result"
+            )
+    target = run_root.resolve() / "receipts" / REFERENCE_ROLES[role]
+    temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    shutil.copyfile(source, temporary)
+    if sha256_file(temporary) != sha256_file(source):
+        temporary.unlink(missing_ok=True)
+        raise CaptureManifestError("copied reference SHA-256 differs from its source")
+    temporary.replace(target)
+    receipt = {
+        "role": role,
+        "path": str(target.relative_to(run_root.resolve())),
+        "bytes": target.stat().st_size,
+        "sha256": sha256_file(target),
+        "attached_utc": utc_now(),
+    }
+    atomic_write_json(run_root.resolve() / "receipts" / f"{role}.receipt.json", receipt)
+    return receipt
+
+
 def artifact_inventory(run_root: Path) -> list[dict[str, Any]]:
     root = run_root.resolve()
     excluded = {"manifest.json", "MANIFEST.sha256", "FINALIZED"}
@@ -223,7 +302,12 @@ def artifact_inventory(run_root: Path) -> list[dict[str, Any]]:
     return artifacts
 
 
-def completeness(run_root: Path, inventory: list[dict[str, Any]]) -> dict[str, bool]:
+def completeness(
+    run_root: Path,
+    inventory: list[dict[str, Any]],
+    *,
+    gt_source: str = "none",
+) -> dict[str, bool]:
     root = run_root.resolve()
     paths = {row["path"] for row in inventory if int(row["bytes"]) > 0}
     rosbag_metadata = "rosbag/metadata.yaml" in paths
@@ -238,12 +322,18 @@ def completeness(run_root: Path, inventory: list[dict[str, Any]]) -> dict[str, b
     )
     status_receipts = "logs/status.jsonl" in paths
     cec_receipts = "logs/cec_receipt.jsonl" in paths
+    odin_gt_status = "logs/odin_gt_status.jsonl" in paths
+    odin_gt_result = "receipts/odin_gt_result.json" in paths
+    odin_spl_receipt = "receipts/odin_spl_receipt.json" in paths
     result = {
         "rosbag": rosbag_metadata and rosbag_storage,
         "dashboard": dashboard,
         "third_view": third_view,
         "status_receipts": status_receipts,
         "cec_receipts": cec_receipts,
+        "odin_gt_status": gt_source != "odin1" or odin_gt_status,
+        "odin_gt_result": gt_source != "odin1" or odin_gt_result,
+        "odin_spl_receipt": gt_source != "odin1" or odin_spl_receipt,
     }
     result["formal_complete"] = all(result.values())
     return result
@@ -262,7 +352,9 @@ def finalize_manifest(
     if outcome not in OUTCOMES:
         raise CaptureManifestError(f"unsupported outcome: {outcome}")
     inventory = artifact_inventory(run_root)
-    gates = completeness(run_root, inventory)
+    gates = completeness(
+        run_root, inventory, gt_source=str(payload.get("gt_source", "none"))
+    )
     if not gates["formal_complete"] and not allow_incomplete:
         missing = ", ".join(key for key, value in gates.items() if not value)
         raise CaptureManifestError(
@@ -310,7 +402,9 @@ def verify_manifest(run_root: Path) -> dict[str, Any]:
     current = artifact_inventory(root)
     if current != payload.get("artifact_inventory"):
         raise CaptureManifestError("capture artifact inventory changed after finalization")
-    expected = completeness(root, current)
+    expected = completeness(
+        root, current, gt_source=str(payload.get("gt_source", "none"))
+    )
     if expected != payload.get("completeness"):
         raise CaptureManifestError("capture completeness receipt changed")
     return {
@@ -336,6 +430,7 @@ def main() -> int:
     create.add_argument("--trial-kind", default="revisit")
     create.add_argument("--capture-profile", choices=("audit", "full"), default="audit")
     create.add_argument("--topic", action="append", default=[])
+    create.add_argument("--gt-source", choices=("none", "odin1"), default="none")
     create.add_argument(
         "--workspace", type=Path, default=Path(__file__).resolve().parents[2]
     )
@@ -348,6 +443,11 @@ def main() -> int:
     attach.add_argument("--run-root", type=Path, required=True)
     attach.add_argument("--role", choices=("third_view",), required=True)
     attach.add_argument("--source", type=Path, required=True)
+
+    attach_gt = subparsers.add_parser("attach-reference")
+    attach_gt.add_argument("--run-root", type=Path, required=True)
+    attach_gt.add_argument("--role", choices=tuple(REFERENCE_ROLES), required=True)
+    attach_gt.add_argument("--source", type=Path, required=True)
 
     finalize = subparsers.add_parser("finalize")
     finalize.add_argument("--run-root", type=Path, required=True)
@@ -369,11 +469,16 @@ def main() -> int:
                 capture_profile=args.capture_profile,
                 topics=args.topic,
                 workspace=args.workspace,
+                gt_source=args.gt_source,
             )
         elif args.command == "mark-captured":
             result = mark_captured(args.run_root, clean=args.clean == "true")
         elif args.command == "attach-video":
             result = attach_video(args.run_root, role=args.role, source=args.source)
+        elif args.command == "attach-reference":
+            result = attach_reference(
+                args.run_root, role=args.role, source=args.source
+            )
         elif args.command == "finalize":
             result = finalize_manifest(
                 args.run_root,

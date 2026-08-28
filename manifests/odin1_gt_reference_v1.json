@@ -1,0 +1,103 @@
+{
+  "schema": "memnav_odin1_reference_stack_v1_20260828",
+  "status": "implemented_not_hardware_validated_on_go2",
+  "classification": "independent_reference_slam_not_metrological_ground_truth",
+  "claims": {
+    "odin1_connected_during_this_release": false,
+    "go2_mount_calibrated": false,
+    "scene_maps_frozen": false,
+    "formal_arrival_calibrated": false,
+    "formal_sr_spl_available": false
+  },
+  "authority": {
+    "policy_input": false,
+    "cec_input": false,
+    "navdp_input": false,
+    "d435i_safety_replacement": false,
+    "motion_authority": false,
+    "estop_authority": false,
+    "evaluation_only": true
+  },
+  "driver": {
+    "repository": "https://github.com/manifoldsdk/odin_ros_driver.git",
+    "default_profile": "native_0_14",
+    "native_0_14": {
+      "tag": "v0.14.0",
+      "commit": "6f993ccc4ccad9395bfc68bc3235f993d83c4fe6",
+      "mode1_bootstrap_patch": null
+    },
+    "legacy_0_13_1": {
+      "commit": "13aa528b1da581e2168ac858f8b144f0b4438a7a",
+      "mode1_bootstrap_patch_sha256": "2a73aa48d163e2a362670b7b9b778edf8328aba7323e1cc04dd6b8fb28ba5806",
+      "default": false
+    },
+    "runtime_config_override_patch_sha256": "953bd96ad3cea5c336f11882f92a428ff090ba13abd28c742314f072cd637f86",
+    "ros": "ROS 2 Humble",
+    "mapping_mode": 1,
+    "relocalization_mode": 2,
+    "relocalization_success_evidence": "stable vendor map_to_odom TF",
+    "fallback_rule": "TF absent means fallback SLAM/not ready"
+  },
+  "topics": {
+    "rgb": "/odin1/image",
+    "cloud": "/odin1/cloud_slam",
+    "odometry": "/odin1/odometry",
+    "path": "/odin1/path",
+    "tf": "/tf",
+    "gt_status": "/navdp/gt/status",
+    "d435i_visual_evaluator": "/navdp/imagegoal_evaluation"
+  },
+  "metric_contract": {
+    "shortest_path_L_i": "8-connected A* on frozen Odin-derived 2D occupancy with unknown blocked and frozen footprint inflation",
+    "actual_path_P_i": "sum of consecutive Odin odometry xy increments after relocalization gate becomes ready",
+    "success_S_i": "stable relocalization AND metric goal radius AND fresh D435i goal-object recognition AND stationary hold",
+    "spl_formula": "S_i * L_i / max(L_i, P_i)",
+    "map_correction_policy": "map_to_odom is used for start/goal/current map pose but never for P_i increments"
+  },
+  "implemented_defaults": {
+    "occupancy_resolution_m": 0.05,
+    "occupancy_maximum_range_m": 8.0,
+    "minimum_occupied_hits": 2,
+    "occupancy_maximum_cloud_odom_sync_skew_s": 0.1,
+    "relocalization_hold_s": 2.0,
+    "relocalization_minimum_samples": 5,
+    "maximum_tf_translation_change_m": 0.15,
+    "maximum_tf_rotation_change_deg": 5.0,
+    "odometry_timeout_s": 0.5,
+    "visual_timeout_s": 1.0,
+    "arrival_distance_m": 0.85,
+    "arrival_speed_mps": 0.1,
+    "arrival_hold_s": 1.0,
+    "astar_connectivity": 8,
+    "astar_diagonal_corner_cutting": false,
+    "astar_unknown_is_obstacle": true,
+    "astar_default_inflation_margin_m": 0.05,
+    "astar_maximum_snap_m": 0.2
+  },
+  "mandatory_field_freeze": {
+    "odin_serial": null,
+    "odin_firmware": null,
+    "serial_specific_calibration_sha256": null,
+    "rigid_mount_id": null,
+    "odin_to_go2_extrinsic_sha256": null,
+    "obstacle_min_z_m": null,
+    "obstacle_max_z_m": null,
+    "go2_planar_radius_m": null,
+    "arrival_distance_m": null,
+    "arrival_speed_mps": null,
+    "arrival_hold_s": null,
+    "scene_map_sha256": null,
+    "scene_occupancy_sha256": null,
+    "scene_goal_receipt_sha256": null
+  },
+  "required_validation": [
+    "freeze the exact reported 0.14.x firmware version in each scene contract",
+    "USB3 and live topic rate validation",
+    "out-and-back loop closure and map repeatability",
+    "restart and mode-2 relocalization repeatability at start and goal",
+    "map_to_odom jump/fallback audit",
+    "physical 0/0.25/0.5/1.0 m arrival-offset calibration",
+    "independent tape or surveyed marker path-length cross-check",
+    "four-scene campaign freeze before twenty formal runs"
+  ]
+}

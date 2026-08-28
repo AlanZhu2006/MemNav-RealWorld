@@ -114,6 +114,22 @@ and path-measurement contracts are frozen. See the
 [full five-run scene registry](REALWORLD_EVALUATION.md) and
 [machine-readable plan](manifests/realworld_evaluation_plan_v1.json).
 
+## Independent Odin1 Reference Lane
+
+An evaluation-only Odin1 stack is included under
+[`deployment/odin1_gt/`](deployment/odin1_gt/README_CN.md). It performs one
+out-and-back mode-1 mapping survey, hash-binds the D435i goal image to an Odin
+map pose, requires stable mode-2 `map -> odom` relocalization, integrates
+independent odometry path length and computes frozen-grid A* SPL receipts.
+
+Odin data never enters CEC, NavDP, D435i collision safety or Go2 control. The
+honest claim is **independent reference SLAM**, not motion-capture-grade
+metrological ground truth. The code is implemented and tested offline, but the
+official `v0.14.0` native-Mode1 driver has been compiled locally. The current
+release has not yet produced a hash-bound live/calibration receipt on this Go2,
+so all formal SR/SPL fields remain blank. The old 0.13.1 cold-start patch is an
+explicit legacy fallback only.
+
 ## Safety Contract
 
 - Motion is locked at startup and requires an explicit ROS service call.
@@ -133,6 +149,7 @@ tethering for first motion, or the Unitree hand controller.
 | <code>deployment/go2/</code> | D435i, ROS 2 adapter, RViz, ImageGoal evaluator, Go2 bridge and tests |
 | <code>deployment/go2/offboard/</code> | Jetson-to-workstation SSH tunnel and dual-machine launcher |
 | <code>deployment/go2/offboard/experiment_capture.sh</code> | ROS bag, receipt, RViz and third-view evidence binding for each run |
+| <code>deployment/odin1_gt/</code> | Independent Odin mapping, relocalization, arrival, path and A* SPL evidence lane |
 | <code>deployment/gpu/</code> | Auditable CEC router, fixed-bearing adapter, GPU launch scripts and tests |
 | <code>baselines/navdp/</code> | Frozen NavDP plus audited mono-sidecar and state-safe inference interfaces |
 | <code>baselines/x-navdp/</code> | Upstream X-NavDP baseline and Jetson compatibility fixes |
@@ -244,7 +261,8 @@ For a formal trial, start the evidence-only recorder before arming:
 ~~~bash
 bash deployment/go2/offboard/experiment_capture.sh preflight
 bash deployment/go2/offboard/experiment_capture.sh start RUN_ID \
-  --dataset DATASET_ID --trial-kind revisit --profile audit
+  --dataset DATASET_ID --trial-kind revisit --profile audit \
+  --gt-source none
 ~~~
 
 The exact stop, third-view import and manifest-finalization workflow is in
@@ -261,12 +279,18 @@ bash deployment/go2/offboard/stop_offboard_stack.sh
 
 ## Current Status
 
-As of **2026-08-27**, the repository contains the protocol-v3/bearing-v2
+As of **2026-08-28**, the repository contains the protocol-v3/bearing-v2
 Full-Mono stack, immutable two-pass Revisit datasets, online goal installation,
 persistent CEC receipts and the dual-view experiment collector described here.
 The base Go2 tracker and safety chain have moved successfully in prior field
 operation, but autonomous ImageGoal arrival/STOP calibration and formal
 Full-Mono SR/SPL remain unverified.
+
+For the optional independent Odin1 reference workflow, including the complete
+mapping-survey and formal-run command order, use
+[`deployment/odin1_gt/README_CN.md`](deployment/odin1_gt/README_CN.md). Do not
+set `--gt-source odin1` until its hardware preflight reports a stable
+`reference_ready=true` lane.
 
 See [CURRENT_STATUS.md](CURRENT_STATUS.md) before any new experiment.
 
@@ -279,6 +303,7 @@ See [CURRENT_STATUS.md](CURRENT_STATUS.md) before any new experiment.
 - [TWO_PASS_REVISIT_RUNBOOK_20260825.md](TWO_PASS_REVISIT_RUNBOOK_20260825.md): immutable survey and formal replay procedure.
 - [EXPERIMENT_DATA_COLLECTION.md](EXPERIMENT_DATA_COLLECTION.md): ROS bag, receipt and dual-view recording workflow.
 - [REALWORLD_EVALUATION.md](REALWORLD_EVALUATION.md): blank four-scene, five-run SR/SPL and media publication registry.
+- [deployment/odin1_gt/README_CN.md](deployment/odin1_gt/README_CN.md): independent Odin1 map/relocalization/arrival/SPL deployment and calibration guide.
 - [ARCHITECTURE.md](ARCHITECTURE.md): responsibilities, routing and fail-closed behavior.
 - [CURRENT_STATUS.md](CURRENT_STATUS.md): verified gates and remaining physical acceptance.
 - [SOURCE_MANIFEST.md](SOURCE_MANIFEST.md): source snapshot and excluded artifacts.

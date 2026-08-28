@@ -15,6 +15,12 @@ licenses and model terms. Their original notices remain authoritative.
   operator; neither is redistributed here.
 - The camera path uses Intel librealsense and realsense-ros supplied by the
   operator.
+- The optional independent reference lane builds the official
+  [Manifold Odin ROS Driver](https://github.com/manifoldsdk/odin_ros_driver)
+  at a pinned commit. The driver and its binary SDK remain under their upstream
+  license/terms and are not vendored. The default 0.14 profile carries only a
+  ROS2 runtime-config fix; the separate 0.13.1 Mode1 patch is retained solely
+  as an auditable historical compatibility option.
 - The optional certified revisit path depends on external LingBot Map,
   LightGlue, InternNav and MemNav research source. This repository does not
   grant additional rights to those projects.

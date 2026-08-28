@@ -66,7 +66,7 @@ D435i aligned depth ───────┘                         │
 - `trajectory_control.py`：可单元测试的轨迹跟踪、速度斜坡和深度安全逻辑。
 - `navdp_client.py`：严格匹配原项目 JPEG + 16-bit depth HTTP 格式。
 - `capture_image_goal.py`、`image_goal_io.py`：从 D435i 采集并无损保存目标图。
-- `imagegoal_experiment.py`：读取 Go2 本体位姿作为独立评测真值，记录首次到达/revisit 的距离、SPL 和最终朝向误差；评测位姿不会发送给 NavDP。
+- `imagegoal_experiment.py`：读取 Go2 本体位姿作为旧版辅助评测源，记录首次到达/revisit 的距离、SPL 和最终朝向误差；它不会发送给NavDP，但腿式打滑/漂移使其不再作为推荐正式GT。正式评测优先使用隔离的`deployment/odin1_gt/`参考栈。
 - `debug_visualization.py`：候选轨迹排序与 Q 值颜色映射，不参与控制。
 - `go2_cmd_bridge.py`：从本机已成功 TinyNav 部署中移植的 `SportClient.Move()` 桥；保留超时和手柄优先权。
 - `navdp_base_server.py`：原版 NavDP 的无可视化轻量服务端，支持 `pointgoal/nogoal/imagegoal`。
@@ -320,7 +320,7 @@ ros2 service call /navdp_go2_adapter/set_enabled std_srvs/srv/SetBool "{data: tr
 
 这些条件把“策略主动认为无需继续运动”和“急停、失联、障碍导致的被动零速度”区分开。它是目标实例的几何外观确认，不是开放词汇语义识别。
 
-`--arrival-mode visual` 保留原来的严格同视角标准：除上述基础几何匹配外，还要求更大的匹配覆盖、更窄的中心/尺度范围以及匹配点绝对深度误差不大于 `0.40m`。`--arrival-mode visual_pose` 再叠加原仿真 `0.85m` 位姿门槛，`--arrival-mode pose` 仅用于对照。结果 schema v3 同时记录 `goal_object_success`、`exact_view_success`、`pose_success` 和 `policy_stop`，不能把四者混为一个指标。RViz 的 `ImageGoal Visual Match` 显示目标/当前匹配画面；成功时 `--auto-estop` 向 `/navdp/estop` 发布急停。`SportModeState` 只做静止门控及辅助距离、路径和 SPL 记录，不输入 NavDP。策略本身仍不会收到位置、目标深度或 `goal_reached`；操作员必须继续拿着遥控器。
+`--arrival-mode visual` 保留原来的严格同视角标准：除上述基础几何匹配外，还要求更大的匹配覆盖、更窄的中心/尺度范围以及匹配点绝对深度误差不大于 `0.40m`。`--arrival-mode visual_pose` 再叠加原仿真 `0.85m` 位姿门槛，`--arrival-mode pose` 仅用于对照。结果 schema v3 同时记录 `goal_object_success`、`exact_view_success`、`pose_success` 和 `policy_stop`，不能把四者混为一个指标。RViz 的 `ImageGoal Visual Match` 显示目标/当前匹配画面；成功时 `--auto-estop` 向 `/navdp/estop` 发布急停。`SportModeState` 只做静止门控及辅助距离、路径和旧版SPL记录，不输入 NavDP。正式`L_i/P_i/S_i`可由隔离的Odin1参考栈产生，但Odin同样不输入策略。策略本身仍不会收到位置、目标深度或 `goal_reached`；操作员必须继续拿着遥控器。
 
 ### Revisit 协议
 

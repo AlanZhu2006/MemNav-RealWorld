@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 import sys
 import tempfile
@@ -10,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from experiment_capture_manifest import (
     CaptureManifestError,
+    attach_reference,
     attach_video,
     create_manifest,
     finalize_manifest,
@@ -142,3 +144,99 @@ class ExperimentCaptureManifestTests(unittest.TestCase):
         with self.assertRaisesRegex(CaptureManifestError, "only a recording"):
             mark_captured(root, clean=True)
         self.assertIs(read_manifest(root)["capture_stop_clean"], True)
+
+    def test_odin_gt_capture_requires_status_result_and_spl_receipts(self):
+        root = self.tmp_path / "formal-odin-01"
+        create_manifest(
+            root,
+            run_id="formal-odin-01",
+            dataset_id="survey-01",
+            trial_kind="revisit",
+            capture_profile="audit",
+            topics=("/navdp/status", "/navdp/cec_receipt", "/navdp/gt/status"),
+            workspace=Path(__file__).resolve().parents[3],
+            gt_source="odin1",
+        )
+        third_source = self.tmp_path / "phone-odin.mp4"
+        third_source.write_bytes(b"external odin third view")
+        populate_required_artifacts(root, third_source)
+        (root / "logs" / "odin_gt_status.jsonl").write_text(
+            '{"reference_ready":true}\n'
+        )
+        result = self.tmp_path / "result.json"
+        result.write_text(
+            json.dumps(
+                {
+                    "schema": "memnav-odin1-gt-result-v1",
+                    "run_id": "formal-odin-01",
+                    "success": True,
+                }
+            )
+        )
+        spl = self.tmp_path / "spl.json"
+        spl.write_text(
+            json.dumps(
+                {
+                    "schema": "memnav-odin1-spl-receipt-v1",
+                    "run_id": "formal-odin-01",
+                    "inputs": {
+                        "gt_result": {
+                            "sha256": hashlib.sha256(result.read_bytes()).hexdigest()
+                        }
+                    },
+                    "metrics": {"S_i": 1},
+                }
+            )
+        )
+        attach_reference(root, role="odin_gt_result", source=result)
+        attach_reference(root, role="odin_spl_receipt", source=spl)
+        mark_captured(root, clean=True)
+
+        finalized = finalize_manifest(
+            root,
+            outcome="success",
+            notes="independent Odin reference lane",
+            allow_incomplete=False,
+        )
+
+        self.assertEqual(finalized["gt_source"], "odin1")
+        self.assertIs(finalized["completeness"]["odin_gt_status"], True)
+        self.assertIs(finalized["completeness"]["odin_gt_result"], True)
+        self.assertIs(finalized["completeness"]["odin_spl_receipt"], True)
+
+    def test_odin_spl_must_match_run_and_attached_result(self):
+        root = self.tmp_path / "formal-odin-02"
+        create_manifest(
+            root,
+            run_id="formal-odin-02",
+            dataset_id="survey-01",
+            trial_kind="revisit",
+            capture_profile="audit",
+            topics=("/navdp/gt/status",),
+            workspace=Path(__file__).resolve().parents[3],
+            gt_source="odin1",
+        )
+        result = self.tmp_path / "result-02.json"
+        result.write_text(
+            json.dumps(
+                {
+                    "schema": "memnav-odin1-gt-result-v1",
+                    "run_id": "formal-odin-02",
+                    "success": False,
+                }
+            )
+        )
+        attach_reference(root, role="odin_gt_result", source=result)
+        wrong_spl = self.tmp_path / "wrong-spl.json"
+        wrong_spl.write_text(
+            json.dumps(
+                {
+                    "schema": "memnav-odin1-spl-receipt-v1",
+                    "run_id": "formal-odin-02",
+                    "inputs": {"gt_result": {"sha256": "wrong"}},
+                    "metrics": {"S_i": 0},
+                }
+            )
+        )
+        with self.assertRaisesRegex(CaptureManifestError, "hash-bound"):
+            attach_reference(root, role="odin_spl_receipt", source=wrong_spl)

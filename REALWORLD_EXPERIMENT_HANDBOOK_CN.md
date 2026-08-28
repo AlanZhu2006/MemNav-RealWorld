@@ -1281,6 +1281,10 @@ SPL = sum(SPL_i) / N
 在没有额外校准前，SportModeState只能作为auxiliary path estimate。正式 `P_i` 不能仅凭
 其积分自动生成，除非预先验证打滑、坐标重置、漂移和丢包误差满足评测要求。
 
+当前推荐正式源改为完全隔离的Odin1 reference lane：`P_i`积分Odin局部odom增量，`L_i`
+来自同一Survey冻结occupancy上的A*，`S_i`结合Odin metric region、D435i视觉确认和静止
+hold。它不进入NavDP控制，且仍需完成当前Go2安装/重定位/尺度现场验证后才能用于正式统计。
+
 ### 19.4 发布
 
 每个场景页面最终应包含：
@@ -1340,6 +1344,9 @@ candidate_id -> timestamp -> image SHA -> independent physical pose receipt
 可审计。CEC/单目PnP不能当ground truth。
 
 ### P0-D：`L_i` / `P_i`测量系统
+
+仓库已实现候选系统：`deployment/odin1_gt/`。它解决了代码、收据、哈希、A*和证据包
+接线，但尚未关闭硬件验收门。
 
 必须冻结：
 
@@ -1829,3 +1836,73 @@ Commissioning smoke如果必须使用不同控制参数，应显式设置
 
 如果本文与旧日期文档在claim boundary上冲突，以 `CURRENT_STATUS.md` 和最新代码为准；
 不得用较早文档中更宽松的arrival或自动STOP描述覆盖最新的fail-closed结论。
+
+---
+
+## 27. Odin1独立参考真值栈
+
+Odin1现在可以作为与导航方法完全隔离的reference/evaluation sidecar：
+
+```text
+Survey: Odin mode 1 -> .bin + occupancy + D435i goal SHA/Odin map-pose anchor
+Formal: Odin mode 2 -> stable map->odom -> map distance + local odom P_i
+Score:  frozen occupancy A* L_i + D435i visual/metric/stationary S_i -> SPL_i
+```
+
+权限边界：Odin不输入CEC、NavDP、D435i安全层或Go2控制；monitor不发速度、不清急停、
+不自动停止机器人。若未来A*给NavDP发子目标，必须另立mapped-navigation方法，不能计入
+当前Full-Mono campaign。
+
+一次场景流程：
+
+```bash
+# 1. 冻结0.14固件、标定与安装收据，测量高度带，再人工走完整往返Survey
+bash deployment/odin1_gt/scripts/odin_gt.sh start-map scene01_survey_v1 \
+  --sensor-serial <reported-serial> \
+  --firmware-version <exact-0.14.x-version> \
+  --calibration-file <absolute-calib.yaml> \
+  --mount-receipt <absolute-validated-mount.json> \
+  --obstacle-min-z <measured> --obstacle-max-z <measured>
+
+# 2. 在B处静止，先保存D435i目标图，再绑定Odin map pose
+bash deployment/odin1_gt/scripts/odin_gt.sh capture-goal scene01_survey_v1 \
+  /absolute/image_goal.png /absolute/image_goal_depth.png
+
+# 3. 回到A后保存厂商地图、occupancy和sealed goal receipt
+bash deployment/odin1_gt/scripts/odin_gt.sh finish-map scene01_survey_v1
+```
+
+每次正式run必须先于NavDP启动Odin并通过重定位门：
+
+```bash
+bash deployment/odin1_gt/scripts/odin_gt.sh start-formal scene01_formal_01 \
+  runtime/odin1_gt/maps/scene01_survey_v1/goal_anchor.json
+bash deployment/odin1_gt/scripts/odin_gt.sh wait-ready scene01_formal_01 120
+
+bash deployment/go2/offboard/experiment_capture.sh start scene01_formal_01 \
+  --dataset scene01_survey_v1 --trial-kind revisit --profile audit \
+  --gt-source odin1
+```
+
+结束时先急停/disable，再停止Odin和capture，计算并附加SPL收据：
+
+```bash
+bash deployment/odin1_gt/scripts/odin_gt.sh stop-formal scene01_formal_01
+bash deployment/go2/offboard/experiment_capture.sh stop scene01_formal_01
+bash deployment/odin1_gt/scripts/odin_gt.sh score scene01_formal_01 \
+  --robot-radius <measured-radius> --inflation-margin 0.05
+bash deployment/go2/offboard/experiment_capture.sh attach-odin-gt \
+  scene01_formal_01 \
+  runtime/odin1_gt/formal/scene01_formal_01/monitor/result.json \
+  runtime/odin1_gt/formal/scene01_formal_01/spl_receipt.json
+```
+
+`map -> odom`缺失代表厂商可能仍在fallback SLAM，不能因为`/odin1/odometry`有数据就
+开始正式run。ready后TF大跳、odom跳变、D435i视觉过期、地图SHA变化或A*无合法路径均
+使run无效/失败，禁止人工补填指标。
+
+完整安装、建图、目标绑定、formal、RViz、失败语义和P0标定见
+`deployment/odin1_gt/README_CN.md`；机器冻结清单见
+`manifests/odin1_gt_reference_v1.json`。截至2026-08-28，代码与离线测试已完成，但Odin
+当前未连接，serial/外参/高度带/重定位率/路径精度/到达阈值均未现场冻结，因此它还不是
+可直接发布结果的计量级GT。

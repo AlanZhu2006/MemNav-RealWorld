@@ -1,6 +1,6 @@
 # Source and Artifact Manifest
 
-Snapshot: **2026-08-27**
+Snapshot: **2026-08-28**
 
 ## Repository base
 
@@ -33,10 +33,16 @@ auditable overlay instead of an anonymous source dump.
 | `deployment/go2/offboard/experiment_capture.sh` | Evidence-only ROS bag, receipt and RViz/dashboard recorder; no motion calls |
 | `deployment/go2/experiment_capture_manifest.py` | Run identity, third-view import, artifact SHA-256 and finalization contract |
 | `deployment/go2/experiment_topic_logger.py` | Human-readable JSONL mirror of status, CEC and evaluator receipts |
+| `deployment/odin1_gt/` | Independent Odin1 native-0.14/legacy-0.13 driver profiles, mapping/relocalization monitor, 2-D occupancy, arrival and A* SPL evidence lane |
+| `deployment/odin1_gt/make_scene_contract.py` | Hash-sealed serial/firmware/calibration/driver/mount contract with rigid-transform validation |
+| `deployment/odin1_gt/config/go2_odin_mount_receipt.template.json` | Fail-closed template for the measured, independently validated Odin-to-Go2 rigid transform |
+| `deployment/odin1_gt/vendor/odin_ros_driver_0.13.0_firmware_0.13.1_mode1.patch` | Historical, non-default firmware-0.13.1 cold-start compatibility patch previously validated in the local TopoFocus deployment |
+| `deployment/odin1_gt/vendor/odin_ros_driver_runtime_config.patch` | Minimal ROS 2 parameter fix so hash-sealed per-session mode-1/mode-2 configs are actually consumed by the pinned driver |
 | `tools/{transcode_demo_media.sh,build_demo_previews.py}` | Browser H.264, poster and inline-GIF publication helpers |
 | `REALWORLD_EXPERIMENT_HANDBOOK_CN.md` | Unified Chinese architecture, Survey/Formal, safety, evidence, metric and handoff manual |
 | `REALWORLD_EVALUATION.md` | Planned four-scene, five-repeat SR/SPL and dual-view publication registry; contains no result claims |
 | `manifests/realworld_evaluation_plan_v1.json` | Machine-readable 20-run campaign template with null metrics until evidence is finalized |
+| `manifests/odin1_gt_reference_v1.json` | Machine-readable Odin authority boundary, implemented defaults and null field-calibration gates |
 
 The MemNav model service remains an external research dependency because its
 licensed checkpoints, LingBot weights, LightGlue dependency tree and research
@@ -61,6 +67,8 @@ and is ignored by Git.
 | `deployment/go2/offboard/run_policy_tunnel.sh` | `eb65fb3c88c0976b17ddc87ee99e6481e6d4d0c718cc7121630446f76006c2c3` |
 | `deployment/go2/offboard/stop_offboard_stack.sh` | `e6b239f1cd2c51d59bd09c57348e037697a7bd4de47c0c9316860c608ed798c3` |
 | `deployment/go2/offboard/fullmono.sh` | `530dfcaf62cfa5395381470dd990ffa883d142ece5dcec0f5092cdb4efd6a1f8` |
+| `deployment/odin1_gt/vendor/odin_ros_driver_0.13.0_firmware_0.13.1_mode1.patch` | `2a73aa48d163e2a362670b7b9b778edf8328aba7323e1cc04dd6b8fb28ba5806` |
+| `deployment/odin1_gt/vendor/odin_ros_driver_runtime_config.patch` | `953bd96ad3cea5c336f11882f92a428ff090ba13abd28c742314f072cd637f86` |
 
 The original four runtime payloads remain preserved as content-addressed
 release `d656b9d9ae30de73f1d70a52b0150318f3dda238d6631dbae42f0a98dec973c2`.

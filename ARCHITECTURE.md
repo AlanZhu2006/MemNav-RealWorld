@@ -210,3 +210,25 @@ bearing or unproven atomic turn cannot actuate the robot.
 The adapter starts with both `enable_on_start=false` and
 `estop_on_start=true`. Clearing estop and enabling motion are distinct onsite
 operator actions.
+
+## Optional independent Odin1 reference lane
+
+Odin1 is an evaluation sidecar, not a third navigation sensor. A one-time
+mode-1 out-and-back survey produces a proprietary relocalization map and a
+separately hash-frozen 2-D occupancy grid. The D435i ImageGoal bytes are bound
+to the simultaneous Odin map pose. Each formal run restarts Odin in mode 2 and
+is not eligible to begin until the vendor `map -> odom` TF passes a stable,
+fail-closed gate.
+
+The sidecar uses map-frame poses for the start/goal metric region, but computes
+actual path `P_i` from consecutive local odometry increments so relocalization
+or loop-correction TF changes are not counted as physical motion. Frozen-grid
+A* provides `L_i`. Binary success requires stable Odin relocalization, the
+calibrated metric goal region, fresh D435i visual goal recognition and a
+stationary hold. All inputs and settings are SHA-bound in the SPL receipt.
+
+There is deliberately no edge from Odin topics or A* output into CEC, NavDP,
+the D435i collision layer, `cmd_vel`, estop or the Unitree SDK. Feeding A* route
+information back into the controller would define a different mapped method.
+Odin is itself SLAM, so this lane is classified as independent reference SLAM,
+not metrological motion-capture ground truth.

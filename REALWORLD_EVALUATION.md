@@ -1,6 +1,6 @@
 # Planned Real-World Evaluation
 
-Snapshot: **2026-08-27** · Status: **protocol template; no formal results**
+Snapshot: **2026-08-28** · Status: **protocol template; no formal results**
 
 This page reserves the publication structure for the first MemNav real-world
 campaign. It follows the
@@ -32,8 +32,13 @@ SPL = sum(SPL_i) / N
 - A dash must not be replaced until the run has a finalized capture manifest,
   an independent success record and a valid path measurement.
 
-The exact physical success threshold and measurement system remain pending the
-arrival-calibration gate in `CURRENT_STATUS.md`. Until that gate is frozen,
+The repository now contains an optional independent Odin1 reference stack:
+`L_i` is produced by frozen-grid A*, `P_i` by consecutive local Odin odometry
+increments after stable relocalization, and `S_i` by Odin metric region plus
+fresh D435i visual confirmation and a stationary hold. It is evaluation-only
+and never enters NavDP control. Its current-Go2 hardware calibration remains
+pending, so the exact physical success threshold and measurement system remain
+blocked by the arrival-calibration gate in `CURRENT_STATUS.md`. Until that gate is frozen,
 these tables are a registration template and cannot support an autonomous
 arrival, SR or SPL claim. If an external evaluator terminates the robot, the
 result must be described as **navigation with independent evaluator
@@ -50,7 +55,7 @@ termination**, not autonomous policy STOP.
 
 All runs use the frozen formal control profile (`0.30 m/s` maximum linear
 speed), one exact goal JPEG per scene, one sealed survey dataset per scene and
-the `audit` evidence profile. Scene layouts, starts, goal poses, path budgets,
+the `audit` evidence profile with `gt_source=odin1`. Scene layouts, starts, goal poses, path budgets,
 time budgets and trial order must be frozen before Formal 01 begins.
 
 ## Campaign Summary

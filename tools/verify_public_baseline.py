@@ -33,6 +33,7 @@ REQUIRED_PATHS = (
     "manifests/realworld_fullmono_v3.json",
     "manifests/realworld_fullmono_v4.json",
     "manifests/realworld_evaluation_plan_v1.json",
+    "manifests/odin1_gt_reference_v1.json",
     "FULL_MONO_RELEASE_20260821.md",
     "deployment/go2/navdp_ros_node.py",
     "deployment/go2/navdp_client.py",
@@ -43,6 +44,20 @@ REQUIRED_PATHS = (
     "deployment/go2/offboard/experiment_capture.sh",
     "deployment/go2/experiment_capture_manifest.py",
     "deployment/go2/experiment_topic_logger.py",
+    "deployment/odin1_gt/README_CN.md",
+    "deployment/odin1_gt/odin_gt_core.py",
+    "deployment/odin1_gt/odin_gt_monitor.py",
+    "deployment/odin1_gt/odin_occupancy_builder.py",
+    "deployment/odin1_gt/score_odin_gt.py",
+    "deployment/odin1_gt/make_driver_config.py",
+    "deployment/odin1_gt/make_scene_contract.py",
+    "deployment/odin1_gt/config/go2_odin_mount_receipt.template.json",
+    "deployment/odin1_gt/config/odin_gt.rviz",
+    "deployment/odin1_gt/scripts/odin_gt.sh",
+    "deployment/odin1_gt/scripts/setup_driver.sh",
+    "deployment/odin1_gt/scripts/preflight.sh",
+    "deployment/odin1_gt/vendor/odin_ros_driver_0.13.0_firmware_0.13.1_mode1.patch",
+    "deployment/odin1_gt/vendor/odin_ros_driver_runtime_config.patch",
     "deployment/gpu/realworld_cec_hub.py",
     "deployment/gpu/monocular_depth_runtime.py",
     "deployment/gpu/revisit_bearing_adapter.py",
@@ -98,6 +113,12 @@ EXPECTED_HASHES = {
     ),
     "media/demo/revisit_reference_dashboard.gif": (
         "cec03c51334f2a397f3c78462e750c881ae27244a7425705658a5fadd9e67df9"
+    ),
+    "deployment/odin1_gt/vendor/odin_ros_driver_0.13.0_firmware_0.13.1_mode1.patch": (
+        "2a73aa48d163e2a362670b7b9b778edf8328aba7323e1cc04dd6b8fb28ba5806"
+    ),
+    "deployment/odin1_gt/vendor/odin_ros_driver_runtime_config.patch": (
+        "953bd96ad3cea5c336f11882f92a428ff090ba13abd28c742314f072cd637f86"
     ),
 }
 
@@ -312,6 +333,53 @@ def main() -> int:
         and "artifact_inventory" in capture_manifest_source
         and "sha256_file" in capture_manifest_source,
         "capture evidence is hash-bound without motion authority",
+        failures,
+    )
+    check(
+        "--gt-source" in capture_source
+        and "/navdp/gt/status" in capture_source
+        and "attach-odin-gt" in capture_source
+        and "odin_gt_result" in capture_manifest_source
+        and "odin_spl_receipt" in capture_manifest_source,
+        "Odin reference evidence is integrated into capture manifests",
+        failures,
+    )
+
+    odin_manifest = json.loads(
+        (root / "manifests/odin1_gt_reference_v1.json").read_text()
+    )
+    odin_authority = odin_manifest.get("authority", {})
+    odin_claims = odin_manifest.get("claims", {})
+    odin_driver = odin_manifest.get("driver", {})
+    check(
+        odin_manifest.get("status") == "implemented_not_hardware_validated_on_go2"
+        and odin_manifest.get("classification")
+        == "independent_reference_slam_not_metrological_ground_truth"
+        and odin_authority.get("policy_input") is False
+        and odin_authority.get("motion_authority") is False
+        and odin_authority.get("evaluation_only") is True,
+        "Odin lane remains evaluation-only and honestly classified",
+        failures,
+    )
+    check(
+        odin_driver.get("default_profile") == "native_0_14"
+        and odin_driver.get("native_0_14", {}).get("commit")
+        == "6f993ccc4ccad9395bfc68bc3235f993d83c4fe6"
+        and odin_driver.get("native_0_14", {}).get("mode1_bootstrap_patch")
+        is None
+        and odin_driver.get("legacy_0_13_1", {}).get("default") is False,
+        "Odin 0.14 native Mode1 is default; 0.13.1 patch is legacy-only",
+        failures,
+    )
+    check(
+        odin_claims.get("odin1_connected_during_this_release") is False
+        and odin_claims.get("go2_mount_calibrated") is False
+        and odin_claims.get("formal_sr_spl_available") is False
+        and all(
+            value is None
+            for value in odin_manifest.get("mandatory_field_freeze", {}).values()
+        ),
+        "Odin hardware/calibration/result claims remain unfilled",
         failures,
     )
 

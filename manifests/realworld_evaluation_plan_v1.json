@@ -15,6 +15,7 @@
     "robot": "unitree_go2",
     "max_linear_mps": 0.3,
     "capture_profile": "audit",
+    "gt_source": "odin1_independent_reference",
     "motion_authority": "jetson_local_operator_gated",
     "policy_stop_authority_verified": false
   },
@@ -22,8 +23,11 @@
     "sr_formula": "sum(S_i) / N",
     "spl_formula": "mean(S_i * L_i / max(L_i, P_i))",
     "failure_spl_contribution": 0.0,
-    "success_threshold_status": "pending_independent_arrival_calibration",
-    "physical_path_measurement_status": "pending_independent_measurement_system",
+    "success_threshold_status": "odin_metric_plus_d435i_visual_gate_implemented_pending_field_calibration",
+    "shortest_path_source": "frozen_odin_occupancy_astar_pending_scene_freeze",
+    "physical_path_source": "consecutive_odin_odometry_increments_after_stable_relocalization",
+    "physical_path_measurement_status": "implemented_pending_go2_accuracy_validation",
+    "odin_classification": "independent_reference_slam_not_metrological_ground_truth",
     "sportmodestate_authority": "auxiliary_only"
   },
   "claims": {

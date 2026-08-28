@@ -1,6 +1,6 @@
 # Current Full-Mono Real-World Status
 
-Snapshot: **2026-08-27, protocol-v3 + direct-bearing-v2 + evidence capture**
+Snapshot: **2026-08-28, protocol-v3 + direct-bearing-v2 + optional Odin1 reference lane**
 
 现场实验、交接、双机架构、两阶段数据、控制安全、证据采集和SR/SPL的统一操作入口为
 `REALWORLD_EXPERIMENT_HANDBOOK_CN.md`。本文件继续作为最新claim boundary；若旧日期文档
@@ -20,6 +20,12 @@ manifest 绑定。当前仓库中的双视角视频只是 engineering reference 
 NavDP 评测模板，公开页、逐 run 媒体槽位和机器 manifest 均保持空白。该登记只冻结
 未来结果的形状，不代表已经执行实验，也不改变 arrival/STOP 和 SR/SPL 尚未建立的结论。
 见 `REALWORLD_EVALUATION.md`。
+
+2026-08-28 增加了完全隔离的Odin1参考评测栈：mode-1往返建图、D435i目标图与Odin
+地图位姿绑定、mode-2 `map -> odom`重定位门、局部odom路径积分、融合到达证据和冻结
+A* SPL收据。Odin不进入CEC/NavDP/Go2控制。当前Odin未连接，本轮没有硬件标定或正式
+结果；正确命名是independent reference SLAM，不是计量级absolute GT。完整边界和命令见
+`deployment/odin1_gt/README_CN.md`。
 
 ## Bottom line
 
@@ -50,6 +56,8 @@ policy service is running.
 - metric PnP translation: diagnostic only, with no control or STOP authority;
 - automatic STOP: disabled until an independent convergence proof is
   calibrated and confirmed.
+- optional Odin1 lane: evaluation-only map/relocalization/path/arrival evidence;
+  it has no policy, motion or estop authority.
 
 The terminal wire schema is
 `cec_direct_bearing_handoff_v2_20260824`.  Both reset and launcher preflight
@@ -133,6 +141,11 @@ Established:
 5. stale or partially synchronized terminal schemas now fail closed.
 6. formal-run evidence now has a single run ID and hash-bound ROS/dashboard/
    third-view collection contract.
+7. an Odin1 reference implementation can bind `S_i/L_i/P_i/SPL_i` without
+   exposing Odin observations to the navigation method.
+8. the official Odin driver `v0.14.0` native-Mode1 profile is compiled in
+   `/home/nvidia/twork/odin_ws` and passes its no-hardware source/dependency
+   preflight.
 
 Not established:
 
@@ -142,15 +155,21 @@ Not established:
 3. real-world SR/SPL or a statistically meaningful number of trials;
 4. that automatic target selection satisfies the same causal contract as an
    externally frozen benchmark goal beyond the repaired software check.
+5. Odin1 0.14 Mode1 has been reported normal in a prior operator test, but this
+   release still lacks a hash-bound live USB/topic receipt, current-Go2
+   mount/extrinsic calibration, relocalization repeatability, metric arrival
+   thresholds and path-accuracy validation.
 
 ## Next safe experiment
 
-Do not run another blind navigation trial.  With the adapter disabled and the
-robot placed manually at one frozen ImageGoal pose, collect repeated static
-RGBs at the goal and at predeclared offsets/yaws (for example `0, 0.25, 0.5,
-1.0 m` and `0, +/-10, +/-20 deg`).  Record independent tape/pose labels before
-looking at the visual scores.  Use one location to choose a proof-conditioned
-convergence rule and different locations to test it.
+Do not run another formal navigation trial. First connect Odin1 with the robot
+disabled, use the installed native `v0.14.0` driver profile, verify live
+USB/topics and measure the current mount,
+obstacle height band and Go2 footprint. Then record one debug out-and-back map,
+test mode-2 relocalization across restarts and collect the predeclared
+`0, 0.25, 0.5, 1.0 m` by `0, +/-10, +/-20 deg` arrival offsets with independent
+tape labels. Use one location to choose the combined metric/visual convergence
+rule and different locations to test it.
 
 Only after that gate passes should the terminal controller gain a two-stage
 authority:

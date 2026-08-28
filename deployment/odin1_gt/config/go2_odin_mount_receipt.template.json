@@ -1,0 +1,15 @@
+{
+  "schema": "memnav-odin1-go2-mount-v1",
+  "validated": false,
+  "sensor_serial": null,
+  "rigid_mount_id": null,
+  "created_utc": null,
+  "measurement_method": null,
+  "go2_base_frame": "base_link",
+  "odin_base_frame": "odin1_base_link",
+  "T_go2base_odin": null,
+  "translation_unit": "metre",
+  "quaternion_convention": "not_applicable_matrix_is_authoritative",
+  "validation_evidence": null,
+  "note": "Fill all null fields, provide a finite row-major 4x4 rigid transform, set validated=true only after independent holdout verification, and save as a new runtime receipt. Do not edit this tracked template."
+}
