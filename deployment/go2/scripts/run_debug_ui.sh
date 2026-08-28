@@ -12,10 +12,10 @@ if [[ ! -f "$RVIZ_CONFIG" ]]; then
 fi
 
 if [[ -z "${XAUTHORITY:-}" ]]; then
-  if [[ -r "/run/user/$(id -u)/gdm/Xauthority" ]]; then
-    export XAUTHORITY="/run/user/$(id -u)/gdm/Xauthority"
-  elif [[ -r "$HOME/.Xauthority" ]]; then
+  if [[ -r "$HOME/.Xauthority" ]]; then
     export XAUTHORITY="$HOME/.Xauthority"
+  elif [[ -r "/run/user/$(id -u)/gdm/Xauthority" ]]; then
+    export XAUTHORITY="/run/user/$(id -u)/gdm/Xauthority"
   fi
 fi
 if [[ -z "${DISPLAY:-}" && -n "${NAVDP_DISPLAY:-}" ]]; then

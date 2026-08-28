@@ -41,6 +41,12 @@ visual-servo / arrival contract.
 The robot is currently stopped.  No camera, NavDP adapter, Go2 bridge or RTX
 policy service is running.
 
+The opt-in RGB-only arrival gate added on 2026-08-28 is a commissioning aid,
+not an established STOP contract.  Its first powered A -> D trial produced a
+false negative and is recorded below.  The detector and adapter stop/freeze
+transport worked in unit and offline replay tests, but no powered arrival was
+latched.
+
 ## Current architecture and authority
 
 - episode protocol: server-enforced v3
@@ -56,8 +62,9 @@ policy service is running.
 - D435i metric depth: Jetson collision safety only, never a policy input;
 - certificate/proof loss: return to the preceding native or long-range route;
 - metric PnP translation: diagnostic only, with no control or STOP authority;
-- automatic STOP: disabled until an independent convergence proof is
-  calibrated and confirmed.
+- automatic STOP: disabled for formal operation until an independent
+  convergence proof is calibrated and confirmed; an opt-in RGB-only
+  commissioning gate exists but has not passed powered acceptance.
 - optional Odin1 lane: evaluation-only map/relocalization/path/arrival evidence;
   it has no policy, motion or estop authority.
 
@@ -75,6 +82,38 @@ authority.
 | Q -> R, CEC Revisit | moved 3.01 m; auxiliary distance 3.507 -> min 1.498 m; long-range and direct bearings became inconsistent near the goal | failure: `safety_abort_path_length_limit` |
 | R -> Q, native Novel | 1.167 -> min 1.019 -> final 1.022 m; only 0.615 m path | failure: old controller/Go2 velocity-floor ordering caused left-right hunting; execution contract subsequently fixed |
 | S -> Q, native Full-Mono after controller fix | first command 0.297 m/s forward; 1.226 -> min 0.993 -> final 3.729 m; 18.54 m path | failure: `operator_stop`; the robot passed the high-covisibility window without a valid arrival decision |
+| A -> D, native Novel plus temporary RGB gate | the D board pair was visible around frames 47--48, then the approach turned right and the right board filled the image; local D435i clearance reached 0.418--0.430 m | failure: RGB gate false negative followed by correct `obstacle_stop`; later disabled/static/operator-moved frames contaminated the episode |
+
+### 2026-08-28 temporary RGB-gate failure
+
+The retained diagnostic episode is
+`work-pc:/home/asus/Research/Memnav_Realworld/runtime/gpu/buffer/run_20260828T142614Z_4106982/ep_0002`
+with 363 numeric RGB frames.  It is not a formal Novel memory and must not be
+used for Revisit.  A full replay against the frozen D ImageGoal produced zero
+strict matches.  The important boundary is:
+
+- frames 29--37 saw the complete D board pair while it was still too small
+  (`image_scale` approximately `0.33--0.44`);
+- frames 47--48 were the only near-view candidates, with `56/59` good matches,
+  `43/38` inliers, scale `0.897/0.874`, and current-view inlier coverage
+  `0.050/0.045`;
+- the temporary gate required 60 good matches, 45 inliers, coverage 0.12 and
+  three consecutive matches, so both frames were rejected rather than
+  producing a late or failed stop command;
+- from frame 58 onward the right D board dominated the image.  The local
+  metric-depth safety gate then correctly held zero velocity at
+  `0.418--0.430 m` clearance;
+- the later restart/reposition/static segment does not preserve a causal A ->
+  D trace.  At final shutdown the detector remained unlatched.  Both Jetson
+  and RTX tmux stacks were explicitly stopped.
+
+The earlier failed-run replay used to choose the strict defaults had four
+clean full-frame matches and would have confirmed at frame 240.  The new trial
+shows that this calibration did not cover lateral/tilted approaches or a
+partially visible target.  The next commissioning change should therefore be
+validated as a target-region or multi-reference arrival rule (or a dedicated
+fiducial), with negative-route replay, rather than simply weakening the
+full-frame homography thresholds from this one failure.
 
 The controller repair restored the formal `0.30/0.55` limits and applies the
 `8 deg` heading deadband before the Go2 `0.10/0.20` command floors.  It removes

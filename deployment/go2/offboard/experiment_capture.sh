@@ -110,10 +110,10 @@ resolve_xauthority() {
   done < <(pgrep -x rviz2 2>/dev/null || true)
   if [[ -n "${XAUTHORITY:-}" && -r "$XAUTHORITY" ]]; then
     printf '%s' "$XAUTHORITY"
-  elif [[ -r "/run/user/$(id -u)/gdm/Xauthority" ]]; then
-    printf '%s' "/run/user/$(id -u)/gdm/Xauthority"
   elif [[ -r "$HOME/.Xauthority" ]]; then
     printf '%s' "$HOME/.Xauthority"
+  elif [[ -r "/run/user/$(id -u)/gdm/Xauthority" ]]; then
+    printf '%s' "/run/user/$(id -u)/gdm/Xauthority"
   fi
 }
 
@@ -283,6 +283,26 @@ publish_event() {
   printf '%s' "$payload"
 }
 
+stop_recorder_session() {
+  local session="$1"
+  local timeout_s="${2:-30}"
+  tmux has-session -t "$session" 2>/dev/null || return 0
+  local window
+  for window in rosbag receipts dashboard; do
+    tmux send-keys -t "$session:$window" C-c 2>/dev/null || true
+  done
+  local deadline=$((SECONDS + timeout_s))
+  while tmux has-session -t "$session" 2>/dev/null \
+      && (( SECONDS < deadline )); do
+    sleep 1
+  done
+  if tmux has-session -t "$session" 2>/dev/null; then
+    tmux kill-session -t "$session" 2>/dev/null || true
+    return 1
+  fi
+  return 0
+}
+
 start_capture() {
   local run_id="$1"
   shift
@@ -363,7 +383,7 @@ start_capture() {
   windows="$(tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null || true)"
   for topic in rosbag receipts dashboard; do
     if ! grep -Fxq "$topic" <<<"$windows"; then
-      tmux kill-session -t "$session" 2>/dev/null || true
+      stop_recorder_session "$session" 10 || true
       python3 "$MANIFEST_TOOL" mark-captured --run-root "$root" --clean false >/dev/null
       die "$topic recorder exited during startup; inspect $root/logs"
     fi
@@ -413,18 +433,9 @@ stop_capture() {
   event="$(publish_event "$run_id" STOP)"
   printf '%s\n' "$event" >"$root/receipts/stop_event.json"
   sleep 1
-  local window
-  for window in rosbag receipts dashboard; do
-    tmux send-keys -t "$session:$window" C-c 2>/dev/null || true
-  done
   local clean=true
-  local deadline=$((SECONDS + 30))
-  while tmux has-session -t "$session" 2>/dev/null && (( SECONDS < deadline )); do
-    sleep 1
-  done
-  if tmux has-session -t "$session" 2>/dev/null; then
+  if ! stop_recorder_session "$session" 30; then
     clean=false
-    tmux kill-session -t "$session" 2>/dev/null || true
   fi
   python3 "$MANIFEST_TOOL" mark-captured \
     --run-root "$root" --clean "$clean" >/dev/null

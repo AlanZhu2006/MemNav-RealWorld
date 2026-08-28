@@ -22,6 +22,21 @@ bash deployment/go2/offboard/fullmono.sh stop
 默认启动 4090 策略服务、SSH 隧道、D435i 和禁用态 adapter，不启动 Go2 bridge。
 即使显式增加 `--with-go2`，也只启动带 watchdog 的底盘桥，仍不会自动解锁运动。
 
+当前 A→D 短直线调试可临时启用独立的纯 RGB 到达门：
+
+```bash
+NAVDP_RGB_ARRIVAL_ENABLED=true \
+NAVDP_IMAGE_GOAL_PATH=/absolute/path/to/goal_d.jpg \
+bash deployment/go2/offboard/fullmono.sh start --with-go2
+```
+
+`rgb_goal_arrival.py` 不订阅、保存或比较深度。它对当前 RGB 与固定 D 点图像做
+SIFT + 单应性几何核验，连续 3 次满足内点、覆盖、中心、尺度、旋转和重投影门槛
+后发布 `/navdp/arrival=true` 与 `/navdp/estop=true`。adapter 收到到达锁存后会
+同时禁用运动并暂停 Novel memory 写入；`reset_policy` 可清除锁存。该门槛是针对
+当前短直线和 D 点画面校准的临时终止器，不应当作任意场景均可靠的原生 NavDP
+到达输出；操作员仍需握住遥控器并保留人工急停。
+
 这套部署针对当前机器：Jetson Orin NX 16GB、JetPack/L4T 36.4、ROS 2 Humble、Intel RealSense D435i、Unitree Go2。默认策略是 **X-NavDP quadruped**，默认不使用 TinyNav VIO，也不启动 TinyNav 的任何感知、建图或规划节点。
 
 ## 1. 先说明：NavDP 是否需要 VIO
@@ -63,6 +78,7 @@ D435i aligned depth ───────┘                         │
 ## 3. 文件说明
 
 - `navdp_ros_node.py`：RGB-D/目标到策略服务的 ROS 2 适配器，以及全部运动看门狗。
+- `rgb_goal_arrival.py`：可选的纯 RGB 临时到达门；只负责 episode termination，不参与轨迹生成。
 - `trajectory_control.py`：可单元测试的轨迹跟踪、速度斜坡和深度安全逻辑。
 - `navdp_client.py`：严格匹配原项目 JPEG + 16-bit depth HTTP 格式。
 - `capture_image_goal.py`、`image_goal_io.py`：从 D435i 采集并无损保存目标图。

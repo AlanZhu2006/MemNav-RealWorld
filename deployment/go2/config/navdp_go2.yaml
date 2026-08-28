@@ -17,6 +17,7 @@ navdp_go2_adapter:
     debug_markers_topic: /navdp/debug/markers
     enable_topic: /navdp/enabled
     estop_topic: /navdp/estop
+    arrival_topic: /navdp/arrival
     base_frame: base_link
 
     debug_visualization: true

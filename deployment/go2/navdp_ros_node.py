@@ -73,6 +73,7 @@ class NavDPGo2Adapter(Node):
         self._startup_image_goal = (
             None if self._image_goal is None else self._image_goal.copy()
         )
+        self._startup_pause_memory_recording = self.pause_memory_recording
 
         self._enabled = bool(self.get_parameter("enable_on_start").value)
         self._estop = self.estop_on_start
@@ -102,6 +103,7 @@ class NavDPGo2Adapter(Node):
         self._last_plan_receipt: dict = {}
         self._terminal_motion_receipt: dict = {}
         self._last_receipt_event = ""
+        self._arrival_latched = False
         self._client_lock = threading.Lock()
 
         self._client = NavDPClient(
@@ -154,6 +156,7 @@ class NavDPGo2Adapter(Node):
             )
         self.create_subscription(Bool, self.enable_topic, self._on_enable, command_qos)
         self.create_subscription(Bool, self.estop_topic, self._on_estop, command_qos)
+        self.create_subscription(Bool, self.arrival_topic, self._on_arrival, command_qos)
 
         self.create_service(SetBool, "~/set_enabled", self._set_enabled_service)
         self.create_service(Trigger, "~/reset_policy", self._reset_policy_service)
@@ -225,6 +228,7 @@ class NavDPGo2Adapter(Node):
             "debug_markers_topic": "/navdp/debug/markers",
             "enable_topic": "/navdp/enabled",
             "estop_topic": "/navdp/estop",
+            "arrival_topic": "/navdp/arrival",
             "base_frame": "base_link",
             "debug_visualization": True,
             "debug_max_candidates": 6,
@@ -343,6 +347,7 @@ class NavDPGo2Adapter(Node):
             "debug_markers_topic",
             "enable_topic",
             "estop_topic",
+            "arrival_topic",
             "base_frame",
         ):
             setattr(self, name, str(self.get_parameter(name).value))
@@ -520,6 +525,30 @@ class NavDPGo2Adapter(Node):
         else:
             self.get_logger().info("NavDP emergency stop released; enable state unchanged")
 
+    def _on_arrival(self, msg: Bool) -> None:
+        if not msg.data:
+            return
+        with self._lock:
+            first_latch = not self._arrival_latched
+            self._arrival_latched = True
+            self._estop = True
+            self._enabled = False
+            if self.two_phase_episode and self._phase == "memory_recording":
+                self.pause_memory_recording = True
+            receipt = {
+                "arrival_latched": True,
+                "phase": self._phase,
+                "frames_recorded": self._frames_recorded,
+                "memory_recording_paused": self.pause_memory_recording,
+            }
+        self._publish_zero("rgb_imagegoal_arrival")
+        if first_latch:
+            self._publish_receipt("rgb_imagegoal_arrival", receipt)
+            self.get_logger().warning(
+                "RGB ImageGoal arrival latched: motion disabled, estop asserted, "
+                "and Novel memory recording paused"
+            )
+
     def _set_enabled_service(self, request, response):
         self._set_enabled(bool(request.data), "set_enabled service")
         response.success = True
@@ -541,6 +570,8 @@ class NavDPGo2Adapter(Node):
             self._last_plan_receipt = {}
             self._terminal_motion_receipt = {}
             self._last_receipt_event = ""
+            self._arrival_latched = False
+            self.pause_memory_recording = self._startup_pause_memory_recording
             self._last_auto_candidate_after_frame = -1
             self._auto_candidate_guard_remaining = 0
             self._image_goal = (
@@ -1455,6 +1486,7 @@ class NavDPGo2Adapter(Node):
                     self.navigate_during_memory_recording
                 ),
                 "pause_memory_recording": self.pause_memory_recording,
+                "arrival_latched": self._arrival_latched,
                 "goal_candidates_captured": self._goal_candidates_captured,
                 "auto_goal_candidate_interval_frames": (
                     self.auto_goal_candidate_interval_frames

@@ -65,6 +65,7 @@ def main() -> int:
     args = parser.parse_args()
 
     import rclpy
+    from rclpy.executors import ExternalShutdownException
     from rclpy.node import Node
     from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
     from std_msgs.msg import String
@@ -79,9 +80,12 @@ def main() -> int:
                 reliability=ReliabilityPolicy.RELIABLE,
                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
             )
-            self.subscriptions = []
+            # Node.subscriptions is a read-only rclpy property.  Keep our own
+            # references so subscriptions are not garbage-collected without
+            # trying to overwrite that property.
+            self._receipt_subscriptions = []
             for topic in TOPICS:
-                self.subscriptions.append(
+                self._receipt_subscriptions.append(
                     self.create_subscription(
                         String,
                         topic,
@@ -94,12 +98,13 @@ def main() -> int:
     node = ReceiptLoggerNode()
     try:
         rclpy.spin(node)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         node.destroy_node()
         writer.close()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
     return 0
 
 
