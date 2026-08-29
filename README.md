@@ -183,8 +183,8 @@ derivatives are indexed in [media/README.md](media/README.md).
 ### 1. Verify the Checkout
 
 ~~~bash
-git clone git@github.com:AlanZhu2006/Memnav_Realworld.git
-cd Memnav_Realworld
+git clone git@github.com:AlanZhu2006/MemNav-RealWorld.git
+cd MemNav-RealWorld
 
 python3 tools/verify_public_baseline.py --workspace .
 python3 -m pip install -r deployment/gpu/requirements.txt pytest

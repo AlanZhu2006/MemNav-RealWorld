@@ -1685,8 +1685,8 @@ bash deployment/go2/offboard/revisit_experiment.sh stop
 在两台机器的各自workspace中使用同一发布commit。Jetson示例：
 
 ```bash
-git clone git@github.com:AlanZhu2006/Memnav_Realworld.git
-cd Memnav_Realworld
+git clone git@github.com:AlanZhu2006/MemNav-RealWorld.git
+cd MemNav-RealWorld
 
 python3 tools/verify_public_baseline.py --workspace .
 git rev-parse HEAD

@@ -4,6 +4,7 @@ Snapshot: **2026-08-29**
 
 ## Repository base
 
+- Current repository: `https://github.com/AlanZhu2006/MemNav-RealWorld`
 - Upstream repository: `https://github.com/InternRobotics/NavDP`
 - Imported upstream commit: `878740a2011856d0e3782dd6ccd880fd2eccd70f`
 - Full-Mono research source: `AlanZhu2006/Nav`,
