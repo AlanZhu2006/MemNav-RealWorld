@@ -33,7 +33,8 @@ ready=false
 for _ in $(seq 1 240); do
   health="$(curl -fsS --max-time 1 \
       "http://127.0.0.1:$CEC_HUB_PORT/healthz" 2>/dev/null || true)"
-  if cec_validate_health_contract "$health" "$GO2_DIR" \
+  if [[ -n "$health" ]] \
+      && cec_validate_health_contract "$health" "$GO2_DIR" \
       && ss -ltn | awk '{print $4}' | grep -Eq "(^|:)$MEMNAV_PORT$" \
       && ss -ltn | awk '{print $4}' | grep -Eq "(^|:)$NAVDP_PORT$"; then
     ready=true
