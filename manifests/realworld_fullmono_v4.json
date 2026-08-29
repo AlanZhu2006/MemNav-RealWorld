@@ -4,7 +4,7 @@
   "snapshot_date": "2026-08-25",
   "system": "fullmono_certified_episodic_compass_navdp_go2",
   "provenance": {
-    "standalone_repository": "AlanZhu2006/Memnav_Realworld",
+    "standalone_repository": "AlanZhu2006/MemNav-RealWorld",
     "base_commit": "6cae26d71376f1c698bfab6494094e1dba218576",
     "status": "audited_working_tree_pending_public_commit",
     "research_workspace": "/home/asus/Research/Nav-graph-blind"

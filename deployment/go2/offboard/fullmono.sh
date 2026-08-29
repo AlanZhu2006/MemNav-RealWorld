@@ -10,7 +10,9 @@ GO2_DIR="$(cd "$OFFBOARD_DIR/.." && pwd)"
 source "$OFFBOARD_DIR/runtime_contract.sh"
 
 GPU_HOST="${CEC_HUB_SSH_HOST:-work-pc}"
-GPU_REPO="${CEC_GPU_REPO:-/home/asus/Research/Memnav_Realworld}"
+# Relative paths are resolved by the remote login shell from the RTX user's
+# home directory. Sites with a different layout can set CEC_GPU_REPO.
+GPU_REPO="${CEC_GPU_REPO:-Research/MemNav-RealWorld}"
 GPU_SESSION="${CEC_TMUX_SESSION:-cec-realworld}"
 LOCAL_SESSION="${NAVDP_TMUX_SESSION:-navdp-go2-offboard}"
 LOCAL_PORT="${CEC_LOCAL_PORT:-18889}"
@@ -35,7 +37,7 @@ ROS adapter.  `--with-go2` only starts the watchdog bridge; it does not enable
 the adapter or authorize motion.
 
 One-time RTX configuration:
-  /home/asus/Research/Memnav_Realworld/deployment/gpu/.env
+  ~/Research/MemNav-RealWorld/deployment/gpu/.env
 
 Optional overrides:
   CEC_HUB_SSH_HOST, CEC_GPU_REPO, CEC_TMUX_SESSION,

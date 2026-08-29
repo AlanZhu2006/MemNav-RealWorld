@@ -25,7 +25,7 @@ bash deployment/go2/nav_stack.sh status
 完成一次性上位机 `.env` 配置后，从 Jetson 启动 Full-Mono：
 
 ```bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 export NAVDP_GOAL=/absolute/path/to/goal_d.jpg
 
 bash deployment/go2/nav_stack.sh start \
@@ -143,7 +143,7 @@ baselines/navdp/checkpoints/navdp_pretrain.ckpt
 重新下载或换机部署：
 
 ```bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 bash deployment/go2/scripts/download_weights.sh all
 bash deployment/go2/scripts/setup_jetson.sh
 ```
@@ -161,7 +161,7 @@ bash deployment/go2/scripts/preflight.sh --backend x
 先只启动相机、策略服务和适配器：
 
 ```bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 bash deployment/go2/scripts/run_stack.sh --backend x --mode startgoal
 tmux attach -t navdp-go2
 ```
@@ -198,7 +198,7 @@ ros2 service call /navdp_go2_adapter/set_enabled std_srvs/srv/SetBool "{data: fa
 底盘可以保持下电；不要加 `--with-go2`。一条命令启动相机、X-NavDP、禁用态适配器和 RViz：
 
 ```bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 NAVDP_TMUX_SESSION=navdp-debug \
   bash deployment/go2/scripts/run_stack.sh \
   --backend x --mode startgoal --with-rviz

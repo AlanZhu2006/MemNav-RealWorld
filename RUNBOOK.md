@@ -15,7 +15,7 @@ After the one-time RTX configuration in Section 1, the direct Full-Mono
 lifecycle command is issued from the Jetson:
 
 ~~~bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 export NAVDP_GOAL=/absolute/path/to/image_goal.png
 export CEC_CAMERA_HEIGHT_M=0.42
 export NAVDP_IMAGE_GOAL_PATH="$NAVDP_GOAL"
@@ -45,7 +45,7 @@ bash deployment/go2/offboard/fullmono.sh stop
 
 `--with-go2` is deliberately not an arming command.  Motion still requires the
 separate onsite `SetBool` call in Section 6.  The RTX host and repository default
-to `work-pc` and `/home/asus/Research/Memnav_Realworld`; override them with
+to `work-pc` and the home-relative `Research/MemNav-RealWorld`; override them with
 `CEC_HUB_SSH_HOST` and `CEC_GPU_REPO` if the site layout changes.
 
 `nav_stack.sh --profile fullmono-lingbot-cec` is the equivalent profile-oriented
@@ -56,7 +56,7 @@ should not be called as a competing end-to-end workflow.
 ## 1. RTX 4090 workstation
 
 ~~~bash
-cd Memnav_Realworld
+cd MemNav-RealWorld
 cp deployment/gpu/env.example deployment/gpu/.env
 nano deployment/gpu/.env
 ~~~
@@ -95,7 +95,7 @@ automatically. Run the commands below only when diagnosing SSH transport while
 the navigation stack is stopped:
 
 ~~~bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 export CEC_HUB_SSH_HOST=work-pc
 tmux new -s cec-tunnel 'exec deployment/go2/offboard/run_policy_tunnel.sh'
 ~~~

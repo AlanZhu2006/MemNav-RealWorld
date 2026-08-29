@@ -39,7 +39,7 @@ records exact software-side `START` and `STOP` UTC events.
 Start the formal stack with RViz first. Motion remains locked:
 
 ~~~bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 bash deployment/go2/offboard/revisit_experiment.sh formal-start DATASET_ID \
   --with-rviz
 

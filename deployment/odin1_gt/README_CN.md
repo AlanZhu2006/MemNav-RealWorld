@@ -180,7 +180,7 @@ TopoFocus曾验证的0.13.1冷启动方案仍以`legacy_0_13_1`兼容profile保�
 安装依赖、udev、clone、patch和build：
 
 ```bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 bash deployment/odin1_gt/scripts/odin_gt.sh setup --install-deps
 ```
 
@@ -265,7 +265,7 @@ obstacle_max_z_m = <实测>
 示例中的数值必须替换为实测值：
 
 ```bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 bash deployment/odin1_gt/scripts/odin_gt.sh start-map scene01_survey_v1 \
   --sensor-serial <reported-serial> \
   --firmware-version <exact-0.14.x-version> \

@@ -115,7 +115,7 @@ Go2 bridge、arrival module 和相机脚本不应随之复制或改名。
 imagegoal`、`navdp_base_server.py` 和共用 ROS adapter 组成。统一启动方式为：
 
 ```bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 
 bash deployment/go2/nav_stack.sh start \
   --profile native-navdp-rgbd \
@@ -150,7 +150,7 @@ adapter 会锁存到达、禁用运动、断言急停。它不会把外部位姿
 ## 5. Full-Mono LingBot + CEC
 
 ```bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 
 bash deployment/go2/nav_stack.sh start \
   --profile fullmono-lingbot-cec \

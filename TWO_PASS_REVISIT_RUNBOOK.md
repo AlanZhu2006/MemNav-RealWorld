@@ -71,7 +71,7 @@ deployment/go2/offboard/revisit_experiment.sh
 ### 第一次：采集并冻结数据集
 
 ```bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 bash deployment/go2/offboard/revisit_experiment.sh \
   survey-start office_loop_01 --with-rviz
 ```

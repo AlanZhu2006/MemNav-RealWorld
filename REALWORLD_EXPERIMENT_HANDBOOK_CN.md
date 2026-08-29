@@ -123,7 +123,7 @@ scene04_formal_01 ... scene04_formal_05
 | Robot | Unitree Go2 |
 | Robot compute | Jetson Orin NX 16 GB |
 | Camera | Intel RealSense D435i |
-| Jetson workspace | `/home/nvidia/twork/NavDP` |
+| Jetson workspace | `/home/nvidia/twork/MemNav-RealWorld` |
 | ROS | ROS 2 Humble |
 | Go2 network interface | 默认 `eth0`，必须有 `192.168.123.x` 地址 |
 | Unitree SDK source | `/home/nvidia/unitree_ws/src/unitree_sdk2_python` |
@@ -138,7 +138,7 @@ scene04_formal_01 ... scene04_formal_05
 | 项目 | 当前配置 |
 | --- | --- |
 | SSH alias | 默认 `work-pc` |
-| Standalone repository | `/home/asus/Research/Memnav_Realworld` |
+| Standalone repository | `/home/asus/Research/MemNav-RealWorld` |
 | External research workspace | `/home/asus/Research/Nav-graph-blind` |
 | MemNav/LingBot service | `127.0.0.1:18888` |
 | Frozen NavDP service | `127.0.0.1:8888` |
@@ -364,7 +364,7 @@ Formal 01 之前应填写并冻结：
 在 Jetson 执行：
 
 ```bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 export CEC_HUB_SSH_HOST=work-pc
 
 bash deployment/go2/offboard/revisit_experiment.sh \
@@ -1572,7 +1572,7 @@ bridge min_cmd_w=0.20
 ### 25.1 Survey
 
 ```bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 export CEC_HUB_SSH_HOST=work-pc
 
 bash deployment/go2/offboard/revisit_experiment.sh \
@@ -1678,7 +1678,7 @@ source修改必须在run manifest notes中解释或先恢复到发布commit。
 在4090：
 
 ```bash
-cd /home/asus/Research/Memnav_Realworld
+cd /home/asus/Research/MemNav-RealWorld
 cp deployment/gpu/env.example deployment/gpu/.env
 nano deployment/gpu/.env
 ```
@@ -1703,7 +1703,7 @@ weights不进入本仓库。
 ### A.3 4090 preflight和测试
 
 ```bash
-cd /home/asus/Research/Memnav_Realworld
+cd /home/asus/Research/MemNav-RealWorld
 export CEC_CAMERA_HEIGHT_M=0.42
 
 bash deployment/gpu/scripts/preflight.sh
@@ -1729,7 +1729,7 @@ bash deployment/gpu/scripts/stop_policy_stack.sh
 ### A.4 Jetson一次性安装
 
 ```bash
-cd /home/nvidia/twork/NavDP
+cd /home/nvidia/twork/MemNav-RealWorld
 
 bash deployment/go2/scripts/download_weights.sh all
 bash deployment/go2/scripts/setup_jetson.sh
@@ -1757,7 +1757,7 @@ bash deployment/go2/scripts/preflight.sh --backend base
 ### A.5 SSH和tunnel
 
 ```bash
-ssh work-pc 'hostname; test -d /home/asus/Research/Memnav_Realworld'
+ssh work-pc 'hostname; test -d /home/asus/Research/MemNav-RealWorld'
 
 export CEC_HUB_SSH_HOST=work-pc
 bash deployment/go2/offboard/run_policy_tunnel.sh
