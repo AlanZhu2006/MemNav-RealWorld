@@ -63,7 +63,7 @@ Go2 bridge、arrival module 和相机脚本不应随之复制或改名。
 | --- | --- | --- | --- |
 | `operator` | 无 | 现场操作员 | 默认；适合先验证导航质量 |
 | `external-topic` | 由实验者提供 | `/navdp/arrival` | AprilTag、SLAM、Odin或独立 evaluator 发布 Bool |
-| `rgb-homography` | `run_rgb_goal_arrival.sh` | 临时 RGB 几何门 | 当前调试模块，首次真机验收出现过 false negative |
+| `rgb-homography` | `run_rgb_goal_arrival.sh` | 临时 RGB 几何门 | 严格阈值首次真机验收出现 false negative；放宽后已完成一次近 D 点自动停车调试，尚未成为正式 STOP 合同 |
 
 导航 ImageGoal 与终止参考图是两个显式参数：
 

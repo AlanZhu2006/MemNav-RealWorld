@@ -14,11 +14,9 @@ from trajectory_control import (  # noqa: E402
     VelocityCommand,
     apply_depth_safety,
     front_clearance,
-    quaternion_to_yaw,
     select_lookahead,
     slew_limit,
     trajectory_to_command,
-    world_goal_to_body,
 )
 
 
@@ -114,12 +112,6 @@ class TrajectoryControlTest(unittest.TestCase):
         )
         self.assertAlmostEqual(command.linear_x, 0.05)
         self.assertAlmostEqual(command.angular_z, 0.1)
-
-    def test_world_goal_to_body(self):
-        relative = world_goal_to_body(1.0, 1.0, 1.0, 0.0, math.pi / 2.0)
-        np.testing.assert_allclose(relative, [1.0, 0.0], atol=1e-6)
-        self.assertAlmostEqual(quaternion_to_yaw(0.0, 0.0, math.sqrt(0.5), math.sqrt(0.5)), math.pi / 2.0)
-
 
 if __name__ == "__main__":
     unittest.main()

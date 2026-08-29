@@ -9,7 +9,7 @@ Snapshot: **2026-08-29, protocol-v3 + direct-bearing-v2 + optional Odin1 referen
 新增的两阶段真机框架已经把长程手柄 survey 冻结为 exact-byte episodic dataset，并能在
 独立的第二次运行中校验、重放、安装目标和初始化 formal query。入口与剩余边界见
 `TWO_PASS_REVISIT_RUNBOOK_20260825.md`。该更新解决实验生命周期和持久化，不改变下文
-“自动 arrival/STOP 尚未建立”的结论。
+“正式 arrival/STOP 尚未建立”的结论。
 
 2026-08-27 增加了不具备运动权限的实验采集侧车：每轮自动保存 ROS bag、CEC/status
 JSONL 和 RViz dashboard，第三人称原片导入后与同一 run ID、Git revision 和 SHA-256
@@ -32,20 +32,21 @@ A* SPL收据。Odin不进入CEC/NavDP/Go2控制。当前Odin未连接，本轮�
 ## Bottom line
 
 The two-machine Full-Mono CEC stack is synchronized and fail-closed, and it
-has completed real powered navigation trials.  It has **not** completed one
-autonomous ImageGoal arrival: all powered trials below remain failures.  The
-remaining P0 is no longer transport, camera height, controller sign, or
-monocular-depth wiring.  It is a separately validated, scale-free terminal
-visual-servo / arrival contract.
+has completed real powered navigation trials.  A near-goal commissioning run
+on 2026-08-29 triggered the RGB-only arrival latch and stopped the powered
+robot automatically.  This is an engineering milestone, not a completed
+arbitrary-start ImageGoal rollout or a formal STOP contract.  The remaining P0
+is a separately validated, scale-free terminal visual-servo / arrival contract.
 
 The robot is currently stopped.  No camera, NavDP adapter, Go2 bridge or RTX
 policy service is running.
 
 The opt-in RGB-only arrival gate added on 2026-08-28 is a commissioning aid,
 not an established STOP contract.  Its first powered A -> D trial produced a
-false negative and is recorded below.  The detector and adapter stop/freeze
-transport worked in unit and offline replay tests, but no powered arrival was
-latched.
+false negative and is recorded below.  After controlled threshold tuning and
+offline replay, a powered near-D retry latched successfully.  That single
+near-goal result does not establish route-level success or false-positive
+performance.
 
 ## Current architecture and authority
 
@@ -64,7 +65,7 @@ latched.
 - metric PnP translation: diagnostic only, with no control or STOP authority;
 - automatic STOP: disabled for formal operation until an independent
   convergence proof is calibrated and confirmed; an opt-in RGB-only
-  commissioning gate exists but has not passed powered acceptance.
+  commissioning gate has one successful powered near-goal latch.
 - optional Odin1 lane: evaluation-only map/relocalization/path/arrival evidence;
   it has no policy, motion or estop authority.
 
@@ -83,6 +84,7 @@ authority.
 | R -> Q, native Novel | 1.167 -> min 1.019 -> final 1.022 m; only 0.615 m path | failure: old controller/Go2 velocity-floor ordering caused left-right hunting; execution contract subsequently fixed |
 | S -> Q, native Full-Mono after controller fix | first command 0.297 m/s forward; 1.226 -> min 0.993 -> final 3.729 m; 18.54 m path | failure: `operator_stop`; the robot passed the high-covisibility window without a valid arrival decision |
 | A -> D, native Novel plus temporary RGB gate | the D board pair was visible around frames 47--48, then the approach turned right and the right board filled the image; local D435i clearance reached 0.418--0.430 m | failure: RGB gate false negative followed by correct `obstacle_stop`; later disabled/static/operator-moved frames contaminated the episode |
+| Near D -> D, native Novel plus tuned RGB gate | detector confirmed a geometrically consistent D view; adapter latched arrival, disabled motion, asserted estop and held zero command | engineering success: powered automatic stop from a near-goal start; not a formal arbitrary-start rollout |
 
 ### 2026-08-28 temporary RGB-gate failure
 
@@ -110,10 +112,31 @@ strict matches.  The important boundary is:
 The earlier failed-run replay used to choose the strict defaults had four
 clean full-frame matches and would have confirmed at frame 240.  The new trial
 shows that this calibration did not cover lateral/tilted approaches or a
-partially visible target.  The next commissioning change should therefore be
-validated as a target-region or multi-reference arrival rule (or a dedicated
-fiducial), with negative-route replay, rather than simply weakening the
-full-frame homography thresholds from this one failure.
+partially visible target.
+
+### 2026-08-29 powered near-goal commissioning success
+
+The commissioning thresholds were changed to 45 good matches, 30 inliers,
+0.45 inlier ratio, 0.07 minimum coverage, image scale 0.60--1.45, 16 degree
+rotation, 4 px reprojection error and one required frame.  A 39-frame trimmed
+offline replay only matched source frames 123--125.  This provided a narrow
+positive window before powered testing rather than evidence of route-level
+reliability.
+
+At the near-D powered start, the preflight image did not match (`51` good
+matches, `34` inliers, current coverage `0.0182`, image scale `0.3921`).  After
+motion began, the detector confirmed D with `71` good matches, `44` inliers,
+inlier ratio `0.6197`, target/current coverage `0.1687/0.0756`, center offset
+`0.0202`, image scale `0.6735`, rotation `0.6353` degrees and reprojection error
+`0.4549` px.  The adapter then set `enabled=false`, `estop=true`, latched
+arrival and emitted zero velocity.
+
+This proves the detector-to-adapter stop transport can act on a powered robot.
+It does not yet prove a complete A -> D navigation, robustness to other
+approaches, or a calibrated false-positive rate.  Before formal use, the rule
+still needs negative-route replay and repeated full-route trials; a
+target-region/multi-reference rule or dedicated fiducial remains a valid
+alternative if the full-frame homography is unstable.
 
 The controller repair restored the formal `0.30/0.55` limits and applies the
 `8 deg` heading deadband before the Go2 `0.10/0.20` command floors.  It removes

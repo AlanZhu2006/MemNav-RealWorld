@@ -247,23 +247,3 @@ def slew_limit(
         path_length=target.path_length,
         reverse=target.reverse,
     )
-
-
-def quaternion_to_yaw(x: float, y: float, z: float, w: float) -> float:
-    sin_yaw = 2.0 * (w * z + x * y)
-    cos_yaw = 1.0 - 2.0 * (y * y + z * z)
-    return math.atan2(sin_yaw, cos_yaw)
-
-
-def world_goal_to_body(
-    goal_x: float,
-    goal_y: float,
-    robot_x: float,
-    robot_y: float,
-    robot_yaw: float,
-) -> np.ndarray:
-    dx = float(goal_x) - float(robot_x)
-    dy = float(goal_y) - float(robot_y)
-    cosine = math.cos(robot_yaw)
-    sine = math.sin(robot_yaw)
-    return np.array([cosine * dx + sine * dy, -sine * dx + cosine * dy], dtype=np.float32)

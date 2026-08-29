@@ -3,8 +3,9 @@
 
 The NavDP policy returns trajectories but no goal-reached action.  This node
 therefore compares the live RGB view with the frozen Novel ImageGoal and emits
-an arrival latch only after several geometrically consistent views.  It never
-subscribes to depth and never writes camera frames.
+an arrival latch after the configured number of geometrically consistent
+views.  The controlled commissioning profile currently defaults to one view.
+It never subscribes to depth and never writes camera frames.
 """
 
 from __future__ import annotations
