@@ -37,6 +37,16 @@ max_linear_mps="${NAVDP_MAX_LINEAR_MPS:-}"
 max_angular_rps="${NAVDP_MAX_ANGULAR_RPS:-}"
 control_profile="${NAVDP_CONTROL_PROFILE:-formal}"
 rgb_arrival_enabled="${NAVDP_RGB_ARRIVAL_ENABLED:-false}"
+arrival_module="${NAVDP_ARRIVAL_MODULE:-}"
+if [[ -z "$arrival_module" ]]; then
+  if [[ "$rgb_arrival_enabled" == true ]]; then
+    arrival_module="rgb-homography"
+  else
+    arrival_module="operator"
+  fi
+fi
+arrival_goal_path="${NAVDP_ARRIVAL_GOAL_PATH:-$goal_path}"
+arrival_allowed_phases="${NAVDP_ARRIVAL_ALLOWED_PHASES:-memory_recording}"
 [[ -f "$goal_path" ]] || { echo "Image goal missing: $goal_path" >&2; exit 1; }
 if [[ -n "$revisit_goal_path" && ! -f "$revisit_goal_path" ]]; then
   echo "Revisit ImageGoal missing: $revisit_goal_path" >&2
@@ -50,6 +60,14 @@ if [[ "$control_profile" != formal && "$control_profile" != acceptance ]]; then
 fi
 if [[ "$rgb_arrival_enabled" != true && "$rgb_arrival_enabled" != false ]]; then
   echo "NAVDP_RGB_ARRIVAL_ENABLED must be true or false" >&2
+  exit 1
+fi
+read -r _profile_name arrival_module < <(
+  python3 "$GO2_DIR/stack_profiles.py" validate \
+    fullmono-lingbot-cec "$arrival_module"
+)
+if [[ "$arrival_module" == rgb-homography && ! -f "$arrival_goal_path" ]]; then
+  echo "Arrival reference missing: $arrival_goal_path" >&2
   exit 1
 fi
 if [[ "$with_go2" == true && "$control_profile" == formal ]]; then
@@ -136,9 +154,9 @@ if [[ "$with_camera" == true ]]; then
 fi
 tmux new-window -t "$SESSION" -n adapter \
   "export NAVDP_BACKEND='navdp' NAVDP_MODE='imagegoal' NAVDP_TWO_PHASE='true' NAVDP_NAVIGATE_DURING_MEMORY_RECORDING='$novel_recording_navigation' NAVDP_PAUSE_MEMORY_RECORDING='$pause_memory_recording' NAVDP_AUTO_GOAL_CANDIDATE_INTERVAL_FRAMES='$auto_goal_interval' NAVDP_AUTO_GOAL_CANDIDATE_MAX='$auto_goal_max' NAVDP_AUTO_GOAL_CANDIDATE_POST_GUARD_FRAMES='$auto_goal_guard' NAVDP_AUTO_GOAL_CANDIDATE_CAPTURE_ENABLED='$auto_goal_capture_enabled' NAVDP_AUTO_SELECT_GOAL_CANDIDATE='$auto_select_goal' NAVDP_MAX_LINEAR_MPS='$max_linear_mps' NAVDP_MAX_ANGULAR_RPS='$max_angular_rps' NAVDP_SERVER_URL='http://127.0.0.1:${LOCAL_PORT}' NAVDP_IMAGE_GOAL_PATH='$goal_path' NAVDP_REVISIT_IMAGE_GOAL_PATH='$revisit_goal_path' NAVDP_SELECTED_GOAL_IMAGE_PATH='$selected_goal_image_path' NAVDP_SELECTED_GOAL_DEPTH_PATH='$selected_goal_depth_path'; exec '$GO2_DIR/scripts/run_adapter.sh'"
-if [[ "$rgb_arrival_enabled" == true ]]; then
+if [[ "$arrival_module" == rgb-homography ]]; then
   tmux new-window -t "$SESSION" -n arrival \
-    "export NAVDP_IMAGE_GOAL_PATH='$goal_path'; exec '$GO2_DIR/scripts/run_rgb_goal_arrival.sh'"
+    "export NAVDP_ARRIVAL_MODULE='$arrival_module' NAVDP_ARRIVAL_GOAL_PATH='$arrival_goal_path' NAVDP_ARRIVAL_ALLOWED_PHASES='$arrival_allowed_phases'; exec '$GO2_DIR/scripts/run_arrival_module.sh'"
 fi
 if [[ "$with_go2" == true ]]; then
   tmux new-window -t "$SESSION" -n go2 "exec '$GO2_DIR/scripts/run_go2_bridge.sh'"
@@ -146,11 +164,16 @@ fi
 if [[ "$with_rviz" == true ]]; then
   tmux new-window -t "$SESSION" -n rviz "exec '$GO2_DIR/scripts/run_debug_ui.sh'"
 fi
+tmux set-environment -t "$SESSION" NAVDP_STACK_PROFILE fullmono-lingbot-cec
+tmux set-environment -t "$SESSION" NAVDP_ARRIVAL_MODULE "$arrival_module"
+tmux set-environment -t "$SESSION" NAVDP_NAVIGATION_GOAL_PATH "$goal_path"
+tmux set-environment -t "$SESSION" NAVDP_ARRIVAL_GOAL_PATH "$arrival_goal_path"
+tmux set-environment -t "$SESSION" NAVDP_ARRIVAL_ALLOWED_PHASES "$arrival_allowed_phases"
 
 echo "Offboard CEC/NavDP stack started in tmux session $SESSION"
 echo "  hub=http://127.0.0.1:${LOCAL_PORT} camera=$with_camera go2_bridge=$with_go2"
 echo "  navigation=causal_monocular_rgb local_aligned_depth=safety_only"
 echo "  control_profile=$control_profile max_linear_mps=${max_linear_mps:-0.30(config)} max_angular_rps=${max_angular_rps:-0.55(config)}"
-echo "  rgb_arrival=$rgb_arrival_enabled"
+echo "  arrival=$arrival_module arrival_goal=${arrival_goal_path:-n/a}"
 echo "  inspect: tmux attach -t $SESSION"
 echo "Motion remains locked until an operator explicitly calls set_enabled=true."

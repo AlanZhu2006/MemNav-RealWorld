@@ -84,7 +84,6 @@ def reset():
             token_dim=384,
             navi_model=checkpoint_path,
             device=policy_device,
-            enable_visualization=False,
         )
     navigator.reset(batch_size, stop_threshold)
     return jsonify({"algo": "navdp"})

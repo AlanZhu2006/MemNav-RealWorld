@@ -12,6 +12,18 @@
 
 完成一次性上位机 `.env` 配置后，推荐从 Jetson 统一启动两台机器：
 
+新的统一模块入口会明确打印 Navigation profile、policy depth、CEC/memory 和
+arrival authority。原生 NavDP baseline 与 Full-Mono 的完整组合方式见
+[`STACK_MODULES_CN.md`](STACK_MODULES_CN.md)：
+
+```bash
+bash deployment/go2/nav_stack.sh list
+bash deployment/go2/nav_stack.sh describe native-navdp-rgbd
+bash deployment/go2/nav_stack.sh status
+```
+
+下面的 `fullmono.sh` 保留为 Full-Mono profile 的底层兼容入口：
+
 ```bash
 cd /home/nvidia/twork/NavDP
 bash deployment/go2/offboard/fullmono.sh start --with-rviz
@@ -79,6 +91,7 @@ D435i aligned depth ───────┘                         │
 
 - `navdp_ros_node.py`：RGB-D/目标到策略服务的 ROS 2 适配器，以及全部运动看门狗。
 - `rgb_goal_arrival.py`：可选的纯 RGB 临时到达门；只负责 episode termination，不参与轨迹生成。
+- `stack_profiles.py`、`nav_stack.sh`：导航、深度、CEC/memory 与 arrival 的统一模块注册和启动入口。
 - `trajectory_control.py`：可单元测试的轨迹跟踪、速度斜坡和深度安全逻辑。
 - `navdp_client.py`：严格匹配原项目 JPEG + 16-bit depth HTTP 格式。
 - `capture_image_goal.py`、`image_goal_io.py`：从 D435i 采集并无损保存目标图。

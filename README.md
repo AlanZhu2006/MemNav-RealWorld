@@ -143,6 +143,7 @@ tethering for first motion, or the Unitree hand controller.
 | Path | Contents |
 | --- | --- |
 | <code>deployment/go2/</code> | D435i, ROS 2 adapter, RViz, ImageGoal evaluator, Go2 bridge and tests |
+| <code>deployment/go2/nav_stack.sh</code> | Unified profile launcher separating native NavDP, Full-Mono CEC/LingBot and arrival authority |
 | <code>deployment/go2/offboard/</code> | Jetson-to-workstation SSH tunnel and dual-machine launcher |
 | <code>deployment/go2/offboard/experiment_capture.sh</code> | ROS bag, receipt, RViz and third-view evidence binding for each run |
 | <code>deployment/odin1_gt/</code> | Independent Odin mapping, relocalization, arrival, path and A* SPL evidence lane |

@@ -8,6 +8,7 @@ mode="startgoal"
 with_go2=false
 with_camera=true
 with_rviz=false
+arrival_module="${NAVDP_ARRIVAL_MODULE:-operator}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -16,7 +17,8 @@ while [[ $# -gt 0 ]]; do
     --with-go2) with_go2=true; shift ;;
     --with-rviz) with_rviz=true; shift ;;
     --no-camera) with_camera=false; shift ;;
-    *) echo "Usage: $0 [--backend x|base] [--mode startgoal|pointgoal|imagegoal|nogoal] [--with-go2] [--with-rviz] [--no-camera]" >&2; exit 2 ;;
+    --arrival) arrival_module="$2"; shift 2 ;;
+    *) echo "Usage: $0 [--backend x|base] [--mode startgoal|pointgoal|imagegoal|nogoal] [--arrival operator|external-topic|rgb-homography] [--with-go2] [--with-rviz] [--no-camera]" >&2; exit 2 ;;
   esac
 done
 
@@ -35,9 +37,23 @@ if [[ "$backend" == "x_navdp" && ( "$mode" == "nogoal" || "$mode" == "imagegoal"
   exit 2
 fi
 image_goal_path="${NAVDP_IMAGE_GOAL_PATH:-$SCRIPT_DIR/../goals/image_goal.png}"
+arrival_goal_path="${NAVDP_ARRIVAL_GOAL_PATH:-$image_goal_path}"
+arrival_allowed_phases="${NAVDP_ARRIVAL_ALLOWED_PHASES:-revisit_query}"
 if [[ "$mode" == "imagegoal" && ! -f "$image_goal_path" ]]; then
   echo "Image goal missing: $image_goal_path" >&2
   echo "Capture it first with: $SCRIPT_DIR/capture_image_goal.sh" >&2
+  exit 1
+fi
+if [[ "$arrival_module" != operator && "$mode" != imagegoal ]]; then
+  echo "Arrival modules are currently supported only in imagegoal mode." >&2
+  exit 2
+fi
+read -r _profile_name arrival_module < <(
+  python3 "$SCRIPT_DIR/../stack_profiles.py" validate \
+    native-navdp-rgbd "$arrival_module"
+)
+if [[ "$arrival_module" == rgb-homography && ! -f "$arrival_goal_path" ]]; then
+  echo "Arrival reference missing: $arrival_goal_path" >&2
   exit 1
 fi
 if ! command -v tmux >/dev/null 2>&1; then
@@ -55,15 +71,25 @@ if [[ "$with_camera" == true ]]; then
 fi
 tmux new-window -t "$SESSION" -n adapter \
   "export NAVDP_BACKEND='$backend' NAVDP_MODE='$mode' NAVDP_IMAGE_GOAL_PATH='$image_goal_path'; exec '$SCRIPT_DIR/run_adapter.sh'"
+if [[ "$arrival_module" == rgb-homography ]]; then
+  tmux new-window -t "$SESSION" -n arrival \
+    "export NAVDP_ARRIVAL_MODULE='$arrival_module' NAVDP_ARRIVAL_GOAL_PATH='$arrival_goal_path' NAVDP_ARRIVAL_ALLOWED_PHASES='$arrival_allowed_phases'; exec '$SCRIPT_DIR/run_arrival_module.sh'"
+fi
 if [[ "$with_go2" == true ]]; then
   tmux new-window -t "$SESSION" -n go2 "exec '$SCRIPT_DIR/run_go2_bridge.sh'"
 fi
 if [[ "$with_rviz" == true ]]; then
   tmux new-window -t "$SESSION" -n rviz "exec '$SCRIPT_DIR/run_debug_ui.sh'"
 fi
+tmux set-environment -t "$SESSION" NAVDP_STACK_PROFILE native-navdp-rgbd
+tmux set-environment -t "$SESSION" NAVDP_ARRIVAL_MODULE "$arrival_module"
+tmux set-environment -t "$SESSION" NAVDP_NAVIGATION_GOAL_PATH "$image_goal_path"
+tmux set-environment -t "$SESSION" NAVDP_ARRIVAL_GOAL_PATH "$arrival_goal_path"
+tmux set-environment -t "$SESSION" NAVDP_ARRIVAL_ALLOWED_PHASES "$arrival_allowed_phases"
 
 echo "NavDP stack started in tmux session $SESSION"
 echo "  backend=$backend mode=$mode camera=$with_camera go2_bridge=$with_go2 rviz=$with_rviz"
+echo "  arrival=$arrival_module arrival_goal=${arrival_goal_path:-n/a}"
 echo "  inspect: tmux attach -t $SESSION"
 echo "Motion remains disabled until:"
 echo "  ros2 service call /navdp_go2_adapter/set_enabled std_srvs/srv/SetBool '{data: true}'"

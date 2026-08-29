@@ -49,6 +49,15 @@ class RgbGoalArrivalVerifierTests(unittest.TestCase):
         self.assertTrue(third.confirmed)
         self.assertEqual(third.consecutive_matches, 3)
 
+    def test_default_profile_confirms_one_similar_frame(self):
+        verifier = RgbGoalArrivalVerifier(self.target, image_width=320)
+
+        result = verifier.evaluate(self.target)
+
+        self.assertTrue(result.matched)
+        self.assertTrue(result.confirmed)
+        self.assertEqual(result.consecutive_matches, 1)
+
     def test_unrelated_view_resets_confirmation(self):
         verifier = RgbGoalArrivalVerifier(
             self.target,
@@ -81,6 +90,7 @@ class RgbGoalArrivalVerifierTests(unittest.TestCase):
             image_width=320,
             min_good_matches=30,
             min_inliers=25,
+            min_image_scale=0.78,
         )
         result = verifier.evaluate(distant)
 

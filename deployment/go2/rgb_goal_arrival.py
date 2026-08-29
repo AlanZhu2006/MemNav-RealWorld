@@ -58,16 +58,16 @@ class RgbGoalArrivalVerifier:
         *,
         image_width: int = 480,
         ratio_test: float = 0.72,
-        min_good_matches: int = 60,
-        min_inliers: int = 45,
-        min_inlier_ratio: float = 0.55,
-        min_coverage: float = 0.12,
+        min_good_matches: int = 45,
+        min_inliers: int = 30,
+        min_inlier_ratio: float = 0.45,
+        min_coverage: float = 0.07,
         max_center_offset_norm: float = 0.22,
-        min_image_scale: float = 0.78,
-        max_image_scale: float = 1.25,
-        max_rotation_deg: float = 12.0,
-        max_reprojection_error_px: float = 3.0,
-        required_consecutive_matches: int = 3,
+        min_image_scale: float = 0.60,
+        max_image_scale: float = 1.45,
+        max_rotation_deg: float = 16.0,
+        max_reprojection_error_px: float = 4.0,
+        required_consecutive_matches: int = 1,
     ) -> None:
         if not hasattr(cv2, "SIFT_create"):
             raise RuntimeError("OpenCV SIFT support is required")
@@ -348,6 +348,13 @@ class RgbGoalArrivalNode:
         self.node = NodeImpl("navdp_rgb_goal_arrival")
         self.bridge = CvBridge()
         self.args = args
+        self.allowed_phases = frozenset(
+            phase.strip()
+            for phase in args.allowed_phases.split(",")
+            if phase.strip()
+        )
+        if not self.allowed_phases:
+            raise ValueError("allowed_phases must contain at least one phase")
         self.verifier = RgbGoalArrivalVerifier(
             load_rgb_image(args.goal),
             image_width=args.image_width,
@@ -456,7 +463,7 @@ class RgbGoalArrivalNode:
         return (
             self.enabled
             and not self.estop
-            and self.phase == "memory_recording"
+            and self.phase in self.allowed_phases
             and not self.arrival_latched
         )
 
@@ -466,6 +473,7 @@ class RgbGoalArrivalNode:
             "armed": self._armed(),
             "arrival_latched": self.arrival_latched,
             "phase": self.phase,
+            "allowed_phases": sorted(self.allowed_phases),
             "latest_rgb_ready": self.latest_rgb is not None,
             "error": self.last_error,
             "result": None if self.last_result is None else self.last_result.to_dict(),
@@ -535,6 +543,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--rgb-topic", default="/camera/camera/color/image_raw")
     parser.add_argument("--navdp-status-topic", default="/navdp/status")
+    parser.add_argument(
+        "--allowed-phases",
+        default=os.environ.get(
+            "NAVDP_ARRIVAL_ALLOWED_PHASES", "memory_recording"
+        ),
+        help="comma-separated adapter phases in which matching is armed",
+    )
     parser.add_argument("--arrival-topic", default="/navdp/arrival")
     parser.add_argument("--estop-topic", default="/navdp/estop")
     parser.add_argument(
@@ -544,20 +559,20 @@ def build_parser() -> argparse.ArgumentParser:
         "--detector-status-topic", default="/navdp/rgb_arrival_status"
     )
     parser.add_argument("--debug-topic", default="/navdp/rgb_arrival_debug")
-    parser.add_argument("--rate-hz", type=float, default=6.0)
+    parser.add_argument("--rate-hz", type=float, default=12.0)
     parser.add_argument("--arm-grace-s", type=float, default=0.75)
     parser.add_argument("--image-width", type=int, default=480)
     parser.add_argument("--ratio-test", type=float, default=0.72)
-    parser.add_argument("--min-good-matches", type=int, default=60)
-    parser.add_argument("--min-inliers", type=int, default=45)
-    parser.add_argument("--min-inlier-ratio", type=float, default=0.55)
-    parser.add_argument("--min-coverage", type=float, default=0.12)
+    parser.add_argument("--min-good-matches", type=int, default=45)
+    parser.add_argument("--min-inliers", type=int, default=30)
+    parser.add_argument("--min-inlier-ratio", type=float, default=0.45)
+    parser.add_argument("--min-coverage", type=float, default=0.07)
     parser.add_argument("--max-center-offset-norm", type=float, default=0.22)
-    parser.add_argument("--min-image-scale", type=float, default=0.78)
-    parser.add_argument("--max-image-scale", type=float, default=1.25)
-    parser.add_argument("--max-rotation-deg", type=float, default=12.0)
-    parser.add_argument("--max-reprojection-error-px", type=float, default=3.0)
-    parser.add_argument("--required-consecutive", type=int, default=3)
+    parser.add_argument("--min-image-scale", type=float, default=0.60)
+    parser.add_argument("--max-image-scale", type=float, default=1.45)
+    parser.add_argument("--max-rotation-deg", type=float, default=16.0)
+    parser.add_argument("--max-reprojection-error-px", type=float, default=4.0)
+    parser.add_argument("--required-consecutive", type=int, default=1)
     return parser
 
 

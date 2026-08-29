@@ -31,6 +31,38 @@ class FakeNavigator:
         return trajectory, candidates, values, None
 
 
+class ResetRouteTests(unittest.TestCase):
+    def tearDown(self):
+        navdp_base_server.navigator = None
+
+    def test_reset_uses_original_navdp_constructor_contract(self):
+        constructed = {}
+
+        class FakeAgent:
+            def __init__(self, intrinsic, **kwargs):
+                constructed["intrinsic"] = intrinsic
+                constructed["kwargs"] = kwargs
+
+            def reset(self, batch_size, stop_threshold):
+                constructed["reset"] = (batch_size, stop_threshold)
+
+        navdp_base_server.navigator = None
+        navdp_base_server.checkpoint_path = "/tmp/navdp.ckpt"
+        with mock.patch.object(navdp_base_server, "NavDP_Agent", FakeAgent):
+            response = navdp_base_server.app.test_client().post(
+                "/navigator_reset",
+                json={
+                    "intrinsic": [[1.0, 0.0, 2.0], [0.0, 1.0, 3.0], [0.0, 0.0, 1.0]],
+                    "batch_size": 1,
+                    "stop_threshold": -2.0,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("enable_visualization", constructed["kwargs"])
+        self.assertEqual(constructed["reset"], (1, -2.0))
+
+
 class MixedImagePointGoalRouteTests(unittest.TestCase):
     def setUp(self):
         self.navigator = FakeNavigator()

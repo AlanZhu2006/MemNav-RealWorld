@@ -16,6 +16,8 @@ deployment/gpu/.env
 deployment/go2/goals/*
 !deployment/go2/goals/.gitkeep
 deployment/go2/releases/
+/.deployment_backups/
+deployment/go2/scripts/*.pre_goalb_*
 !media/go2_showcase.jpg
 !media/system_architecture.png
 !media/demo/
