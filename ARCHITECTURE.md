@@ -1,6 +1,6 @@
 # Audited Full-Mono Architecture
 
-Snapshot: **2026-08-24**
+Snapshot: **2026-08-29**
 
 ## System boundary
 
@@ -16,6 +16,33 @@ as an independent collision-safety signal and is never consumed by CEC,
 bearing generation or NavDP policy inference. The honest system description is
 **monocular navigation with a local depth safety layer**, not a sensorless
 robot.
+
+The public runtime interface is `deployment/go2/nav_stack.sh`. It composes one
+of two explicit navigation profiles (`native-navdp-rgbd` or
+`fullmono-lingbot-cec`) with one independent arrival authority (`operator`,
+`external-topic` or `rgb-homography`). It delegates the Full-Mono profile to
+the supported two-machine lifecycle command `offboard/fullmono.sh`, which is
+also the base of `offboard/revisit_experiment.sh`. That lifecycle command then
+uses the Jetson-local `offboard/run_offboard_stack.sh`. Native profiles instead
+delegate to `scripts/run_stack.sh`.
+
+### Compatibility policy
+
+Undocumented CLI aliases are intentionally rejected. Three compatibility
+surfaces remain because they preserve a concrete reproducibility or rollout
+boundary:
+
+- the old Jetson depth multipart field is accepted and discarded by the hub so
+  a partial two-machine update fails by schema checks rather than changing the
+  policy sensor contract;
+- `legacy_metric` remains an explicit, non-default attribution/ablation mode in
+  the frozen CEC adapter;
+- Odin firmware 0.13.1 remains a non-default historical recovery profile while
+  native 0.14 is the required current default.
+
+None of these compatibility surfaces may become an implicit runtime fallback.
+Removing one requires an explicit protocol/manifest revision, not an unrelated
+code cleanup.
 
 ## One stream, two time scales, one policy
 
@@ -198,10 +225,11 @@ The low-latency query still reports a first-40-MDTEC-scaled translation for
 diagnostics, but real trace replay showed that value can underestimate the
 physical residual by at least `7.9x`. Schema
 `cec_direct_bearing_handoff_v2_20260824` therefore grants metric translation
-no control authority and no STOP authority. Automatic arrival remains
-fail-closed until a separately validated scale-free visual-convergence proof
-exists. The separate GOAT `/arrival_query` retains its strict-first-64 research
-contract; its claim must not be promoted into the robot execution boundary.
+no control authority and no STOP authority. A separate opt-in RGB-only
+commissioning gate has completed one powered near-goal stop, but it is not yet
+a cross-scene or formal arrival contract. The separate GOAT `/arrival_query`
+retains its strict-first-64 research contract; neither commissioning result
+may be promoted into the robot execution boundary without its own validation.
 
 Every direct-bearing disposition is returned in the plan receipt and
 revalidated at the robot execution boundary. A stale v1 schema, malformed

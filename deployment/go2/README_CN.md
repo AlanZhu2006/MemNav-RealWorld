@@ -1,8 +1,9 @@
 # NavDP 在 Unitree Go2（Jetson + D435i）上的部署
 
-> **2026-08-21 Full-Mono 主协议：** 本文件后续章节仍保留原生
-> NavDP/X-NavDP、RGB-D 调试和到达评测说明；正式 CEC offboard 路径则以
-> 仓库根目录的 `ARCHITECTURE.md` 与 `RUNBOOK.md` 为准。正式路径中，Jetson
+> **2026-08-29 当前入口：** 本文件后续章节仍保留原生 NavDP/X-NavDP、RGB-D
+> 组件调试和旧到达 evaluator 说明；所有新的完整栈实验统一使用 `nav_stack.sh`。
+> 正式 CEC 路径以仓库根目录的 `ARCHITECTURE.md`、`RUNBOOK.md` 和
+> `CURRENT_STATUS.md` 为准。正式路径中，Jetson
 > 只向策略提供当前 RGB 和 ImageGoal；旧 HTTP depth 字段仅为 wire
 > compatibility，hub 会丢弃。D435i aligned depth 只在 Jetson 本地用于近障停车
 > 与可选到达审计，不输入 CEC、bearing 或 NavDP。上位机从同一 causal RGB
@@ -10,10 +11,9 @@
 > 未实测 D435i 光心离地高度、未通过静态十分钟验收和故障注入前，禁止启动
 > Go2 bridge 或声称已完成真机闭环。
 
-完成一次性上位机 `.env` 配置后，推荐从 Jetson 统一启动两台机器：
-
-新的统一模块入口会明确打印 Navigation profile、policy depth、CEC/memory 和
-arrival authority。原生 NavDP baseline 与 Full-Mono 的完整组合方式见
+统一模块入口会明确打印 Navigation profile、policy depth、CEC/memory 和 arrival
+authority。它只接受机器可读定义中的完整名称，不保留 `native`、`cec`、`rgb` 等短别名。
+原生 NavDP baseline 与 Full-Mono 的完整组合方式见
 [`STACK_MODULES_CN.md`](STACK_MODULES_CN.md)：
 
 ```bash
@@ -22,34 +22,49 @@ bash deployment/go2/nav_stack.sh describe native-navdp-rgbd
 bash deployment/go2/nav_stack.sh status
 ```
 
-下面的 `fullmono.sh` 保留为 Full-Mono profile 的底层兼容入口：
+完成一次性上位机 `.env` 配置后，从 Jetson 启动 Full-Mono：
 
 ```bash
 cd /home/nvidia/twork/NavDP
-bash deployment/go2/offboard/fullmono.sh start --with-rviz
-bash deployment/go2/offboard/fullmono.sh status
-bash deployment/go2/offboard/fullmono.sh stop
+export NAVDP_GOAL=/absolute/path/to/goal_d.jpg
+
+bash deployment/go2/nav_stack.sh start \
+  --profile fullmono-lingbot-cec \
+  --goal "$NAVDP_GOAL" \
+  --arrival operator \
+  --camera-height 0.42 \
+  --with-rviz
 ```
 
 默认启动 4090 策略服务、SSH 隧道、D435i 和禁用态 adapter，不启动 Go2 bridge。
 即使显式增加 `--with-go2`，也只启动带 watchdog 的底盘桥，仍不会自动解锁运动。
+`nav_stack.sh` 在 Full-Mono profile 下仍会调用 `offboard/fullmono.sh`。后者也是受支持的
+双机生命周期直接入口，并被正式 `revisit_experiment.sh` 使用；你之前直接运行它是正确的。
+`offboard/run_offboard_stack.sh` 才是只启动 Jetson 本地进程的内部层，`scripts/run_stack.sh`
+则负责原生 NavDP/X-NavDP 本地 baseline。
 
 当前 A→D 短直线调试可临时启用独立的纯 RGB 到达门：
 
 ```bash
-NAVDP_RGB_ARRIVAL_ENABLED=true \
-NAVDP_IMAGE_GOAL_PATH=/absolute/path/to/goal_d.jpg \
-bash deployment/go2/offboard/fullmono.sh start --with-go2
+bash deployment/go2/nav_stack.sh start \
+  --profile fullmono-lingbot-cec \
+  --goal "$NAVDP_GOAL" \
+  --arrival rgb-homography \
+  --arrival-goal "$NAVDP_GOAL" \
+  --arrival-phases memory_recording \
+  --camera-height 0.42 \
+  --novel-navigation --with-go2
 ```
 
 `rgb_goal_arrival.py` 不订阅、保存或比较深度。它对当前 RGB 与固定 D 点图像做
-SIFT + 单应性几何核验，连续 3 次满足内点、覆盖、中心、尺度、旋转和重投影门槛
-后发布 `/navdp/arrival=true` 与 `/navdp/estop=true`。adapter 收到到达锁存后会
+SIFT + 单应性几何核验；当前 commissioning 默认单帧满足内点、覆盖、中心、尺度、
+旋转和重投影门槛后发布 `/navdp/arrival=true`。adapter 收到到达锁存后会
 同时禁用运动并暂停 Novel memory 写入；`reset_policy` 可清除锁存。该门槛是针对
 当前短直线和 D 点画面校准的临时终止器，不应当作任意场景均可靠的原生 NavDP
-到达输出；操作员仍需握住遥控器并保留人工急停。
+到达输出。它已完成一次近 D 点有电自动停车调试，但尚未完成跨场景标定或完整 A→D
+重复验收；操作员仍需握住遥控器并保留人工急停。
 
-这套部署针对当前机器：Jetson Orin NX 16GB、JetPack/L4T 36.4、ROS 2 Humble、Intel RealSense D435i、Unitree Go2。默认策略是 **X-NavDP quadruped**，默认不使用 TinyNav VIO，也不启动 TinyNav 的任何感知、建图或规划节点。
+这套部署针对当前机器：Jetson Orin NX 16GB、JetPack/L4T 36.4、ROS 2 Humble、Intel RealSense D435i、Unitree Go2。完整栈没有隐式默认策略，必须显式选择 `native-navdp-rgbd` 或 `fullmono-lingbot-cec`。默认不使用 TinyNav VIO，也不启动 TinyNav 的任何感知、建图或规划节点。
 
 ## 1. 先说明：NavDP 是否需要 VIO
 
@@ -299,10 +314,10 @@ ros2 topic pub -r 5 /navdp/relative_goal geometry_msgs/msg/PointStamped \
 
 ImageGoal 使用原版 NavDP `NavDP_Agent.step_imagegoal()`，不使用 LoGoPlanner、X-NavDP 或 TinyNav 的模型、VIO、规划节点。Go2 DDS 传输默认只复用本机已验证环境中安装的 Unitree SDK Python 包，不会启动 TinyNav。首轮选择静态、纹理明显、无遮挡的直线路线，目标距起点约 `2–3m`。目标图和起始姿态应保持相同机身朝向、相机高度与俯仰，避免目标画面中出现人员、移动门或强烈光照变化。
 
-先关闭导航栈，只运行相机，并用原装遥控器将 Go2 移到目标位置：
+先通过统一入口关闭导航栈，只运行相机，并用原装遥控器将 Go2 移到目标位置：
 
 ```bash
-bash deployment/go2/scripts/stop_stack.sh
+bash deployment/go2/nav_stack.sh stop
 bash deployment/go2/scripts/run_realsense.sh
 ```
 
@@ -317,15 +332,23 @@ bash deployment/go2/scripts/capture_imagegoal_reference.sh
 第一阶段不接 Go2 桥，只检查目标图、候选轨迹和选中轨迹：
 
 ```bash
-bash deployment/go2/scripts/run_stack.sh --backend base --mode imagegoal --with-rviz
+bash deployment/go2/nav_stack.sh start \
+  --profile native-navdp-rgbd \
+  --goal deployment/go2/goals/image_goal.png \
+  --arrival operator \
+  --with-rviz
 ros2 topic echo /navdp/status
 ```
 
 RViz 的 `Image Goal` 显示保存的目标图，`RGB Camera` 显示当前画面。只有当连续多次规划方向都合理时，才停止无桥栈并启动真机栈：
 
 ```bash
-bash deployment/go2/scripts/stop_stack.sh
-bash deployment/go2/scripts/run_stack.sh --backend base --mode imagegoal --with-go2 --with-rviz
+bash deployment/go2/nav_stack.sh stop
+bash deployment/go2/nav_stack.sh start \
+  --profile native-navdp-rgbd \
+  --goal deployment/go2/goals/image_goal.png \
+  --arrival operator \
+  --with-go2 --with-rviz
 ```
 
 评测终端先启动首次到达评测器：
@@ -417,10 +440,10 @@ ros2 service call /navdp_go2_adapter/set_enabled std_srvs/srv/SetBool "{data: fa
 ros2 topic pub --once /navdp/estop std_msgs/msg/Bool "{data: false}"
 ```
 
-停止所有进程：
+停止当前原生或 Full-Mono 栈：
 
 ```bash
-bash deployment/go2/scripts/stop_stack.sh
+bash deployment/go2/nav_stack.sh stop
 ```
 
 ## 11. 状态与调参

@@ -1,5 +1,9 @@
 # Full-Mono CEC Dual-Machine Release — 2026-08-21
 
+> Historical protocol-v2 release receipt. Do not use this file as the current
+> launch guide; use `RUNBOOK.md`, `deployment/go2/STACK_MODULES_CN.md` and
+> `CURRENT_STATUS.md`.
+
 ## Why this synchronization was necessary
 
 The Jetson already contained the 2026-08-20 protocol-v2 offboard overlay, but

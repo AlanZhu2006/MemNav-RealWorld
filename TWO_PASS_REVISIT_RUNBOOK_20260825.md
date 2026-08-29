@@ -172,6 +172,8 @@ bash deployment/go2/offboard/revisit_experiment.sh stop
 - 单目 PnP translation scale 曾至少低估 7.9 倍；
 - NavDP 零轨迹不等于到达；
 - 机器人可能经过高共视窗口但没有自动停止。
+- RGB-only commissioning gate 已在一次近 D 点有电测试中完成自动锁存和停车，但尚未
+  经过跨场景负样本、完整路线和重复 trial 验证。
 
 在获得带物理距离标签的 proof-conditioned convergence 规则前，formal trial 必须由独立
 evaluator/操作员终止，不能报告 autonomous ImageGoal success。
@@ -206,4 +208,5 @@ SPL 和最终 yaw 的全自动绑定仍缺一层 candidate-id → pose receipt�
 2. 同时补 candidate-id → SportModeState pose receipt；
 3. 先完成一次 `survey-start -> survey-seal -> formal-start` 无运动验收；
 4. 再进行系绳、低风险、操作员终止的三臂 paired trial；
-5. arrival confirmation 通过后，才把 evaluator 的 persistent success 接到自动 estop。
+5. 当前 RGB commissioning gate 只用于显式 opt-in engineering run；跨场景 confirmation
+   通过后，才允许把冻结 evaluator 合同用于正式 automatic STOP。

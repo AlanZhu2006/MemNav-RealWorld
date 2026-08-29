@@ -16,7 +16,7 @@ from stack_profiles import (  # noqa: E402
 
 
 def test_native_profile_is_an_unmodified_rgbd_baseline():
-    profile = resolve_profile("native")
+    profile = resolve_profile("native-navdp-rgbd")
     assert profile.name == "native-navdp-rgbd"
     assert profile.navigation == "original-navdp-imagegoal"
     assert profile.policy_depth == "d435-aligned-metric-depth"
@@ -27,7 +27,7 @@ def test_native_profile_is_an_unmodified_rgbd_baseline():
 
 
 def test_fullmono_profile_keeps_lingbot_and_cec_explicit():
-    profile = resolve_profile("fullmono")
+    profile = resolve_profile("fullmono-lingbot-cec")
     assert profile.name == "fullmono-lingbot-cec"
     assert profile.policy_depth == "lingbot-causal-monocular-depth"
     assert profile.memory == "cec-episodic-memory"
@@ -38,20 +38,20 @@ def test_fullmono_profile_keeps_lingbot_and_cec_explicit():
 
 def test_arrival_is_independent_from_navigation_profile():
     for profile_name in PROFILES:
-        profile, arrival = validate_combination(profile_name, "rgb")
+        profile, arrival = validate_combination(profile_name, "rgb-homography")
         assert arrival.name == "rgb-homography"
         assert arrival.name in profile.supported_arrivals
 
 
-def test_arrival_aliases_and_unknown_values():
-    assert resolve_arrival("manual").name == "operator"
-    assert resolve_arrival("external").name == "external-topic"
+def test_only_canonical_profile_and_arrival_names_are_accepted():
     assert set(ARRIVAL_MODULES) == {
         "operator",
         "external-topic",
         "rgb-homography",
     }
-    with pytest.raises(ValueError):
-        resolve_profile("libero-does-not-exist")
-    with pytest.raises(ValueError):
-        resolve_arrival("magic-stop")
+    for alias in ("native", "baseline", "fullmono", "cec"):
+        with pytest.raises(ValueError):
+            resolve_profile(alias)
+    for alias in ("none", "manual", "rgb", "external"):
+        with pytest.raises(ValueError):
+            resolve_arrival(alias)

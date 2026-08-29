@@ -15,6 +15,26 @@ maintained in
 Use it as the primary experiment and handoff entry point, together with the
 latest claim boundary in [CURRENT_STATUS.md](CURRENT_STATUS.md).
 
+## Runtime Entry Points
+
+For an ad-hoc baseline or Full-Mono run, `nav_stack.sh` provides one profile
+and arrival vocabulary:
+
+~~~bash
+bash deployment/go2/nav_stack.sh list
+bash deployment/go2/nav_stack.sh describe native-navdp-rgbd
+bash deployment/go2/nav_stack.sh describe fullmono-lingbot-cec
+bash deployment/go2/nav_stack.sh status
+~~~
+
+The profile facade delegates native runs to `scripts/run_stack.sh` and
+Full-Mono runs to `offboard/fullmono.sh`. The latter remains a supported direct
+two-machine lifecycle command and is also used by the formal
+`offboard/revisit_experiment.sh` workflow. Only
+`offboard/run_offboard_stack.sh` is a Jetson-local implementation detail.
+Arrival defaults safely to `operator`, though experiment commands should spell
+it out.
+
 ## Reference Platform
 
 <p align="center">
@@ -184,8 +204,8 @@ environment template and point it to licensed local artifacts:
 cp deployment/gpu/env.example deployment/gpu/.env
 nano deployment/gpu/.env
 
-# Set this only after physically measuring the installed camera.
-export CEC_CAMERA_HEIGHT_M=<measured-metres>
+# This mount was physically measured at 0.42 m; remeasure after mount changes.
+export CEC_CAMERA_HEIGHT_M=0.42
 bash deployment/gpu/scripts/preflight.sh
 bash deployment/gpu/scripts/run_policy_stack.sh
 curl -fsS http://127.0.0.1:18889/healthz
@@ -211,8 +231,10 @@ Set the workstation SSH alias or export it explicitly:
 
 ~~~bash
 export CEC_HUB_SSH_HOST=user@gpu-workstation
-bash deployment/go2/offboard/run_policy_tunnel.sh
 ~~~
+
+The Full-Mono profile launcher owns the SSH tunnel and its contract preflight.
+`offboard/run_policy_tunnel.sh` remains available only for transport diagnosis.
 
 ### 4. Capture an Image Goal
 
@@ -231,8 +253,15 @@ directory.
 
 ~~~bash
 export CEC_HUB_SSH_HOST=user@gpu-workstation
-bash deployment/go2/offboard/preflight_offboard.sh
-bash deployment/go2/offboard/run_offboard_stack.sh --with-rviz
+export CEC_CAMERA_HEIGHT_M=0.42
+export NAVDP_GOAL=/absolute/path/to/image_goal.png
+
+bash deployment/go2/nav_stack.sh start \
+  --profile fullmono-lingbot-cec \
+  --goal "$NAVDP_GOAL" \
+  --arrival operator \
+  --camera-height "$CEC_CAMERA_HEIGHT_M" \
+  --with-rviz
 tmux attach -t navdp-go2-offboard
 ~~~
 
@@ -245,8 +274,13 @@ adapter remains disabled.
 Only after the dry-run and bearing-sign calibration pass:
 
 ~~~bash
-bash deployment/go2/offboard/stop_offboard_stack.sh
-bash deployment/go2/offboard/run_offboard_stack.sh --with-go2 --with-rviz
+bash deployment/go2/nav_stack.sh stop
+bash deployment/go2/nav_stack.sh start \
+  --profile fullmono-lingbot-cec \
+  --goal "$NAVDP_GOAL" \
+  --arrival operator \
+  --camera-height "$CEC_CAMERA_HEIGHT_M" \
+  --with-go2 --with-rviz
 
 source /opt/ros/humble/setup.bash
 ros2 service call /navdp_go2_adapter/set_enabled \
@@ -271,17 +305,18 @@ Immediate stop:
 ros2 topic pub --once /navdp/estop std_msgs/msg/Bool "{data: true}"
 ros2 service call /navdp_go2_adapter/set_enabled \
   std_srvs/srv/SetBool "{data: false}"
-bash deployment/go2/offboard/stop_offboard_stack.sh
+bash deployment/go2/nav_stack.sh stop
 ~~~
 
 ## Current Status
 
-As of **2026-08-28**, the repository contains the protocol-v3/bearing-v2
+As of **2026-08-29**, the repository contains the protocol-v3/bearing-v2
 Full-Mono stack, immutable two-pass Revisit datasets, online goal installation,
 persistent CEC receipts and the dual-view experiment collector described here.
-The base Go2 tracker and safety chain have moved successfully in prior field
-operation, but autonomous ImageGoal arrival/STOP calibration and formal
-Full-Mono SR/SPL remain unverified.
+The base Go2 tracker and safety chain have moved successfully. A tuned RGB-only
+commissioning gate has also completed one powered near-goal automatic stop.
+That result is not a full arbitrary-start rollout or a formal STOP contract;
+formal Full-Mono SR/SPL remains unverified.
 
 For the optional independent Odin1 reference workflow, including the complete
 mapping-survey and formal-run command order, use
@@ -293,9 +328,9 @@ See [CURRENT_STATUS.md](CURRENT_STATUS.md) before any new experiment.
 
 ## Documentation
 
+Current operational documents:
+
 - [REALWORLD_EXPERIMENT_HANDBOOK_CN.md](REALWORLD_EXPERIMENT_HANDBOOK_CN.md): single-entry Chinese field experiment and handoff manual.
-- [FULL_MONO_RELEASE_20260821.md](FULL_MONO_RELEASE_20260821.md): synchronized protocol-v2 release and three-way receipt.
-- [FULL_MONO_RELEASE_20260821_V3.md](FULL_MONO_RELEASE_20260821_V3.md): protocol-v3 two-phase episode contract release note.
 - [RUNBOOK.md](RUNBOOK.md): current start, inspect, stop and revisit sequence.
 - [TWO_PASS_REVISIT_RUNBOOK_20260825.md](TWO_PASS_REVISIT_RUNBOOK_20260825.md): immutable survey and formal replay procedure.
 - [EXPERIMENT_DATA_COLLECTION.md](EXPERIMENT_DATA_COLLECTION.md): ROS bag, receipt and dual-view recording workflow.
@@ -306,6 +341,12 @@ See [CURRENT_STATUS.md](CURRENT_STATUS.md) before any new experiment.
 - [SOURCE_MANIFEST.md](SOURCE_MANIFEST.md): source snapshot and excluded artifacts.
 - [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): upstream code and model notices.
 - [deployment/go2/README_CN.md](deployment/go2/README_CN.md): complete Jetson/Go2 guide in Chinese.
+
+Historical snapshots, retained as evidence rather than current instructions:
+
+- [FULL_MONO_RELEASE_20260821.md](FULL_MONO_RELEASE_20260821.md): protocol-v2 synchronization receipt.
+- [FULL_MONO_RELEASE_20260821_V3.md](FULL_MONO_RELEASE_20260821_V3.md): protocol-v3 transition release note.
+- [REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md](REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md): initial RGB-D dual-machine integration record.
 
 ## Upstream NavDP
 

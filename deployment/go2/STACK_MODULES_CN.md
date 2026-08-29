@@ -1,6 +1,7 @@
 # Go2 真机栈模块与统一启动入口
 
-本页只回答两个问题：当前运行的究竟是哪套导航，以及谁负责判断到达。推荐入口为：
+本页回答三个问题：应该执行哪个命令、当前运行的是哪套导航，以及谁负责判断到达。
+先查看可组合的 profile：
 
 ```bash
 bash deployment/go2/nav_stack.sh list
@@ -19,6 +20,37 @@ bash deployment/go2/nav_stack.sh start \
 ```
 
 `nav_stack.sh` 只组合模块并启动为禁用/急停状态，绝不自动授予电机权限。
+
+## 0. 启动脚本分层：应该用哪一个
+
+| 你的目的 | 应使用的入口 | 说明 |
+| --- | --- | --- |
+| 在原生 NavDP 与 Full-Mono 之间切换，显式组合 arrival | `nav_stack.sh` | profile 门面；不实现模型或底盘逻辑 |
+| 直接启动/查看/停止日常 Full-Mono 双机栈 | `offboard/fullmono.sh` | 你此前使用的入口，仍然正确且受支持 |
+| 执行 sealed Survey → Formal Revisit | `offboard/revisit_experiment.sh` | 实验生命周期入口，内部使用 `fullmono.sh` |
+| 单独调试原生 NavDP、X-NavDP、PointGoal 或 NoGoal | `scripts/run_stack.sh` | Jetson 本地 baseline/组件诊断入口 |
+| 只调试 Full-Mono 的 Jetson 本地半边 | `offboard/run_offboard_stack.sh` | 内部/诊断入口；假设 RTX Hub 已就绪，不负责完整双机生命周期 |
+
+真实调用关系是：
+
+```text
+nav_stack.sh
+  ├─ native-navdp-rgbd ─────> scripts/run_stack.sh
+  └─ fullmono-lingbot-cec ──> offboard/fullmono.sh
+                                  ├─ SSH -> GPU run_policy_stack.sh
+                                  └─ Jetson run_offboard_stack.sh
+                                        ├─ tunnel
+                                        ├─ D435i
+                                        ├─ adapter / arrival
+                                        └─ Go2 bridge / RViz（可选）
+
+offboard/revisit_experiment.sh
+  └─ survey/formal 状态机 ─────> offboard/fullmono.sh
+```
+
+因此 `fullmono.sh` 和 `run_stack.sh` 不是同一功能的两份实现：前者管理 Full-Mono 双机
+生命周期，后者管理本地 native/X-NavDP baseline。脚本数量主要来自“单进程、Jetson
+组合、双机组合、实验生命周期”四个层级，而不是同时运行四套导航。
 
 ## 1. 固定的四层边界
 
@@ -56,6 +88,8 @@ D435i RGB / depth
 
 profile 的机器可读定义集中在 `deployment/go2/stack_profiles.py`。新增后端时，adapter、
 Go2 bridge、arrival module 和相机脚本不应随之复制或改名。
+命令行只接受表中的完整 profile/arrival 名称，不再接受 `native`、`cec`、`rgb`、
+`manual` 等未文档化短别名。
 
 ## 3. 已支持的到达模块
 
@@ -152,9 +186,11 @@ bash deployment/go2/nav_stack.sh stop
 ```
 
 状态会显示：profile、arrival module、导航目标路径、终止参考路径和每个 tmux window。
-停止命令同时覆盖本机原生 session 与双机 Full-Mono session。旧入口
-`scripts/run_stack.sh`、`offboard/fullmono.sh` 仍保留，供底层诊断和已有自动化兼容；新的
-实验命令应优先使用 `nav_stack.sh`。
+停止命令同时覆盖本机原生 session 与双机 Full-Mono session。
+`nav_stack.sh` 会把原生 profile 委托给 `scripts/run_stack.sh`，把 Full-Mono profile
+委托给 `offboard/fullmono.sh`。`fullmono.sh` 同时是受支持的双机生命周期直接入口，也是
+`revisit_experiment.sh` 的底座；`run_offboard_stack.sh` 才是 Full-Mono 的 Jetson 本地
+进程组合层。`scripts/run_stack.sh` 另外承担 X-NavDP/NoGoal 组件诊断。
 
 启动成功仍然只代表栈就绪。运动必须另行释放 estop 并调用
 `/navdp_go2_adapter/set_enabled`，现场人员必须握住遥控器。

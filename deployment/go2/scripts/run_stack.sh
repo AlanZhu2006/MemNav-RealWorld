@@ -28,8 +28,8 @@ case "$mode" in
 esac
 
 case "$backend" in
-  x|x_navdp) backend="x_navdp"; server_script="$SCRIPT_DIR/run_x_navdp_server.sh" ;;
-  base|navdp) backend="navdp"; server_script="$SCRIPT_DIR/run_base_navdp_server.sh" ;;
+  x) backend="x_navdp"; server_script="$SCRIPT_DIR/run_x_navdp_server.sh" ;;
+  base) backend="navdp"; server_script="$SCRIPT_DIR/run_base_navdp_server.sh" ;;
   *) echo "Unknown backend: $backend" >&2; exit 2 ;;
 esac
 if [[ "$backend" == "x_navdp" && ( "$mode" == "nogoal" || "$mode" == "imagegoal" ) ]]; then

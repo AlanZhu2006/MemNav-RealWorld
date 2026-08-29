@@ -2,7 +2,7 @@
 
 > 两次独立运行的长程 Revisit 数据集与一键 formal-ready 流程见
 > `TWO_PASS_REVISIT_RUNBOOK_20260825.md`。新正式实验优先使用该流程；本文件后面的
-> 单次在线 recording -> revisit 命令保留作兼容和机制调试。
+> 单次在线 recording -> revisit 命令只用于机制调试，不是第二套正式流程。
 > 每轮 ROS bag、CEC 收据、RViz dashboard 与第三人称视频采集见
 > `EXPERIMENT_DATA_COLLECTION.md`。
 
@@ -11,11 +11,15 @@ camera startup, ROS motion, or Go2 movement.
 
 ## 0. Jetson single-entry launcher
 
-After the one-time RTX configuration in Section 1, the normal two-machine
-startup is issued only from the Jetson:
+After the one-time RTX configuration in Section 1, the direct Full-Mono
+lifecycle command is issued from the Jetson:
 
 ~~~bash
 cd /home/nvidia/twork/NavDP
+export NAVDP_GOAL=/absolute/path/to/image_goal.png
+export CEC_CAMERA_HEIGHT_M=0.42
+export NAVDP_IMAGE_GOAL_PATH="$NAVDP_GOAL"
+
 bash deployment/go2/offboard/fullmono.sh start
 ~~~
 
@@ -43,6 +47,11 @@ bash deployment/go2/offboard/fullmono.sh stop
 separate onsite `SetBool` call in Section 6.  The RTX host and repository default
 to `work-pc` and `/home/asus/Research/Memnav_Realworld`; override them with
 `CEC_HUB_SSH_HOST` and `CEC_GPU_REPO` if the site layout changes.
+
+`nav_stack.sh --profile fullmono-lingbot-cec` is the equivalent profile-oriented
+facade: it validates explicit goal/arrival parameters and then calls
+`fullmono.sh`. `run_offboard_stack.sh` is the Jetson-local inner launcher and
+should not be called as a competing end-to-end workflow.
 
 ## 1. RTX 4090 workstation
 
@@ -79,7 +88,11 @@ tmux attach -t cec-realworld
 tail -f runtime/gpu/logs/{memnav,navdp,hub}.log
 ~~~
 
-## 2. Jetson tunnel and preflight
+## 2. Jetson tunnel and preflight diagnostics
+
+The canonical Full-Mono start above creates and verifies this tunnel
+automatically. Run the commands below only when diagnosing SSH transport while
+the navigation stack is stopped:
 
 ~~~bash
 cd /home/nvidia/twork/NavDP
@@ -115,7 +128,7 @@ not a policy input.
 Do not start the Go2 bridge:
 
 ~~~bash
-bash deployment/go2/offboard/run_offboard_stack.sh --with-rviz
+bash deployment/go2/offboard/fullmono.sh start --with-rviz
 tmux attach -t navdp-go2-offboard
 ~~~
 
@@ -145,8 +158,8 @@ reset. A causal stream failure must never activate metric-depth NavDP.
 Only after all static gates pass:
 
 ~~~bash
-bash deployment/go2/offboard/stop_offboard_stack.sh
-bash deployment/go2/offboard/run_offboard_stack.sh --with-go2 --with-rviz
+bash deployment/go2/offboard/fullmono.sh stop
+bash deployment/go2/offboard/fullmono.sh start --with-go2 --with-rviz
 ~~~
 
 The adapter still starts disabled. With a clear area, tether, onsite operator
@@ -172,8 +185,7 @@ ros2 service call /navdp_go2_adapter/set_enabled \
 ros2 topic pub --once /navdp/estop std_msgs/msg/Bool "{data: true}"
 ros2 service call /navdp_go2_adapter/set_enabled \
   std_srvs/srv/SetBool "{data: false}"
-bash deployment/go2/offboard/stop_offboard_stack.sh
-bash deployment/gpu/scripts/stop_policy_stack.sh
+bash deployment/go2/offboard/fullmono.sh stop
 ~~~
 
 ## 8. Protocol-v3 revisit mission flow
@@ -273,7 +285,8 @@ ros2 service call /navdp_go2_adapter/set_enabled \
 The direct-bearing path is not an arrival endpoint. `/local_pose_query` may
 include an MDTEC-scaled distance, but v2 uses only its certified direction;
 that distance may not authorize local metric control or STOP. GOAT keeps the
-separate `/arrival_query` strict-first-64 research contract. Until an
-independent visual-convergence gate is implemented and validated, every real
-run still requires an external evaluator/operator termination and must not be
-reported as autonomous ImageGoal arrival.
+separate `/arrival_query` strict-first-64 research contract. An opt-in RGB-only
+commissioning gate now has one powered near-goal latch, but it has not passed
+cross-scene calibration or repeated full-route acceptance. Formal runs still
+require the pre-registered independent termination contract and must not turn
+that commissioning result into a general autonomous ImageGoal claim.

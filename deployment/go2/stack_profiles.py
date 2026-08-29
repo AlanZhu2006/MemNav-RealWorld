@@ -26,7 +26,6 @@ class StackProfile:
     lingbot_enabled: bool
     two_phase: bool
     description: str
-    aliases: Tuple[str, ...] = ()
     supported_arrivals: Tuple[str, ...] = (
         "operator",
         "external-topic",
@@ -56,7 +55,6 @@ PROFILES: Dict[str, StackProfile] = {
             "Original NavDP ImageGoal baseline with live D435i RGB-D. "
             "No CEC, MemNav or LingBot policy input."
         ),
-        aliases=("native", "baseline"),
     ),
     "fullmono-lingbot-cec": StackProfile(
         name="fullmono-lingbot-cec",
@@ -71,7 +69,6 @@ PROFILES: Dict[str, StackProfile] = {
             "Two-machine Full-Mono stack: LingBot depth, CEC memory/proof "
             "and frozen NavDP trajectory generation."
         ),
-        aliases=("fullmono", "cec"),
     ),
 }
 
@@ -108,22 +105,12 @@ def resolve_profile(name: str) -> StackProfile:
     normalized = str(name).strip().lower()
     if normalized in PROFILES:
         return PROFILES[normalized]
-    for profile in PROFILES.values():
-        if normalized in profile.aliases:
-            return profile
     choices = ", ".join(sorted(PROFILES))
     raise ValueError(f"unknown stack profile {name!r}; choose: {choices}")
 
 
 def resolve_arrival(name: str) -> ArrivalModule:
     normalized = str(name).strip().lower()
-    aliases = {
-        "none": "operator",
-        "manual": "operator",
-        "rgb": "rgb-homography",
-        "external": "external-topic",
-    }
-    normalized = aliases.get(normalized, normalized)
     if normalized not in ARRIVAL_MODULES:
         choices = ", ".join(sorted(ARRIVAL_MODULES))
         raise ValueError(f"unknown arrival module {name!r}; choose: {choices}")
@@ -142,7 +129,6 @@ def validate_combination(profile_name: str, arrival_name: str) -> tuple:
 
 def profile_payload(profile: StackProfile) -> dict:
     payload = asdict(profile)
-    payload["aliases"] = list(profile.aliases)
     payload["supported_arrivals"] = list(profile.supported_arrivals)
     return payload
 

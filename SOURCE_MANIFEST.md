@@ -1,6 +1,6 @@
 # Source and Artifact Manifest
 
-Snapshot: **2026-08-28**
+Snapshot: **2026-08-29**
 
 ## Repository base
 
@@ -28,6 +28,7 @@ auditable overlay instead of an anonymous source dump.
 | `deployment/gpu/scripts/` | Path-parameterized RTX 4090 launch and fail-closed preflight |
 | `baselines/navdp/{navdp_server,policy_agent,policy_network}.py` | Frozen NavDP with mono-sidecar and state-safe inference interfaces |
 | `deployment/go2/` | Jetson Orin NX, D435i and Unitree Go2 integration |
+| `deployment/go2/nav_stack.sh` + `stack_profiles.py` | Canonical composition boundary for two navigation profiles and three independent arrival authorities |
 | `deployment/go2/offboard/` | SSH-forward and protocol-v3 offboard launcher with an executor-schema compatibility gate |
 | `deployment/go2/terminal_motion_override.py` | The sole typed boundary for bounded direct-bearing atomic turns |
 | `deployment/go2/offboard/experiment_capture.sh` | Evidence-only ROS bag, receipt and RViz/dashboard recorder; no motion calls |

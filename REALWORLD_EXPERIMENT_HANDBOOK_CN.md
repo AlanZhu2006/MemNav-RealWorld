@@ -40,11 +40,13 @@ SR/SPL、故障处理和当前缺口集中在一个文档中。其他文档继�
 - CEC 能产生有用的长期 revisit bearing；
 - current-to-goal direct proof 能在近目标区域提供 scale-free bearing；
 - Jetson tracker 已以 `0.30 m/s` 正向驱动 Go2，修复了早期低速门控导致的左右 hunting；
+- 独立 RGB-only commissioning arrival gate 已完成一次近 D 点有电锁存、disable、estop
+  和零速度闭环，证明 detector-to-adapter 停车传输可工作；
 - 每轮可以绑定 ROS bag、CEC/status JSONL、RViz dashboard、第三人称视频和 Git revision。
 
 ### 1.3 当前仍没有建立什么
 
-- 没有经过独立物理标定的 autonomous ImageGoal arrival/STOP；
+- 没有经过跨场景独立物理标定、可用于正式实验的 autonomous ImageGoal arrival/STOP；
 - 单目 PnP translation 没有 metric control authority，也没有 STOP authority；
 - 自动目标候选选择尚未被证明与 externally frozen benchmark goal 完全等价；
 - candidate-id 到独立物理 pose 的自动收据仍不完整；
@@ -152,7 +154,7 @@ scene04_formal_01 ... scene04_formal_05
 位置发生变化后必须重新测量。4090 启动要求显式提供：
 
 ```bash
-export CEC_CAMERA_HEIGHT_M=<measured-metres>
+export CEC_CAMERA_HEIGHT_M=0.42
 ```
 
 没有默认值。健康检查只接受有限且位于 `[0.1, 2.0] m` 的显式测量值。
@@ -1157,6 +1159,13 @@ terminal_stop_authorized=false
 它可以使用 `--auto-estop`终止 episode，但当前只能描述为 independent evaluator
 termination，不是 autonomous policy STOP。
 
+另有与该 RGB-D evaluator 分离的 `rgb_goal_arrival.py` commissioning 模块。它只读取
+当前 RGB 和冻结参考图，默认使用 45 good matches、30 inliers、0.45 inlier ratio、0.07
+coverage、0.60–1.45 image scale、16° rotation、4 px reprojection error 和单帧确认。该模块
+已在一次 near-D 有电测试中触发 adapter 到达锁存并自动停车；这只证明停车传输和一个
+正样本窗口，不证明完整路线、跨场景鲁棒性或 false-positive rate。完整收据见
+`CURRENT_STATUS.md`。
+
 ### 17.4 当前Formal成功判定
 
 在arrival calibration完成前：
@@ -1330,7 +1339,7 @@ yaw:      0 / ±10 / ±20°
 4. 统计false positive/false negative；
 5. 冻结阈值、连续帧数、hold和failure semantics；
 6. 明确是independent evaluator termination还是policy STOP；
-7. 未通过跨场景验证前，不连接自动STOP authority。
+7. 未通过跨场景验证前，只允许显式 opt-in 的 engineering STOP，不得用于正式结果。
 
 ### P0-B：Exact goal SHA启动门
 
@@ -1718,7 +1727,7 @@ weights不进入本仓库。
 
 ```bash
 cd /home/asus/Research/Memnav_Realworld
-export CEC_CAMERA_HEIGHT_M=<measured-metres>
+export CEC_CAMERA_HEIGHT_M=0.42
 
 bash deployment/gpu/scripts/preflight.sh
 python3 -m pytest -q deployment/gpu/tests
@@ -1792,7 +1801,14 @@ schema。仅端口可连接或`algo`字段正确不足以通过。
 首次部署、换相机、换支架或更新依赖后，不启动Go2 bridge：
 
 ```bash
-bash deployment/go2/offboard/run_offboard_stack.sh --with-rviz
+export NAVDP_GOAL=/absolute/path/to/image_goal.png
+export CEC_CAMERA_HEIGHT_M=0.42
+bash deployment/go2/nav_stack.sh start \
+  --profile fullmono-lingbot-cec \
+  --goal "$NAVDP_GOAL" \
+  --arrival operator \
+  --camera-height "$CEC_CAMERA_HEIGHT_M" \
+  --with-rviz
 tmux attach -t navdp-go2-offboard
 ```
 
@@ -1813,7 +1829,7 @@ tmux attach -t navdp-go2-offboard
 验收完成：
 
 ```bash
-bash deployment/go2/offboard/stop_offboard_stack.sh
+bash deployment/go2/nav_stack.sh stop
 ```
 
 ### A.7 首次有电运动验收
@@ -1839,6 +1855,7 @@ Commissioning smoke如果必须使用不同控制参数，应显式设置
 | `EXPERIMENT_DATA_COLLECTION.md` | ROS bag、dashboard、third-view和manifest |
 | `REALWORLD_EVALUATION.md` | 4×5 paired空白结果登记页 |
 | `deployment/go2/README_CN.md` | Jetson/Go2组件级部署细节和旧ImageGoal evaluator流程 |
+| `deployment/go2/STACK_MODULES_CN.md` | 当前两个导航profile、三个arrival模块和统一启动入口 |
 | `deployment/gpu/realworld_cec_hub.py` | Hub、phase、goal、CEC/NavDP路由 |
 | `deployment/go2/navdp_ros_node.py` | ROS adapter、服务、状态和安全门 |
 | `deployment/go2/trajectory_control.py` | lookahead、depth safety和slew limit |
