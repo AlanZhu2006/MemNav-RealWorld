@@ -93,26 +93,22 @@ depth is reconstructed from the same causal monocular stream. See
 
 ## Planned Real-World Evaluation
 
-The registered first campaign follows the same publication structure as
-[TopoFocus Real-World](https://github.com/AlanZhu2006/topofocus_realworld):
-four frozen scenes, five formal rollouts per scene,
-per-run SR/SPL metrics and paired third-view/RViz evidence. No formal run has
-been entered yet; every dash below is an intentionally blank value, not zero.
+The registered conference campaign uses four frozen scenes and five matched
+native/CEC blocks per scene: 20 pairs and 40 physical rollouts.  Ten blocks are
+native-first and ten CEC-first.  No formal run has been entered; every dash is
+an intentionally blank value, not zero.
 
-| Scene | Target / setting | Planned | Completed | Successes | SR | Mean SPL |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-| Scene 01 | `TBD` | `5` | `0` | `—` | `—` | `—` |
-| Scene 02 | `TBD` | `5` | `0` | `—` | `—` | `—` |
-| Scene 03 | `TBD` | `5` | `0` | `—` | `—` | `—` |
-| Scene 04 | `TBD` | `5` | `0` | `—` | `—` | `—` |
-| **Overall** | CEC-certified bearing + frozen NavDP | **`20`** | **`0`** | **`—`** | **`—`** | **`—`** |
+| Method | Planned rollouts | Completed | Novel SR | Revisit SR | Overall SR | SPL |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Frozen mono NavDP | `20` | `0` | `—` | `—` | `—` | `—` |
+| Frozen mono NavDP + CEC | `20` | `0` | `—` | `—` | `—` | `—` |
 
 `SPL_i = S_i L_i / max(L_i, P_i)`, where `L_i` is the independently
 predeclared shortest feasible scene path and `P_i` is an independently
 measured physical Go2 path. Results remain blocked until the separate arrival
 and path-measurement contracts are frozen. See the
-[full five-run scene registry](REALWORLD_EVALUATION.md) and
-[machine-readable plan](manifests/realworld_evaluation_plan_v1.json).
+[paired scene registry](REALWORLD_EVALUATION.md) and
+[machine-readable plan](manifests/realworld_paired_evaluation_plan_v2.json).
 
 ## Independent Odin1 Reference Lane
 
@@ -154,7 +150,7 @@ tethering for first motion, or the Unitree hand controller.
 | <code>baselines/navdp/</code> | Frozen NavDP plus audited mono-sidecar and state-safe inference interfaces |
 | <code>baselines/x-navdp/</code> | Upstream X-NavDP baseline and Jetson compatibility fixes |
 | <code>REALWORLD_EXPERIMENT_HANDBOOK_CN.md</code> | Complete Chinese experiment, safety, evidence, metric and handoff protocol |
-| <code>REALWORLD_EVALUATION.md</code> | Planned four-scene, five-repeat SR/SPL registry with empty rollout/media slots |
+| <code>REALWORLD_EVALUATION.md</code> | Planned four-scene, five-paired-block native/CEC registry with empty result slots |
 | <code>REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md</code> | Dated integration evidence and measured limitations |
 
 Model checkpoints, research datasets, local environments, runtime buffers and

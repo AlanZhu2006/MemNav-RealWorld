@@ -1,9 +1,9 @@
 # MemNav / NavDP Unitree Go2 真机实验完整手册
 
-Snapshot: **2026-08-27**
+Snapshot: **2026-08-29**
 适用系统：**Unitree Go2 + Jetson Orin NX + RealSense D435i + RTX 4090**
 当前协议：**Full-Mono protocol-v3 + direct-bearing-v2**
-评测计划：**4 scenes × 5 formal rollouts = 20 runs**
+评测计划：**4 scenes × 5 paired native/CEC blocks = 20 pairs / 40 runs**
 
 本文是本仓库真机实验、现场交接和结果整理的统一入口。它把系统架构、双机路径、
 Survey/Formal 两阶段协议、目标图来源、在线决策、Go2 控制、安全门、RViz、双视角采集、
@@ -50,7 +50,7 @@ SR/SPL、故障处理和当前缺口集中在一个文档中。其他文档继�
 - candidate-id 到独立物理 pose 的自动收据仍不完整；
 - 正式 `P_i` 物理路径测量系统仍未冻结；
 - 还没有可发表的 Full-Mono real-world SR/SPL；
-- 当前 4×5 页面是预注册空模板，不是已有结果。
+- 当前 4×5 paired 页面是预注册空模板，不是已有结果。
 
 因此当前可以进行：
 
@@ -69,22 +69,24 @@ SR/SPL、故障处理和当前缺口集中在一个文档中。其他文档继�
 一个正式 campaign 由场景资产和独立 rollout 两层组成：
 
 ```text
-Campaign: memnav-four-scene-five-repeat-v1
+Campaign: cec-four-scene-five-paired-block-v2
 ├── Scene 01
 │   ├── 一个 sealed survey dataset
 │   ├── 一个冻结的 exact goal JPEG / SHA-256
 │   ├── 一个冻结的正式起点、yaw、L、预算和终止合同
-│   └── Formal 01 ... Formal 05
+│   └── Pair 01 ... Pair 05
+│       ├── mono-native rollout
+│       └── mono-CEC rollout
 ├── Scene 02
-│   └── 同样 5 次
+│   └── 同样 5 个 paired blocks
 ├── Scene 03
-│   └── 同样 5 次
+│   └── 同样 5 个 paired blocks
 └── Scene 04
-    └── 同样 5 次
+    └── 同样 5 个 paired blocks
 ```
 
 Survey 不是正式 rollout，不计入 SR/SPL。Survey 是每个场景一次性的 causal memory 和
-目标候选数据采集。Formal 01–05 必须是相互独立的进程和物理复位：
+目标候选数据采集。每个 pair 的 native 与 CEC 必须各自独立重启并物理复位：
 
 - 使用同一 sealed dataset；
 - 使用同一 exact goal JPEG；
@@ -93,6 +95,11 @@ Survey 不是正式 rollout，不计入 SR/SPL。Survey 是每个场景一次性
 - 每次重启双机模型状态；
 - 每次使用唯一 run ID；
 - 不允许根据前几次结果改场景或阈值。
+
+每个 pair 共享 scene、Survey、goal、start/yaw、checkpoint 和预算；正式 query 不写回
+Survey memory。20 个 pair 的 arm order 在任何 outcome 前冻结为 native-first 10 个、
+CEC-first 10 个。原先“先跑完整 CEC campaign、之后再补 baseline”的 v1 设计不再控制
+正式实验，因为它不能消除光照、电量和地面状态的时间混杂。
 
 建议 run ID 固定为：
 
@@ -510,7 +517,7 @@ Seal 校验：
 
 ### 9.1 每次物理复位
 
-每个 Formal 01–05 前：
+每个 paired block 的每个 arm 前：
 
 1. 确认上一轮 adapter disabled、estop asserted；
 2. 用遥控器把 Go2 移到预声明正式起点 S；
@@ -631,10 +638,12 @@ Adapter会调用Hub的`prepare_revisit_goal`，目标来源收据应为
 
 该路径适合测试“在线候选采集、评分并安装为revisit goal”的完整lifelong能力。但注册的正式
 campaign仍要求每个场景使用一个exact goal JPEG。若要将自动候选纳入正式campaign，必须在
-Formal 01前先固定选中candidate及SHA，Formal 01–05每次都比较`active_goal_sha256`；只要
+第一个 paired block 前先固定选中candidate及SHA，之后40次rollout都比较
+`active_goal_sha256`；只要
 SHA不同，就不得开始该rollout。
 
-当前 launcher 尚未接受强制 `EXPECTED_GOAL_SHA256` 参数。这是进入正式 4×5 前应完成的
+当前 launcher 尚未接受强制 `EXPECTED_GOAL_SHA256` 参数。这是进入正式 4×5 paired
+campaign 前应完成的
 软件门。门完成前，自动选择路径只能视为 engineering/lifelong demo 或人工逐次核对路径。
 
 ---
@@ -1302,7 +1311,7 @@ JSONL和master保留在runtime/外部归档。
 
 ---
 
-## 20. 正式4×5前必须完成的P0
+## 20. 正式4×5 paired campaign前必须完成的P0
 
 ### P0-A：Arrival/STOP标定
 
@@ -1362,9 +1371,10 @@ candidate_id -> timestamp -> image SHA -> independent physical pose receipt
 ### P0-E：Formal scene registry
 
 在 `REALWORLD_EVALUATION.md` 和
-`manifests/realworld_evaluation_plan_v1.json` 填写但不伪造：
+`manifests/realworld_paired_evaluation_plan_v2.json` 填写但不伪造：
 
 - 4个scene描述；
+- 正好2个Novel与2个Revisit scene roles；
 - dataset IDs和manifest hashes；
 - goal hashes；
 - start/yaw；
@@ -1373,6 +1383,9 @@ candidate_id -> timestamp -> image SHA -> independent physical pose receipt
 - trial order；
 - evaluator version；
 - method configuration hash。
+
+同时必须保持20个pair的arm order为native-first 10个、CEC-first 10个；每个pair两臂
+共享scene、Survey、goal、start/yaw和预算，并在两臂间做物理复位与进程重启。
 
 ---
 
@@ -1824,7 +1837,7 @@ Commissioning smoke如果必须使用不同控制参数，应显式设置
 | `RUNBOOK.md` | 通用启动、fault injection和旧在线两阶段兼容流程 |
 | `TWO_PASS_REVISIT_RUNBOOK_20260825.md` | sealed Survey/Formal生命周期 |
 | `EXPERIMENT_DATA_COLLECTION.md` | ROS bag、dashboard、third-view和manifest |
-| `REALWORLD_EVALUATION.md` | 4×5空白结果登记页 |
+| `REALWORLD_EVALUATION.md` | 4×5 paired空白结果登记页 |
 | `deployment/go2/README_CN.md` | Jetson/Go2组件级部署细节和旧ImageGoal evaluator流程 |
 | `deployment/gpu/realworld_cec_hub.py` | Hub、phase、goal、CEC/NavDP路由 |
 | `deployment/go2/navdp_ros_node.py` | ROS adapter、服务、状态和安全门 |
@@ -1832,7 +1845,7 @@ Commissioning smoke如果必须使用不同控制参数，应显式设置
 | `deployment/go2/go2_cmd_bridge.py` | Unitree Move、watchdog和遥控器优先级 |
 | `deployment/go2/offboard/revisit_experiment.sh` | 两遍实验单入口 |
 | `deployment/go2/offboard/experiment_capture.sh` | evidence-only采集入口 |
-| `manifests/realworld_evaluation_plan_v1.json` | 20-run machine-readable空模板 |
+| `manifests/realworld_paired_evaluation_plan_v2.json` | 20-pair / 40-rollout machine-readable空模板 |
 
 如果本文与旧日期文档在claim boundary上冲突，以 `CURRENT_STATUS.md` 和最新代码为准；
 不得用较早文档中更宽松的arrival或自动STOP描述覆盖最新的fail-closed结论。

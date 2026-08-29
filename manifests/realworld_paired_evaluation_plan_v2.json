@@ -1,0 +1,134 @@
+{
+  "schema_version": "memnav-realworld-paired-evaluation-plan-v2",
+  "campaign_id": "cec-four-scene-five-paired-block-v2",
+  "status": "planned_no_formal_runs",
+  "supersedes": "realworld_evaluation_plan_v1.json",
+  "methods": [
+    {"id": "mono_native", "label": "Frozen monocular NavDP"},
+    {"id": "mono_cec", "label": "Frozen monocular NavDP + CEC"}
+  ],
+  "expected_shape": {
+    "scenes": 4,
+    "paired_blocks_per_scene": 5,
+    "paired_blocks": 20,
+    "rollouts_per_block": 2,
+    "total_rollouts": 40,
+    "native_first_blocks": 10,
+    "cec_first_blocks": 10
+  },
+  "role_contract": {
+    "runtime_role_visibility": "none",
+    "required_novel_scenes": 2,
+    "required_revisit_scenes": 2,
+    "scene_roles_frozen_before_first_formal_run": true
+  },
+  "pairing_contract": {
+    "same_sealed_survey_dataset": true,
+    "same_exact_goal_jpeg": true,
+    "same_start_region_and_yaw": true,
+    "same_time_and_path_budget": true,
+    "same_controller_checkpoint": true,
+    "memory_frozen_during_formal_query": true,
+    "physical_reset_between_arms": true,
+    "arm_order_frozen_before_outcomes": true,
+    "manual_intervention_counts_as_failure": true
+  },
+  "execution_contract": {
+    "robot": "unitree_go2",
+    "max_linear_mps": 0.3,
+    "capture_profile": "audit",
+    "gt_source": "odin1_independent_reference",
+    "motion_authority": "jetson_local_operator_gated",
+    "policy_stop_authority_verified": false
+  },
+  "metric_contract": {
+    "sr_formula": "sum(S_i) / N",
+    "spl_formula": "mean(S_i * L_i / max(L_i, P_i))",
+    "paired_primary_statistic": "native_to_cec_gain_loss_and_two_sided_exact_mcnemar",
+    "failure_spl_contribution": 0.0,
+    "success_threshold_status": "pending_independent_arrival_calibration",
+    "shortest_path_source": "frozen_odin_occupancy_astar_pending_scene_freeze",
+    "physical_path_source": "consecutive_odin_odometry_increments_after_stable_relocalization",
+    "odin_classification": "independent_reference_slam_not_metrological_ground_truth"
+  },
+  "claims": {
+    "formal_realworld_sr_spl": false,
+    "autonomous_imagegoal_arrival_verified": false,
+    "completed_paired_blocks": 0,
+    "completed_rollouts": 0
+  },
+  "scenes": [
+    {
+      "scene_id": "scene01",
+      "role": null,
+      "target": null,
+      "navigation_setting": null,
+      "dataset_id": null,
+      "dataset_manifest_sha256": null,
+      "goal_sha256": null,
+      "start_pose_receipt_sha256": null,
+      "shortest_feasible_path_m": null,
+      "paired_blocks": [
+        {"pair_index": 1, "order": ["mono_native", "mono_cec"], "runs": {"mono_native": {"run_id": "scene01_pair01_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene01_pair01_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 2, "order": ["mono_cec", "mono_native"], "runs": {"mono_native": {"run_id": "scene01_pair02_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene01_pair02_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 3, "order": ["mono_native", "mono_cec"], "runs": {"mono_native": {"run_id": "scene01_pair03_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene01_pair03_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 4, "order": ["mono_cec", "mono_native"], "runs": {"mono_native": {"run_id": "scene01_pair04_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene01_pair04_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 5, "order": ["mono_native", "mono_cec"], "runs": {"mono_native": {"run_id": "scene01_pair05_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene01_pair05_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}}
+      ]
+    },
+    {
+      "scene_id": "scene02",
+      "role": null,
+      "target": null,
+      "navigation_setting": null,
+      "dataset_id": null,
+      "dataset_manifest_sha256": null,
+      "goal_sha256": null,
+      "start_pose_receipt_sha256": null,
+      "shortest_feasible_path_m": null,
+      "paired_blocks": [
+        {"pair_index": 1, "order": ["mono_cec", "mono_native"], "runs": {"mono_native": {"run_id": "scene02_pair01_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene02_pair01_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 2, "order": ["mono_native", "mono_cec"], "runs": {"mono_native": {"run_id": "scene02_pair02_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene02_pair02_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 3, "order": ["mono_cec", "mono_native"], "runs": {"mono_native": {"run_id": "scene02_pair03_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene02_pair03_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 4, "order": ["mono_native", "mono_cec"], "runs": {"mono_native": {"run_id": "scene02_pair04_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene02_pair04_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 5, "order": ["mono_cec", "mono_native"], "runs": {"mono_native": {"run_id": "scene02_pair05_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene02_pair05_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}}
+      ]
+    },
+    {
+      "scene_id": "scene03",
+      "role": null,
+      "target": null,
+      "navigation_setting": null,
+      "dataset_id": null,
+      "dataset_manifest_sha256": null,
+      "goal_sha256": null,
+      "start_pose_receipt_sha256": null,
+      "shortest_feasible_path_m": null,
+      "paired_blocks": [
+        {"pair_index": 1, "order": ["mono_native", "mono_cec"], "runs": {"mono_native": {"run_id": "scene03_pair01_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene03_pair01_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 2, "order": ["mono_cec", "mono_native"], "runs": {"mono_native": {"run_id": "scene03_pair02_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene03_pair02_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 3, "order": ["mono_native", "mono_cec"], "runs": {"mono_native": {"run_id": "scene03_pair03_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene03_pair03_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 4, "order": ["mono_cec", "mono_native"], "runs": {"mono_native": {"run_id": "scene03_pair04_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene03_pair04_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 5, "order": ["mono_native", "mono_cec"], "runs": {"mono_native": {"run_id": "scene03_pair05_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene03_pair05_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}}
+      ]
+    },
+    {
+      "scene_id": "scene04",
+      "role": null,
+      "target": null,
+      "navigation_setting": null,
+      "dataset_id": null,
+      "dataset_manifest_sha256": null,
+      "goal_sha256": null,
+      "start_pose_receipt_sha256": null,
+      "shortest_feasible_path_m": null,
+      "paired_blocks": [
+        {"pair_index": 1, "order": ["mono_cec", "mono_native"], "runs": {"mono_native": {"run_id": "scene04_pair01_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene04_pair01_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 2, "order": ["mono_native", "mono_cec"], "runs": {"mono_native": {"run_id": "scene04_pair02_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene04_pair02_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 3, "order": ["mono_cec", "mono_native"], "runs": {"mono_native": {"run_id": "scene04_pair03_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene04_pair03_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 4, "order": ["mono_native", "mono_cec"], "runs": {"mono_native": {"run_id": "scene04_pair04_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene04_pair04_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}},
+        {"pair_index": 5, "order": ["mono_cec", "mono_native"], "runs": {"mono_native": {"run_id": "scene04_pair05_native", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}, "mono_cec": {"run_id": "scene04_pair05_cec", "status": "planned", "success": null, "actual_path_m": null, "spl": null, "evidence_manifest_sha256": null}}}
+      ]
+    }
+  ]
+}

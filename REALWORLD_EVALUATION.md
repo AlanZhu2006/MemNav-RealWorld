@@ -1,23 +1,83 @@
-# Planned Real-World Evaluation
+# Planned Paired Real-World Evaluation
 
-Snapshot: **2026-08-28** · Status: **protocol template; no formal results**
+Snapshot: **2026-08-29** · Status: **frozen-shape protocol; no formal results**
 
-This page reserves the publication structure for the first MemNav real-world
-campaign. It follows the
-[TopoFocus Real-World](https://github.com/AlanZhu2006/topofocus_realworld)
-presentation pattern: one frozen
-scene definition, five formal rollouts, per-run metrics, dual-view media and a
-machine-readable manifest. Empty values are deliberately shown as `—`; they do
-not mean zero, failure or missing-at-random data.
+This page registers the real-robot experiment required by the conference
+matrix.  It compares frozen monocular NavDP with the same controller plus CEC
+in matched physical blocks.  Every blank value is deliberately unresolved; it
+does not mean zero, failure, or missing-at-random data.
 
-The initial campaign evaluates the deployed **CEC-certified bearing + frozen
-NavDP** route in four static scenes with five repeats per scene: 20 formal runs
-in total. A later baseline comparison must duplicate the complete 20-run
-campaign for each method rather than pooling methods inside these rows.
+The campaign contains four static scenes and five paired blocks per scene.
+Each block contains two independent physical rollouts:
 
-## Metric Contract
+1. `mono_native`: frozen monocular NavDP with memory authority disabled;
+2. `mono_cec`: the same controller and inputs with CEC authorization enabled.
 
-For run `i`:
+The total remains 40 rollouts, but unlike the archived v1 plan, the arms are
+interleaved as 20 matched pairs rather than collected in separate campaigns.
+The controlling machine-readable plan is
+[`manifests/realworld_paired_evaluation_plan_v2.json`](manifests/realworld_paired_evaluation_plan_v2.json).
+
+## Why the design is paired
+
+Within one pair, both arms must share:
+
+- the sealed Survey dataset and exact goal JPEG;
+- the declared Novel/Revisit role, hidden from the runtime;
+- the physical start region and yaw tolerance;
+- the controller checkpoint, camera mount, speed, path, and time budgets;
+- the independent arrival and path evaluator.
+
+The robot is physically reset between arms and model processes are restarted.
+Formal-query frames never enter the sealed Survey memory.  Arm order is frozen
+before any outcome: ten pairs are native-first and ten are CEC-first.  This
+controls short-term changes in illumination, battery, floor condition, and
+localization quality better than a 20-run CEC campaign followed later by a
+20-run native campaign.
+
+## Role and scene contract
+
+Before Formal 01, the scene registry must freeze exactly:
+
+- two Novel scenes, whose target has no certifiable support in Survey history;
+- two Revisit scenes, whose target is supported by the causal Survey history;
+- one exact goal SHA, dataset SHA, start pose receipt, and shortest feasible
+  path per scene;
+- five paired reset blocks per scene.
+
+CEC receives no Novel/Revisit label.  On Novel, the intended behavior is
+certificate rejection and exact native fallback; on Revisit, the certificate
+may authorize only the registered scale-free bearing interface.
+
+## Balanced execution schedule
+
+| Scene | Pair 1 | Pair 2 | Pair 3 | Pair 4 | Pair 5 |
+|---|---|---|---|---|---|
+| Scene 01 | Native→CEC | CEC→Native | Native→CEC | CEC→Native | Native→CEC |
+| Scene 02 | CEC→Native | Native→CEC | CEC→Native | Native→CEC | CEC→Native |
+| Scene 03 | Native→CEC | CEC→Native | Native→CEC | CEC→Native | Native→CEC |
+| Scene 04 | CEC→Native | Native→CEC | CEC→Native | Native→CEC | CEC→Native |
+
+The schedule has ten blocks in each order.  Scene identities, roles, goals,
+and block order cannot be changed after the first formal rollout.
+
+## Arrival gate
+
+No formal campaign may start until `CURRENT_STATUS.md`'s independent arrival
+calibration gate is closed.  In particular:
+
+- monocular PnP translation has no metric control or STOP authority;
+- Odin1 is an evaluation-only reference SLAM, never a policy input;
+- the success region, stationary hold, relocalization stability, path source,
+  and dropout handling must be frozen from calibration data collected outside
+  all four formal scenes;
+- operator intervention is a failure in the intention-to-treat denominator;
+- if an external evaluator terminates motion, the paper must say
+  “navigation with independent evaluator termination,” not autonomous STOP.
+
+## Metric and statistical contract
+
+For rollout `i`:
 
 ```text
 SR = sum(S_i) / N
@@ -25,190 +85,58 @@ SPL_i = S_i * L_i / max(L_i, P_i)
 SPL = sum(SPL_i) / N
 ```
 
-- `S_i` is the independently adjudicated binary navigation success.
-- `L_i` is the predeclared shortest feasible path for that scene.
-- `P_i` is the independently measured physical path travelled by the Go2.
-- A failure contributes zero SPL.
-- A dash must not be replaced until the run has a finalized capture manifest,
-  an independent success record and a valid path measurement.
+`S_i` is the independently adjudicated binary success, `L_i` the frozen
+shortest feasible path, and `P_i` the independently measured physical path.
+A failure contributes zero SPL.
 
-The repository now contains an optional independent Odin1 reference stack:
-`L_i` is produced by frozen-grid A*, `P_i` by consecutive local Odin odometry
-increments after stable relocalization, and `S_i` by Odin metric region plus
-fresh D435i visual confirmation and a stationary hold. It is evaluation-only
-and never enters NavDP control. Its current-Go2 hardware calibration remains
-pending, so the exact physical success threshold and measurement system remain
-blocked by the arrival-calibration gate in `CURRENT_STATUS.md`. Until that gate is frozen,
-these tables are a registration template and cannot support an autonomous
-arrival, SR or SPL claim. If an external evaluator terminates the robot, the
-result must be described as **navigation with independent evaluator
-termination**, not autonomous policy STOP.
+Report each arm by role and overall.  The primary paired comparison is
+native→CEC gain/loss with two-sided exact McNemar; SPL and path differences
+use paired blocks and scene-cluster uncertainty.  With only 20 pairs, these
+trials are primarily external closed-loop evidence and qualitative validation,
+not a high-powered superiority study.
 
-## Evaluation Settings
+## Registered result table
 
-| Scene | Target | Navigation setting | Dataset ID | Goal SHA-256 | Shortest feasible path `L` |
-| --- | --- | --- | --- | --- | ---: |
-| Scene 01 | `TBD` | `TBD` | `TBD` | `TBD` | `—` |
-| Scene 02 | `TBD` | `TBD` | `TBD` | `TBD` | `—` |
-| Scene 03 | `TBD` | `TBD` | `TBD` | `TBD` | `—` |
-| Scene 04 | `TBD` | `TBD` | `TBD` | `TBD` | `—` |
+| Method | Novel SR | Revisit SR | Overall SR | SPL | Mean path |
+|---|---:|---:|---:|---:|---:|
+| Frozen mono NavDP | — | — | — | — | — |
+| Frozen mono NavDP + CEC | — | — | — | — | — |
 
-All runs use the frozen formal control profile (`0.30 m/s` maximum linear
-speed), one exact goal JPEG per scene, one sealed survey dataset per scene and
-the `audit` evidence profile with `gt_source=odin1`. Scene layouts, starts, goal poses, path budgets,
-time budgets and trial order must be frozen before Formal 01 begins.
+Paired gain/loss, exact McNemar, Novel takeover count, Revisit accept/reject,
+manual interventions, collisions, and failure attribution remain blank until
+all evidence for a block is finalized.
 
-## Campaign Summary
+## Scene registry
 
-| Scene | Planned trials | Completed | Successes | SR | Mean SPL |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Scene 01 | `5` | `0` | `—` | `—` | `—` |
-| Scene 02 | `5` | `0` | `—` | `—` | `—` |
-| Scene 03 | `5` | `0` | `—` | `—` | `—` |
-| Scene 04 | `5` | `0` | `—` | `—` | `—` |
-| **Overall** | **`20`** | **`0`** | **`—`** | **`—`** | **`—`** |
+| Scene | Role | Target / setting | Survey SHA | Goal SHA | Start receipt | `L` |
+|---|---|---|---|---|---|---:|
+| Scene 01 | TBD | TBD | TBD | TBD | TBD | — |
+| Scene 02 | TBD | TBD | TBD | TBD | TBD | — |
+| Scene 03 | TBD | TBD | TBD | TBD | TBD | — |
+| Scene 04 | TBD | TBD | TBD | TBD | TBD | — |
 
-## Scene 01 · TBD
+Exactly two role cells must become Novel and two Revisit before the registry is
+sealed.  A dash may be replaced only from a finalized receipt.
 
-| Trials | Completed | Successes | SR | Mean SPL |
-| ---: | ---: | ---: | ---: | ---: |
-| `5` | `0` | `—` | `—` | `—` |
+## Per-block evidence rule
 
-### Planned Rollouts
+Each of the 20 paired blocks must bind both arm run IDs to:
 
-<table width="100%">
-  <tr>
-    <td width="50%" align="center"><strong>Formal 01 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-    <td width="50%" align="center"><strong>Formal 02 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-  </tr>
-  <tr>
-    <td width="50%" align="center"><strong>Formal 03 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-    <td width="50%" align="center"><strong>Formal 04 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center"><strong>Formal 05 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-  </tr>
-</table>
+1. the same frozen scene, Survey, goal, start, and budget receipts;
+2. Jetson and RTX Git commits and method configuration hashes;
+3. independent success, `L`, `P`, and SPL receipts;
+4. ROS bag, CEC/status JSONL, RViz dashboard, and third-person video;
+5. CEC accept/reject, selected anchor, certificate fields, and fallback audit;
+6. reset tolerance and arm-order compliance;
+7. collision, intervention, network, hardware, and policy failure attribution.
 
-### Per-Run Metrics
+The pair is incomplete until both arms have valid evidence.  Hardware faults
+remain in the intention-to-treat log and may only be additionally reported in
+a separately labeled per-protocol sensitivity analysis.
 
-| Run | Result | Actual path `P` | Success basis | SPL | Evidence manifest |
-| --- | --- | ---: | --- | ---: | --- |
-| Formal 01 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 02 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 03 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 04 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 05 | `PENDING` | `—` | `—` | `—` | `—` |
+## Claim boundary
 
-## Scene 02 · TBD
-
-| Trials | Completed | Successes | SR | Mean SPL |
-| ---: | ---: | ---: | ---: | ---: |
-| `5` | `0` | `—` | `—` | `—` |
-
-### Planned Rollouts
-
-<table width="100%">
-  <tr>
-    <td width="50%" align="center"><strong>Formal 01 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-    <td width="50%" align="center"><strong>Formal 02 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-  </tr>
-  <tr>
-    <td width="50%" align="center"><strong>Formal 03 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-    <td width="50%" align="center"><strong>Formal 04 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center"><strong>Formal 05 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-  </tr>
-</table>
-
-### Per-Run Metrics
-
-| Run | Result | Actual path `P` | Success basis | SPL | Evidence manifest |
-| --- | --- | ---: | --- | ---: | --- |
-| Formal 01 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 02 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 03 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 04 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 05 | `PENDING` | `—` | `—` | `—` | `—` |
-
-## Scene 03 · TBD
-
-| Trials | Completed | Successes | SR | Mean SPL |
-| ---: | ---: | ---: | ---: | ---: |
-| `5` | `0` | `—` | `—` | `—` |
-
-### Planned Rollouts
-
-<table width="100%">
-  <tr>
-    <td width="50%" align="center"><strong>Formal 01 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-    <td width="50%" align="center"><strong>Formal 02 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-  </tr>
-  <tr>
-    <td width="50%" align="center"><strong>Formal 03 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-    <td width="50%" align="center"><strong>Formal 04 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center"><strong>Formal 05 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-  </tr>
-</table>
-
-### Per-Run Metrics
-
-| Run | Result | Actual path `P` | Success basis | SPL | Evidence manifest |
-| --- | --- | ---: | --- | ---: | --- |
-| Formal 01 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 02 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 03 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 04 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 05 | `PENDING` | `—` | `—` | `—` | `—` |
-
-## Scene 04 · TBD
-
-| Trials | Completed | Successes | SR | Mean SPL |
-| ---: | ---: | ---: | ---: | ---: |
-| `5` | `0` | `—` | `—` | `—` |
-
-### Planned Rollouts
-
-<table width="100%">
-  <tr>
-    <td width="50%" align="center"><strong>Formal 01 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-    <td width="50%" align="center"><strong>Formal 02 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-  </tr>
-  <tr>
-    <td width="50%" align="center"><strong>Formal 03 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-    <td width="50%" align="center"><strong>Formal 04 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-  </tr>
-  <tr>
-    <td colspan="2" align="center"><strong>Formal 05 · PENDING</strong><br><small>Third view: pending</small><br><small>Dashboard: pending</small><br><small>Metrics: —</small></td>
-  </tr>
-</table>
-
-### Per-Run Metrics
-
-| Run | Result | Actual path `P` | Success basis | SPL | Evidence manifest |
-| --- | --- | ---: | --- | ---: | --- |
-| Formal 01 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 02 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 03 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 04 | `PENDING` | `—` | `—` | `—` | `—` |
-| Formal 05 | `PENDING` | `—` | `—` | `—` | `—` |
-
-## Evidence Publication Rule
-
-Each populated run must link all of the following under one run ID:
-
-1. finalized capture manifest and its SHA-256;
-2. sealed survey dataset ID and manifest SHA-256;
-3. Jetson and RTX Git commits;
-4. independent success/path adjudication;
-5. actual path `P`, scene shortest feasible path `L` and computed SPL;
-6. third-view and RViz dashboard browser derivatives;
-7. failure or intervention attribution when `S_i=0`.
-
-Runtime evidence remains ignored by Git. Only independently reviewed manifests,
-audit summaries and browser-ready media derivatives should be committed. The
-machine-readable campaign template is
-[`manifests/realworld_evaluation_plan_v1.json`](manifests/realworld_evaluation_plan_v1.json).
+No formal runs have been completed.  The archived v1 single-arm template and
+the powered engineering traces in `CURRENT_STATUS.md` are not result rows.
+Until the arrival gate passes and all receipts are independently reviewed, the
+project has no publishable real-world SR, SPL, or autonomous STOP claim.

@@ -33,6 +33,7 @@ REQUIRED_PATHS = (
     "manifests/realworld_fullmono_v3.json",
     "manifests/realworld_fullmono_v4.json",
     "manifests/realworld_evaluation_plan_v1.json",
+    "manifests/realworld_paired_evaluation_plan_v2.json",
     "manifests/odin1_gt_reference_v1.json",
     "FULL_MONO_RELEASE_20260821.md",
     "deployment/go2/navdp_ros_node.py",
@@ -414,6 +415,61 @@ def main() -> int:
         and all(trial.get("success") is None for trial in evaluation_trials)
         and all(trial.get("spl") is None for trial in evaluation_trials),
         "planned evaluation contains no fabricated SR/SPL",
+        failures,
+    )
+
+    paired_plan = json.loads(
+        (root / "manifests/realworld_paired_evaluation_plan_v2.json").read_text()
+    )
+    paired_shape = paired_plan.get("expected_shape", {})
+    paired_scenes = paired_plan.get("scenes", [])
+    paired_blocks = [
+        block
+        for scene in paired_scenes
+        for block in scene.get("paired_blocks", [])
+    ]
+    paired_runs = [
+        run
+        for block in paired_blocks
+        for run in block.get("runs", {}).values()
+    ]
+    expected_methods = {"mono_native", "mono_cec"}
+    check(
+        paired_plan.get("status") == "planned_no_formal_runs"
+        and paired_plan.get("supersedes") == "realworld_evaluation_plan_v1.json"
+        and paired_shape == {
+            "scenes": 4,
+            "paired_blocks_per_scene": 5,
+            "paired_blocks": 20,
+            "rollouts_per_block": 2,
+            "total_rollouts": 40,
+            "native_first_blocks": 10,
+            "cec_first_blocks": 10,
+        }
+        and len(paired_scenes) == 4
+        and len(paired_blocks) == 20
+        and len(paired_runs) == 40
+        and all(set(block.get("runs", {})) == expected_methods
+                for block in paired_blocks)
+        and sum(block.get("order", [None])[0] == "mono_native"
+                for block in paired_blocks) == 10
+        and sum(block.get("order", [None])[0] == "mono_cec"
+                for block in paired_blocks) == 10,
+        "conference campaign is registered as 20 balanced paired blocks",
+        failures,
+    )
+    check(
+        paired_plan.get("claims", {}).get("formal_realworld_sr_spl")
+        is False
+        and paired_plan.get("claims", {}).get(
+            "autonomous_imagegoal_arrival_verified"
+        ) is False
+        and paired_plan.get("claims", {}).get("completed_paired_blocks") == 0
+        and paired_plan.get("claims", {}).get("completed_rollouts") == 0
+        and all(run.get("status") == "planned" for run in paired_runs)
+        and all(run.get("success") is None for run in paired_runs)
+        and all(run.get("spl") is None for run in paired_runs),
+        "paired campaign contains no fabricated SR/SPL",
         failures,
     )
 

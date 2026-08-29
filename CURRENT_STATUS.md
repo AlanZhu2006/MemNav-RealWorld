@@ -1,6 +1,6 @@
 # Current Full-Mono Real-World Status
 
-Snapshot: **2026-08-28, protocol-v3 + direct-bearing-v2 + optional Odin1 reference lane**
+Snapshot: **2026-08-29, protocol-v3 + direct-bearing-v2 + optional Odin1 reference lane**
 
 现场实验、交接、双机架构、两阶段数据、控制安全、证据采集和SR/SPL的统一操作入口为
 `REALWORLD_EXPERIMENT_HANDBOOK_CN.md`。本文件继续作为最新claim boundary；若旧日期文档
@@ -16,10 +16,12 @@ JSONL 和 RViz dashboard，第三人称原片导入后与同一 run ID、Git rev
 manifest 绑定。当前仓库中的双视角视频只是 engineering reference demo，不改变正式结果
 边界。完整操作见 `EXPERIMENT_DATA_COLLECTION.md`。
 
-同日注册了 `4 scenes x 5 repeats = 20 runs` 的首轮 CEC-certified bearing + frozen
-NavDP 评测模板，公开页、逐 run 媒体槽位和机器 manifest 均保持空白。该登记只冻结
-未来结果的形状，不代表已经执行实验，也不改变 arrival/STOP 和 SR/SPL 尚未建立的结论。
-见 `REALWORLD_EVALUATION.md`。
+原 `4 scenes x 5 repeats = 20 CEC runs` 模板已归档。会议要求的 controlling v2 协议
+改为 4 scenes × 5 matched native/CEC blocks：20 pairs、40 rollouts，方法顺序 10/10
+平衡，并要求两条 Novel、两条 Revisit scene contracts。所有结果槽仍为空；该修复只冻结
+公平比较设计，不代表已经执行实验，也不改变 arrival/STOP 和 SR/SPL 尚未建立的结论。
+见 `REALWORLD_EVALUATION.md` 与
+`manifests/realworld_paired_evaluation_plan_v2.json`。
 
 2026-08-28 增加了完全隔离的Odin1参考评测栈：mode-1往返建图、D435i目标图与Odin
 地图位姿绑定、mode-2 `map -> odom`重定位门、局部odom路径积分、融合到达证据和冻结
