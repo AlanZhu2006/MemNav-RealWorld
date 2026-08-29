@@ -24,7 +24,7 @@ SR/SPL、故障处理和当前缺口集中在一个文档中。其他文档继�
 - Jetson Orin NX 负责 D435i ROS 传输、aligned metric depth 局部碰撞门、轨迹跟踪、
   `/navdp/cmd_vel`、Go2 watchdog 和全部运动权限；
 - 4090 不安装 Unitree SDK、不发布 ROS 速度，也没有到电机的直接路径；
-- D435i metric depth 不进入 MemNav、CEC 或 NavDP，只留在 Jetson 安全层和独立 evaluator；
+- D435i metric depth 不进入 MemNav、CEC 或 NavDP，只留在 Jetson 安全层和可选离线证据；
 - 不使用 TinyNav VIO、TinyNav mapping 或 TinyNav planner；TinyNav 环境只复用已验证的
   CycloneDDS 和 Unitree SDK Python 依赖；
 - 不构建 metric global map，也没有传统全局路径规划器；CEC 提供长期视觉内容寻址和
@@ -58,7 +58,7 @@ SR/SPL、故障处理和当前缺口集中在一个文档中。其他文档继�
 
 1. disabled 静态验收；
 2. 系绳、现场监管的 engineering run；
-3. independent evaluator/operator termination 的正式证据采集演练；
+3. RGB arrival/operator termination 的正式证据采集演练；
 4. arrival calibration 数据采集；
 
 但在本文第 20 节的 P0 门完成前，不得把实验描述为 autonomous ImageGoal success，
@@ -93,7 +93,7 @@ Survey 不是正式 rollout，不计入 SR/SPL。Survey 是每个场景一次性
 - 使用同一 sealed dataset；
 - 使用同一 exact goal JPEG；
 - 从同一预声明起点和 yaw 开始；
-- 使用同一控制参数、时间/路径预算和终止 evaluator；
+- 使用同一控制参数、时间/路径预算和终止规则；
 - 每次重启双机模型状态；
 - 每次使用唯一 run ID；
 - 不允许根据前几次结果改场景或阈值。
@@ -213,7 +213,7 @@ export CEC_CAMERA_HEIGHT_M=0.42
 │                                                              │
 │ Observation-only sidecars                                    │
 │   ├── RViz dashboard                                         │
-│   ├── imagegoal evaluator / audit                            │
+│   ├── RGB arrival / audit                                    │
 │   ├── ROS bag + JSONL collector                              │
 │   └── external third-person camera                           │
 └──────────────────────────────────────────────────────────────┘
@@ -230,7 +230,7 @@ export CEC_CAMERA_HEIGHT_M=0.42
 | 转换 trajectory 为 Twist | 否 | 是 | 否 | 否 |
 | 发布 `/navdp/cmd_vel` | 否 | 是 | 否 | 否 |
 | 调用 Unitree `Move()` | 否 | 否 | 是 | 否 |
-| 发布 evaluator estop | 否 | 否 | 否 | 可选，但不是 policy STOP |
+| 发布 RGB arrival estop | 否 | 否 | 否 | 可选，但不是 policy STOP |
 | 最终现场接管 | 否 | 否 | 释放权限 | Unitree 遥控器操作者 |
 
 ---
@@ -288,7 +288,6 @@ Jetson HTTP client仍携带旧 depth multipart 字段以保持 wire compatibilit
 `rt/sportmodestate` 不进入 NavDP，也不改变 CEC bearing。当前只用于：
 
 - 只读记录 Go2 body pose/velocity；
-- evaluator 静止门；
 - 辅助最小距离、路径长度和 yaw 分析；
 - 现场故障回放。
 
@@ -347,7 +346,7 @@ Formal 01 之前应填写并冻结：
 | time budget | 超时为 failure |
 | path budget | 超限为 failure |
 | collision/abort rule | 不允许事后定义 |
-| evaluator contract | 阈值、hold、termination authority |
+| arrival contract | 阈值、hold、termination authority |
 | trial order | 提前冻结 |
 | control profile | 必须是 `formal` |
 | max speed | `0.30 m/s` |
@@ -556,7 +555,7 @@ bash deployment/go2/offboard/revisit_experiment.sh \
 11. 用 formal 起点的当前 RGB 初始化 NavDP FIFO；
 12. 评分并安装目标候选；
 13. 校验 active goal SHA；
-14. 将 selected goal JPEG 和 evaluator-only depth 保存到本轮 run root；
+14. 将 selected goal JPEG 和 optional offline depth 保存到本轮 run root；
 15. 输出 formal-ready health 和 prepare receipt。
 
 长 survey 的逐帧重放可能需要数分钟。不要因为终端暂时没有新输出而中断；先查看 RTX
@@ -597,19 +596,19 @@ metric_depth_sensor_consumed_by_policy = false
 
 #### 路径A：externally frozen exact goal（正式benchmark推荐）
 
-在导航停止、机器人位于目标位置且静止时，单独采集目标RGB-D：
+在导航停止、机器人位于目标位置且静止时，单独采集目标参考：
 
 ```bash
 bash deployment/go2/scripts/run_realsense.sh
-bash deployment/go2/scripts/capture_imagegoal_reference.sh
+bash deployment/go2/scripts/capture_image_goal.sh
 ```
 
 冻结：
 
 - exact goal RGB；
 - goal RGB SHA-256；
-- evaluator-only aligned goal depth及SHA；
-- 目标处辅助pose receipt；
+- 可选的 aligned goal depth及SHA（仅作离线证据）；
+- 目标采集元数据；
 - 目标采集时间和scene ID。
 
 Formal-start前显式指定固定目标：
@@ -690,8 +689,8 @@ bash deployment/go2/offboard/experiment_capture.sh start \
 - `/navdp/estop`；
 - `/navdp/enabled`；
 - `/navdp/image_goal`；
-- `/navdp/imagegoal_evaluation`；
-- `/navdp/imagegoal_match_debug`；
+- `/navdp/rgb_arrival_status`；
+- `/navdp/rgb_arrival_debug`；
 - `/navdp/debug/markers`；
 - `/navdp/experiment_event`；
 - `/rt/sportmodestate`；
@@ -708,7 +707,7 @@ Collector 输出 `START` 后：
 1. 开始独立第三人称相机；
 2. 做一次画面清晰可见的同步拍手；
 3. 确认 RViz dashboard 正在录制；
-4. 再启动/确认 independent evaluator；
+4. 再确认 RGB arrival 模块；
 5. 最后才执行运动授权。
 
 第三人称视频用于证明真实运动、足部接触、碰撞、操作员干预和物理终点；RViz用于解释
@@ -948,7 +947,7 @@ plan_while_disabled=true
 - current RGB、depth、goal、paths 和状态在 RViz可见；
 - inference不忙；
 - `/navdp/cmd_vel` 在 disabled 时为零；
-- evaluator/termination procedure 已运行；
+- arrival/termination procedure 已运行；
 - ROS bag、JSONL和dashboard已开始录制；
 - 第三人称相机已开始并完成同步拍手；
 - 测试区清空；
@@ -1038,7 +1037,7 @@ ros2 topic hz /camera/camera/aligned_depth_to_color/image_raw
 | RGB Camera | `/camera/camera/color/image_raw` |
 | Aligned Depth | `/camera/camera/aligned_depth_to_color/image_raw`，仅本地安全 |
 | Image Goal | `/navdp/image_goal`，当前安装目标 |
-| ImageGoal Visual Match | `/navdp/imagegoal_match_debug` |
+| RGB Arrival Match | `/navdp/rgb_arrival_debug` |
 | Candidate paths | `/navdp/debug/markers` |
 | Selected trajectory | `/navdp/trajectory` |
 | Goal/status markers | phase、CEC、clearance、vx/wz、error |
@@ -1092,7 +1091,7 @@ ros2 topic hz /camera/camera/aligned_depth_to_color/image_raw
 
 ---
 
-## 17. Arrival、STOP和独立 evaluator
+## 17. Arrival、STOP和独立 RGB gate
 
 ### 17.1 为什么不能用NavDP零轨迹判断到达
 
@@ -1112,7 +1111,7 @@ ros2 topic hz /camera/camera/aligned_depth_to_color/image_raw
 
 ### 17.2 为什么不能用PnP metric distance停止
 
-已有真实轨迹中，direct PnP预测距离从 `0.769 m` 降到 `0.125 m`，而独立 evaluator 的
+已有真实轨迹中，direct PnP预测距离从 `0.769 m` 降到 `0.125 m`，而当时独立测量收据的
 真实最小距离仍是 `0.993 m`，至少低估 `7.9x`。因此bearing-v2只保留方向：
 
 ```text
@@ -1121,56 +1120,34 @@ terminal_metric_scale_control_authority=false
 terminal_stop_authorized=false
 ```
 
-### 17.3 已实现的RGB-D evaluator
+### 17.3 唯一内置到达模块：RGB homography
 
-仓库中的独立 evaluator 能计算：
-
-- SIFT ratio-test good matches；
-- homography RANSAC inliers和比例；
-- query/reference matching coverage；
-- 匹配中心偏移；
-- image scale与rotation；
-- reprojection error；
-- goal/current匹配点 depth delta 和 MAD；
-- Go2 body speed；
-- NavDP path radius和near-zero hold；
-- auxiliary pose distance/path/yaw。
-
-`object` 模式的当前工程默认包括：
+`rgb_goal_arrival.py` 只读取当前 RGB 和冻结参考图，不读取目标/当前深度、Go2 位姿或
+NavDP 轨迹。它计算 SIFT ratio-test、homography RANSAC、匹配覆盖、中心偏移、尺度、
+旋转和重投影误差。当前默认值为：
 
 | 门 | 默认值 |
 | --- | ---: |
-| good matches | `>=30` |
-| inliers | `>=20` |
+| good matches | `>=45` |
+| inliers | `>=30` |
 | inlier ratio | `>=0.45` |
-| coverage | `>=0.02` |
-| center offset | `<=0.45` normalized |
-| image scale | `[0.55, 2.25]` |
-| rotation | `<=30°` |
-| reprojection error | `<=3 px` |
-| depth pairs | `>=12` |
-| median depth delta | `[-1.25, 0.25] m` |
-| depth delta MAD | `<=0.20 m` |
-| consecutive matches | `3` |
-| goal-object speed | `<=0.10 m/s` |
-| policy path radius | `<=0.20 m` |
-| policy near-zero hold | `>=1.50 s` |
+| coverage | `>=0.07` |
+| center offset | `<=0.22` normalized |
+| image scale | `[0.60, 1.45]` |
+| rotation | `<=16°` |
+| reprojection error | `<=4 px` |
+| consecutive matches | `1` |
 
-它可以使用 `--auto-estop`终止 episode，但当前只能描述为 independent evaluator
+命中后它锁存 `/navdp/arrival`、发布 `/navdp/estop` 并请求禁用 adapter。该模块已在一次
+near-D 有电测试中验证停车传输和一个正样本窗口；这不证明完整路线、跨场景鲁棒性或
+false-positive rate。完整收据见 `CURRENT_STATUS.md`。它只能描述为实验性 independent
 termination，不是 autonomous policy STOP。
-
-另有与该 RGB-D evaluator 分离的 `rgb_goal_arrival.py` commissioning 模块。它只读取
-当前 RGB 和冻结参考图，默认使用 45 good matches、30 inliers、0.45 inlier ratio、0.07
-coverage、0.60–1.45 image scale、16° rotation、4 px reprojection error 和单帧确认。该模块
-已在一次 near-D 有电测试中触发 adapter 到达锁存并自动停车；这只证明停车传输和一个
-正样本窗口，不证明完整路线、跨场景鲁棒性或 false-positive rate。完整收据见
-`CURRENT_STATUS.md`。
 
 ### 17.4 当前Formal成功判定
 
 在arrival calibration完成前：
 
-- evaluator作为shadow measurement或独立termination；
+- RGB arrival gate作为独立termination；
 - 现场操作者保持遥控器；
 - 成功/失败由预注册的独立规则和事后证据共同adjudicate；
 - 不能把CEC、PnP、SportModeState或人工主观“差不多到了”单独作为成功依据；
@@ -1182,7 +1159,7 @@ coverage、0.60–1.45 image scale、16° rotation、4 px reprojection error 和
 
 ### 18.1 停止顺序
 
-1. evaluator完成终止或现场发布estop；
+1. RGB arrival gate完成终止或现场发布estop；
 2. adapter disable；
 3. 确认 `/navdp/cmd_vel` 为零；
 4. 停止 evidence processes；
@@ -1212,7 +1189,7 @@ derivative，不放raw evidence。
 ```bash
 bash deployment/go2/offboard/experiment_capture.sh finalize \
   scene01_formal_01 success \
-  --notes "independent evaluator/operator termination; adjudication attached"
+  --notes "RGB arrival/operator termination; adjudication attached"
 ```
 
 若是abort/failure，将 outcome改为对应结果并写清原因。不要为了生成 `FINALIZED` 把失败
@@ -1248,7 +1225,7 @@ runtime/go2/experiment_capture/scene01_formal_01/
 ├── logs/
 │   ├── status.jsonl
 │   ├── cec_receipt.jsonl
-│   ├── imagegoal_evaluation.jsonl
+│   ├── rgb_arrival_status.jsonl
 │   └── experiment_event.jsonl
 ├── media/
 │   ├── dashboard.mp4
@@ -1338,7 +1315,7 @@ yaw:      0 / ±10 / ±20°
 3. 用不同地点验证；
 4. 统计false positive/false negative；
 5. 冻结阈值、连续帧数、hold和failure semantics；
-6. 明确是independent evaluator termination还是policy STOP；
+6. 明确是independent RGB arrival termination还是policy STOP；
 7. 未通过跨场景验证前，只允许显式 opt-in 的 engineering STOP，不得用于正式结果。
 
 ### P0-B：Exact goal SHA启动门
@@ -1390,7 +1367,7 @@ candidate_id -> timestamp -> image SHA -> independent physical pose receipt
 - `L_i`；
 - time/path budgets；
 - trial order；
-- evaluator version；
+- arrival module version；
 - method configuration hash。
 
 同时必须保持20个pair的arm order为native-first 10个、CEC-first 10个；每个pair两臂
@@ -1520,7 +1497,7 @@ bridge min_cmd_w=0.20
 | --- | --- |
 | Safety operator | 手持Unitree遥控器，观察机器人和场地，拥有立即接管权 |
 | System operator | Jetson/4090启动、status、enable/estop、日志和run ID |
-| Evidence/evaluator operator | 第三人称相机、同步拍手、evaluator、结果记录和文件封存 |
+| Evidence/arrival operator | 第三人称相机、同步拍手、arrival 状态、结果记录和文件封存 |
 
 同一人兼任时，不能在机器人运动中低头操作复杂终端而失去现场观察。
 
@@ -1548,7 +1525,7 @@ bridge min_cmd_w=0.20
 [ ] capture preflight通过
 [ ] ROS bag / JSONL / dashboard已START
 [ ] 第三人称相机已START并同步拍手
-[ ] evaluator/termination procedure已运行
+[ ] arrival/termination procedure已运行
 [ ] 场地清空、遥控器操作者就位
 ```
 

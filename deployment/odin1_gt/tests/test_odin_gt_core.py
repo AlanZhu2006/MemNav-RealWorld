@@ -56,14 +56,14 @@ class OdinGtCoreTests(unittest.TestCase):
         self.assertFalse(path.update(1.0, Pose2D(1.0, 0.0, 0.0)))
         self.assertEqual(path.invalid_reason, "odometry_position_jump")
 
-    def test_arrival_requires_metric_visual_stationary_hold(self):
+    def test_arrival_requires_metric_rgb_and_stationary_hold(self):
         gate = ArrivalGate(distance_m=0.85, speed_mps=0.1, hold_s=1.0)
         self.assertFalse(
             gate.update(
                 now_s=0.0,
                 metric_distance_m=0.4,
                 planar_speed_mps=0.0,
-                visual_confirmed=False,
+                rgb_arrival_confirmed=False,
                 reference_ready=True,
             )
         )
@@ -72,7 +72,7 @@ class OdinGtCoreTests(unittest.TestCase):
                 now_s=1.0,
                 metric_distance_m=0.4,
                 planar_speed_mps=0.0,
-                visual_confirmed=True,
+                rgb_arrival_confirmed=True,
                 reference_ready=True,
             )
         )
@@ -81,7 +81,7 @@ class OdinGtCoreTests(unittest.TestCase):
                 now_s=2.0,
                 metric_distance_m=0.4,
                 planar_speed_mps=0.0,
-                visual_confirmed=True,
+                rgb_arrival_confirmed=True,
                 reference_ready=True,
             )
         )

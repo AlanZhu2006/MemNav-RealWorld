@@ -5,9 +5,9 @@ Snapshot: **2026-08-28**
 This workflow records one NavDP/Go2 trial as a synchronized evidence bundle:
 
 1. ROS 2 bag data for policy state, CEC receipts, trajectories, commands,
-   evaluator output and safety state;
+   RGB arrival output and safety state;
 2. line-oriented JSON copies of `/navdp/status`, `/navdp/cec_receipt`,
-   `/navdp/imagegoal_evaluation` and the experiment start/stop events;
+   `/navdp/rgb_arrival_status` and the experiment start/stop events;
 3. an automatic H.264 recording of the live RViz desktop;
 4. an externally recorded third-person video, imported byte-for-byte after the
    run;
@@ -22,7 +22,7 @@ adapter, clear estop or call the Unitree SDK.
 | Evidence | Capture authority | Purpose |
 | --- | --- | --- |
 | RTX episodic dataset | Full-Mono hub | Exact causal memory RGBs, excluded goal candidates and their immutable manifest |
-| ROS bag | Jetson collector | Policy/status/control/evaluator timeline; optional full RGB-D replay |
+| ROS bag | Jetson collector | Policy/status/control/RGB-arrival timeline; optional full RGB-D replay |
 | Receipt JSONL | Jetson collector | Human-readable phase, goal-selection, CEC and arrival-audit events |
 | RViz dashboard MP4 | Jetson GStreamer | First-person camera, goal, visual match, aligned safety depth, paths and live state |
 | Third-view master | External camera/operator | Physical motion, contacts, operator intervention and scene outcome |
@@ -52,7 +52,7 @@ recording or touch motion authority.
 
 ## Start a formal capture
 
-Use one unique run ID across the dashboard, third-view camera, evaluator output
+Use one unique run ID across the dashboard, third-view camera, arrival output
 and final notes:
 
 ~~~bash
@@ -66,9 +66,9 @@ bash deployment/go2/offboard/experiment_capture.sh start \
 
 The recommended `audit` profile records:
 
-- `/navdp/status`, `/navdp/cec_receipt` and `/navdp/imagegoal_evaluation`;
+- `/navdp/status`, `/navdp/cec_receipt` and `/navdp/rgb_arrival_status`;
 - selected/candidate paths, command velocity, enable/estop state and Go2 state;
-- ImageGoal, visual-match debug image, camera calibration and RViz markers;
+- ImageGoal, RGB-arrival debug image, camera calibration and RViz markers;
 - the RViz desktop at 12 fps, H.264, scaled to at most 1600 pixels wide.
 
 It does not duplicate the raw camera stream because the RTX episodic dataset
@@ -84,12 +84,12 @@ for `reference_ready=true`, then replace the last flag with
 NavDP. The full setup and run order are in `deployment/odin1_gt/README_CN.md`.
 
 After the command reports `START`, begin the independent third-person camera
-and make one visible sync clap. Only then start the evaluator and perform the
+and make one visible sync clap. Only then arm the arrival module and perform the
 separate onsite estop-clear and motion-enable procedure from the runbook.
 
 ## Stop and seal
 
-First assert estop or complete the evaluator's terminal procedure. Then stop
+First assert estop or complete the arrival module's terminal procedure. Then stop
 the evidence processes gracefully:
 
 ~~~bash
@@ -107,7 +107,7 @@ bash deployment/go2/offboard/experiment_capture.sh attach-odin-gt \
 
 bash deployment/go2/offboard/experiment_capture.sh finalize \
   revisit_scene01_trial01 success \
-  --notes "operator-confirmed physical outcome; evaluator report attached"
+  --notes "operator-confirmed physical outcome; arrival report attached"
 
 bash deployment/go2/offboard/experiment_capture.sh verify \
   revisit_scene01_trial01
@@ -142,7 +142,7 @@ runtime/go2/experiment_capture/<RUN_ID>/
 ├── logs/
 │   ├── status.jsonl
 │   ├── cec_receipt.jsonl
-│   ├── imagegoal_evaluation.jsonl
+│   ├── rgb_arrival_status.jsonl
 │   ├── odin_gt_status.jsonl            # when gt_source=odin1
 │   └── experiment_event.jsonl
 ├── media/

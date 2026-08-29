@@ -1,12 +1,12 @@
 # NavDP 在 Unitree Go2（Jetson + D435i）上的部署
 
-> **2026-08-29 当前入口：** 本文件后续章节仍保留原生 NavDP/X-NavDP、RGB-D
-> 组件调试和旧到达 evaluator 说明；所有新的完整栈实验统一使用 `nav_stack.sh`。
+> **2026-08-29 当前入口：** 本文件后续章节保留原生 NavDP/X-NavDP 与 RGB-D
+> 组件调试说明；所有新的完整栈实验统一使用 `nav_stack.sh`。
 > 正式 CEC 路径以仓库根目录的 `ARCHITECTURE.md`、`RUNBOOK.md` 和
 > `CURRENT_STATUS.md` 为准。正式路径中，Jetson
 > 只向策略提供当前 RGB 和 ImageGoal；旧 HTTP depth 字段仅为 wire
-> compatibility，hub 会丢弃。D435i aligned depth 只在 Jetson 本地用于近障停车
-> 与可选到达审计，不输入 CEC、bearing 或 NavDP。上位机从同一 causal RGB
+> compatibility，hub 会丢弃。D435i aligned depth 只在 Jetson 本地用于近障停车，
+> 不输入 CEC、bearing 或到达判定。上位机从同一 causal RGB
 > LingBot state 提供 mono-depth sidecar 和 CEC proof，NavDP 仍是唯一轨迹生成器。
 > 未实测 D435i 光心离地高度、未通过静态十分钟验收和故障注入前，禁止启动
 > Go2 bridge 或声称已完成真机闭环。
@@ -109,8 +109,7 @@ D435i aligned depth ───────┘                         │
 - `stack_profiles.py`、`nav_stack.sh`：导航、深度、CEC/memory 与 arrival 的统一模块注册和启动入口。
 - `trajectory_control.py`：可单元测试的轨迹跟踪、速度斜坡和深度安全逻辑。
 - `navdp_client.py`：严格匹配原项目 JPEG + 16-bit depth HTTP 格式。
-- `capture_image_goal.py`、`image_goal_io.py`：从 D435i 采集并无损保存目标图。
-- `imagegoal_experiment.py`：读取 Go2 本体位姿作为旧版辅助评测源，记录首次到达/revisit 的距离、SPL 和最终朝向误差；它不会发送给NavDP，但腿式打滑/漂移使其不再作为推荐正式GT。正式评测优先使用隔离的`deployment/odin1_gt/`参考栈。
+- `capture_image_goal.py`、`image_goal_io.py`：从 D435i 采集并无损保存目标图；同步深度仅作可选离线证据。
 - `debug_visualization.py`：候选轨迹排序与 Q 值颜色映射，不参与控制。
 - `go2_cmd_bridge.py`：从本机已成功 TinyNav 部署中移植的 `SportClient.Move()` 桥；保留超时和手柄优先权。
 - `navdp_base_server.py`：原版 NavDP 的无可视化轻量服务端，支持 `pointgoal/nogoal/imagegoal`。
@@ -249,9 +248,9 @@ bash deployment/go2/offboard/experiment_capture.sh start RUN_ID \
   --dataset DATASET_ID --trial-kind revisit --profile audit
 ```
 
-脚本自动记录 ROS bag、`/navdp/status`、完整 CEC 收据、evaluator 状态和 RViz
+脚本自动记录 ROS bag、`/navdp/status`、完整 CEC 收据、RGB arrival 状态和 RViz
 desktop H.264 视频，但不会发布速度、使能 adapter 或解除急停。命令返回后启动独立手机/相机
-的第三人称录像，并做一次可见的同步拍手，再按正式 runbook 单独启动 evaluator 和运动授权。
+的第三人称录像，并做一次可见的同步拍手，再按正式 runbook 确认到达模块和运动授权。
 
 实验结束必须先急停，再封存采集：
 
@@ -321,13 +320,13 @@ bash deployment/go2/nav_stack.sh stop
 bash deployment/go2/scripts/run_realsense.sh
 ```
 
-Go2 在目标位置完全静止后，另开终端采集。组合脚本从 10 对同步 D435i RGB-D 中保存最清晰的一对，同时从 `rt/sportmodestate` 的 30 个样本记录辅助位姿：
+Go2 在目标位置完全静止后，另开终端采集。脚本从 10 对同步 D435i RGB-D 中保存最清晰的目标 RGB；同步深度仅作为可选离线证据：
 
 ```bash
-bash deployment/go2/scripts/capture_imagegoal_reference.sh
+bash deployment/go2/scripts/capture_image_goal.sh
 ```
 
-默认目标文件是 `deployment/go2/goals/image_goal.png`，对齐深度是 `deployment/go2/goals/image_goal_depth.png`，评测参考是 `deployment/go2/goals/image_goal_pose.json`。原版 NavDP 的 HTTP 请求仍只收到目标 RGB 和当前 RGB-D；保存的目标深度只供独立视觉评测器确认是否回到相同视角，Go2 位姿只记录辅助距离、路径和 SPL。采集完成后不要重启 Go2，否则本体位置坐标系可能重置；停止相机，再用遥控器把 Go2 移回起点。最好保持原朝向，或在起点恢复到采集目标图时的相同 yaw。
+默认目标文件是 `deployment/go2/goals/image_goal.png`，可选对齐深度是 `deployment/go2/goals/image_goal_depth.png`。原版 NavDP 的 HTTP 请求只把目标 RGB 作为 goal，并使用当前 RGB-D 规划；保存的目标深度既不输入策略，也不输入 RGB 到达判定。采集完成后停止相机，再用遥控器把 Go2 移回起点。最好保持原朝向，或在起点恢复到采集目标图时的相同 yaw。
 
 第一阶段不接 Go2 桥，只检查目标图、候选轨迹和选中轨迹：
 
@@ -335,7 +334,7 @@ bash deployment/go2/scripts/capture_imagegoal_reference.sh
 bash deployment/go2/nav_stack.sh start \
   --profile native-navdp-rgbd \
   --goal deployment/go2/goals/image_goal.png \
-  --arrival operator \
+  --arrival rgb-homography \
   --with-rviz
 ros2 topic echo /navdp/status
 ```
@@ -347,32 +346,23 @@ bash deployment/go2/nav_stack.sh stop
 bash deployment/go2/nav_stack.sh start \
   --profile native-navdp-rgbd \
   --goal deployment/go2/goals/image_goal.png \
-  --arrival operator \
+  --arrival rgb-homography \
   --with-go2 --with-rviz
 ```
 
-评测终端先启动首次到达评测器：
-
-```bash
-bash deployment/go2/scripts/run_imagegoal_evaluator.sh run \
-  --episode first --arrival-mode object --auto-estop
-```
-
-确认评测器开始输出 `visual.reason`、当前匹配指标和辅助距离后，在控制终端解锁适配器：
+统一入口已经随导航栈启动唯一内置的 `rgb-homography` 到达模块。先确认
+`/navdp/rgb_arrival_status` 正常输出且 `armed=false`，再在控制终端解锁适配器：
 
 ```bash
 ros2 service call /navdp_go2_adapter/set_enabled std_srvs/srv/SetBool "{data: true}"
 ```
 
-默认 `--arrival-mode object` 判定“找到并靠近目标物”。它仍保留 SIFT ratio test、RANSAC 单应性、内点数/比例、匹配覆盖、中心、尺度、旋转和重投影误差门槛，同时检查匹配点的深度变化是否一致。默认允许当前视角比目标图近 `1.25m`、最多远 `0.25m`，但深度差的 MAD 必须不大于 `0.20m`；因此它允许靠得比目标照片近，又不会把远处偶然相似纹理当作到达。连续 3 帧识别成功后，还必须同时满足：
-
-1. Go2 三轴 L1 速度不大于 `0.10m/s`；
-2. `/navdp/status` 表明原版 NavDP 已使能、无急停、无传感器/推理/障碍停车；
-3. NavDP 发布速度接近零，且局部轨迹最大半径不大于 `0.20m`，持续至少 `1.50s`。
-
-这些条件把“策略主动认为无需继续运动”和“急停、失联、障碍导致的被动零速度”区分开。它是目标实例的几何外观确认，不是开放词汇语义识别。
-
-`--arrival-mode visual` 保留原来的严格同视角标准：除上述基础几何匹配外，还要求更大的匹配覆盖、更窄的中心/尺度范围以及匹配点绝对深度误差不大于 `0.40m`。`--arrival-mode visual_pose` 再叠加原仿真 `0.85m` 位姿门槛，`--arrival-mode pose` 仅用于对照。结果 schema v3 同时记录 `goal_object_success`、`exact_view_success`、`pose_success` 和 `policy_stop`，不能把四者混为一个指标。RViz 的 `ImageGoal Visual Match` 显示目标/当前匹配画面；成功时 `--auto-estop` 向 `/navdp/estop` 发布急停。`SportModeState` 只做静止门控及辅助距离、路径和旧版SPL记录，不输入 NavDP。正式`L_i/P_i/S_i`可由隔离的Odin1参考栈产生，但Odin同样不输入策略。策略本身仍不会收到位置、目标深度或 `goal_reached`；操作员必须继续拿着遥控器。
+该模块只读取当前 RGB 和冻结目标 RGB，使用 SIFT ratio test、RANSAC 单应性、
+内点数/比例、覆盖率、中心、尺度、旋转和重投影误差。默认单帧确认；确认后向
+`/navdp/arrival` 与 `/navdp/estop` 发布锁存，并请求禁用 adapter。它不读取深度、
+Go2 位姿或 NavDP 轨迹，也不参与路径生成。`/navdp/rgb_arrival_debug` 显示目标/当前
+匹配画面；操作员仍必须拿着遥控器，并把该门视为实验性 termination，而非模型
+原生 STOP。
 
 ### Revisit 协议
 
@@ -388,21 +378,17 @@ ros2 service call /navdp_go2_adapter/set_enabled std_srvs/srv/SetBool "{data: fa
 ros2 service call /navdp_go2_adapter/reset_policy std_srvs/srv/Trigger "{}"
 ```
 
-在评测终端启动 revisit：
-
-```bash
-bash deployment/go2/scripts/run_imagegoal_evaluator.sh run \
-  --episode revisit --arrival-mode object --auto-estop
-```
-
-确认评测器开始输出视觉匹配指标、策略重新产生合理轨迹后，在控制终端释放急停并解锁：
+确认 `/navdp/rgb_arrival_status` 的旧锁存已随 reset 清除、策略重新产生合理轨迹后，
+在控制终端释放急停并解锁：
 
 ```bash
 ros2 topic pub --once /navdp/estop std_msgs/msg/Bool "{data: false}"
 ros2 service call /navdp_go2_adapter/set_enabled std_srvs/srv/SetBool "{data: true}"
 ```
 
-主实验要求 `first` 和 `revisit` 两个 episode 都达到 `goal_object_success=true`；同时独立报告 `exact_view_success`，不要求机器狗精确复现拍照距离。比较两次匹配内点数、画面覆盖率、深度差及 MAD、最小辅助距离、路径长度、SPL、耗时和最终 yaw 误差。后续可增加“不 reset 历史”的连续回访作为补充实验，但不能替代上述独立 revisit。
+工程实验记录 `first` 和 `revisit` 两个 episode 的 RGB arrival 锁存、匹配内点数、
+画面覆盖率和耗时；正式距离、路径长度与 SPL 由隔离的 Odin1 参考栈提供。后续可增加
+“不 reset 历史”的连续回访作为补充实验，但不能替代上述独立 revisit。
 
 纯视觉无目标探索使用原版模型：
 
@@ -425,7 +411,7 @@ bash deployment/go2/scripts/run_stack.sh --backend base --mode nogoal
 7. Go2 桥超过 `0.35s` 未收到命令，`Move(0,0,0)` 并 `StopMove()`；
 8. 手柄活动优先于自主命令；
 9. 默认禁止倒车，避免前视相机看不到后方风险。
-10. ImageGoal 到达评测与策略隔离：目标物模式使用 RGB-D 几何匹配、NavDP 零轨迹和 Go2 静止状态；Go2 位姿只做辅助指标。可选 `--auto-estop` 只做 episode termination，操作员仍需随时接管。
+10. RGB 到达模块与策略隔离：只做 episode termination；命中后锁存 arrival、发布 estop 并请求禁用 adapter，操作员仍需随时接管。
 
 软件急停：
 
@@ -489,7 +475,7 @@ bash deployment/go2/nav_stack.sh stop
 - 原版 NavDP `nogoal` 推理，约 `1.46s`；
 - 原版 NavDP 权重包含完整 ImageGoal 编码器参数；合成 RGB-D 与目标图经真实 `/imagegoal_step` 推理得到 `(1,24,3)` 选中轨迹、`(1,16,24,3)` 候选轨迹，耗时约 `1.48s`；
 - ImageGoal ROS 无相机烟测成功载入目标图并发布 `/navdp/image_goal`，状态为 `image_goal_loaded=true`、`disabled`、零速度；测试栈随后已清理；
-- ImageGoal 评测器已从 `rt/sportmodestate` 连续读取 30 个稳定样本，并完成只读 ROS episode 超时烟测；随后增加与策略隔离的同步 RGB-D 视角验证器，离线正例、错场景、深度不一致和连续命中逻辑均通过测试；目标图/深度 SHA256、视觉匹配指标、辅助最小距离、路径长度、SPL 和最终 yaw 误差均可落盘；
+- 纯 RGB 到达模块的离线正例、错场景、尺度/旋转/中心门和锁存逻辑均有单元测试；一次 near-D 有电测试已验证 arrival/estop/adapter-disable 传输，但尚未标定跨场景误报率；
 - 两次独立 D435i 目标视角采样得到 667 个 RANSAC 几何内点、`0.994` 内点率和约 `0.001m` 深度中位误差；在 Unitree 运行环境中单次验证平均约 `0.066s`，本地 ROS 端到端烟测已验证连续 3 次命中后正常结束 episode；
 - 实际 CameraInfo 内参、深度单位/有效率、24 点 ROS Path 和禁用时零速检查；
 - RViz2 中实时 RGB、aligned depth、候选轨迹、选中轨迹、目标、前视净空和控制状态显示；

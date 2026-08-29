@@ -378,8 +378,8 @@ class FormalMonitor:
         self.latest_odom_stamp_s: Optional[float] = None
         self.latest_odom_monotonic_s = 0.0
         self.latest_speed_mps = math.inf
-        self.latest_visual_monotonic_s = 0.0
-        self.latest_visual_payload: dict[str, Any] = {}
+        self.latest_arrival_monotonic_s = 0.0
+        self.latest_arrival_payload: dict[str, Any] = {}
         self.episode_started = False
         self.episode_started_utc: Optional[str] = None
         self.start_pose_map: Optional[Pose2D] = None
@@ -405,7 +405,7 @@ class FormalMonitor:
             TFMessage, "/tf_static", self.on_tf, qos_profile_sensor_data
         )
         self.node.create_subscription(
-            String, args.visual_status_topic, self.on_visual, qos
+            String, args.arrival_status_topic, self.on_arrival_status, qos
         )
         self.node.create_timer(1.0 / args.publish_rate_hz, self.tick)
 
@@ -441,19 +441,22 @@ class FormalMonitor:
                     now_s, inverse_pose(transform_pose(stamped))
                 )
 
-    def on_visual(self, message: Any) -> None:
+    def on_arrival_status(self, message: Any) -> None:
         try:
             payload = json.loads(message.data)
         except (json.JSONDecodeError, TypeError):
             return
         if isinstance(payload, dict):
-            self.latest_visual_payload = payload
-            self.latest_visual_monotonic_s = time.monotonic()
+            self.latest_arrival_payload = payload
+            self.latest_arrival_monotonic_s = time.monotonic()
 
-    def visual_confirmed(self, now_s: float) -> bool:
+    def rgb_arrival_confirmed(self, now_s: float) -> bool:
         return bool(
-            now_s - self.latest_visual_monotonic_s <= self.args.visual_timeout_s
-            and self.latest_visual_payload.get("goal_object_recognized") is True
+            now_s - self.latest_arrival_monotonic_s
+            <= self.args.arrival_status_timeout_s
+            and self.latest_arrival_payload.get("schema")
+            == "navdp_rgb_arrival_v1"
+            and self.latest_arrival_payload.get("arrival_latched") is True
         )
 
     def current_map_pose(self) -> Optional[Pose2D]:
@@ -479,7 +482,7 @@ class FormalMonitor:
         yaw_error_rad = (
             math.inf if current_pose is None else current_pose.yaw_error(self.target_pose)
         )
-        visual_confirmed = self.visual_confirmed(now_s)
+        rgb_arrival_confirmed = self.rgb_arrival_confirmed(now_s)
         if ready and not self.episode_started:
             self.episode_started = True
             self.episode_started_utc = utc_now()
@@ -490,7 +493,7 @@ class FormalMonitor:
             now_s=now_s,
             metric_distance_m=distance_m,
             planar_speed_mps=self.latest_speed_mps,
-            visual_confirmed=visual_confirmed,
+            rgb_arrival_confirmed=rgb_arrival_confirmed,
             reference_ready=ready and self.episode_started,
         )
         return {
@@ -549,12 +552,12 @@ class FormalMonitor:
             "yaw_error_rad": (
                 None if not math.isfinite(yaw_error_rad) else round(yaw_error_rad, 4)
             ),
-            "visual": {
-                "topic": self.args.visual_status_topic,
-                "fresh": now_s - self.latest_visual_monotonic_s
-                <= self.args.visual_timeout_s,
-                "goal_object_recognized": visual_confirmed,
-                "source_payload": self.latest_visual_payload,
+            "rgb_arrival": {
+                "topic": self.args.arrival_status_topic,
+                "fresh": now_s - self.latest_arrival_monotonic_s
+                <= self.args.arrival_status_timeout_s,
+                "latched": rgb_arrival_confirmed,
+                "source_payload": self.latest_arrival_payload,
             },
             "arrival": self.arrival.status(now_s),
             "policy_input": False,
@@ -651,13 +654,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--driver-profile-receipt", type=Path, required=True)
     run.add_argument("--output-dir", type=Path, required=True)
     run.add_argument("--odometry-topic", default="/odin1/odometry")
-    run.add_argument("--visual-status-topic", default="/navdp/imagegoal_evaluation")
+    run.add_argument(
+        "--arrival-status-topic", default="/navdp/rgb_arrival_status"
+    )
     run.add_argument("--status-topic", default="/navdp/gt/status")
     run.add_argument("--map-frame", default="map")
     run.add_argument("--odom-frame", default="odom")
     run.add_argument("--publish-rate-hz", type=float, default=5.0)
     run.add_argument("--odometry-timeout-s", type=float, default=0.50)
-    run.add_argument("--visual-timeout-s", type=float, default=1.0)
+    run.add_argument("--arrival-status-timeout-s", type=float, default=1.0)
     run.add_argument("--relocalization-hold-s", type=float, default=2.0)
     run.add_argument("--relocalization-minimum-samples", type=int, default=5)
     run.add_argument("--maximum-tf-translation-change-m", type=float, default=0.15)

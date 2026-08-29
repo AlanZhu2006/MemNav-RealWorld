@@ -123,14 +123,14 @@ Visualization Manager:
           Max Value: 1
           Median window: 5
           Min Value: 0
-          Name: ImageGoal Visual Match
+          Name: RGB Arrival Match
           Normalize Range: true
           Topic:
             Depth: 1
             Durability Policy: Transient Local
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /navdp/imagegoal_match_debug
+            Value: /navdp/rgb_arrival_debug
           Value: true
       Enabled: true
       Name: NavDP Debug

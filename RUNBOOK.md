@@ -117,11 +117,11 @@ goal while stationary:
 
 ~~~bash
 bash deployment/go2/scripts/run_realsense.sh
-bash deployment/go2/scripts/capture_imagegoal_reference.sh
+bash deployment/go2/scripts/capture_image_goal.sh
 ~~~
 
-The aligned goal depth may be retained for offline arrival auditing, but it is
-not a policy input.
+The capture tool also preserves aligned depth as optional offline evidence. It
+is neither a policy goal input nor part of the RGB arrival verifier.
 
 ## 4. Camera-only static acceptance
 

@@ -204,7 +204,7 @@ class NavDPGo2Adapter(Node):
         elif self.mode == "imagegoal":
             self.get_logger().warning(
                 f"imagegoal loaded {self.image_goal_path}; policy has no internal arrival signal, "
-                "use the isolated ImageGoal evaluator for ground-truth termination"
+                "use an explicit arrival module or operator termination"
             )
 
     def _declare_parameters(self) -> None:
@@ -748,12 +748,12 @@ class NavDPGo2Adapter(Node):
         temporary.replace(path)
 
     def _persist_selected_goal_artifacts(self, receipt: dict) -> None:
-        """Persist the committed goal for the isolated evaluator only.
+        """Persist the committed goal and optional offline depth evidence.
 
         Navigation continues to use the RTX-owned committed JPEG.  The depth
-        file has no route back into NavDP and is written only so a formal run
-        can launch the independent visual arrival evaluator without manually
-        copying a target image between stages.
+        file has no route back into NavDP or the RGB arrival gate; it is kept
+        only for offline audit without manually copying artifacts between
+        stages.
         """
 
         goal_jpeg = self._client.last_goal_jpeg

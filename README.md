@@ -162,7 +162,7 @@ tethering for first motion, or the Unitree hand controller.
 
 | Path | Contents |
 | --- | --- |
-| <code>deployment/go2/</code> | D435i, ROS 2 adapter, RViz, ImageGoal evaluator, Go2 bridge and tests |
+| <code>deployment/go2/</code> | D435i, ROS 2 adapter, RViz, RGB arrival gate, Go2 bridge and tests |
 | <code>deployment/go2/nav_stack.sh</code> | Unified profile launcher separating native NavDP, Full-Mono CEC/LingBot and arrival authority |
 | <code>deployment/go2/offboard/</code> | Jetson-to-workstation SSH tunnel and dual-machine launcher |
 | <code>deployment/go2/offboard/experiment_capture.sh</code> | ROS bag, receipt, RViz and third-view evidence binding for each run |
@@ -239,11 +239,11 @@ The Full-Mono profile launcher owns the SSH tunnel and its contract preflight.
 ### 4. Capture an Image Goal
 
 With navigation stopped, move the Go2 to the goal pose using the hand
-controller, keep it stationary and capture synchronized RGB-D:
+controller, keep it stationary and capture the goal reference:
 
 ~~~bash
 bash deployment/go2/scripts/run_realsense.sh
-bash deployment/go2/scripts/capture_imagegoal_reference.sh
+bash deployment/go2/scripts/capture_image_goal.sh
 ~~~
 
 Goal files stay under the ignored <code>deployment/go2/goals/</code> runtime

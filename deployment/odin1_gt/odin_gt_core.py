@@ -221,7 +221,7 @@ class PathAccumulator:
 
 
 class ArrivalGate:
-    """Combine independent metric, visual and stationary evidence."""
+    """Combine independent metric, RGB-arrival and stationary evidence."""
 
     def __init__(
         self,
@@ -242,12 +242,12 @@ class ArrivalGate:
         now_s: float,
         metric_distance_m: float,
         planar_speed_mps: float,
-        visual_confirmed: bool,
+        rgb_arrival_confirmed: bool,
         reference_ready: bool,
     ) -> bool:
         conditions = (
             reference_ready
-            and visual_confirmed
+            and rgb_arrival_confirmed
             and math.isfinite(metric_distance_m)
             and metric_distance_m <= self.distance_m
             and math.isfinite(planar_speed_mps)
@@ -275,7 +275,7 @@ class ArrivalGate:
                 "distance_m": self.distance_m,
                 "speed_mps": self.speed_mps,
                 "hold_s": self.hold_s,
-                "visual_required": True,
+                "rgb_arrival_required": True,
             },
         }
 

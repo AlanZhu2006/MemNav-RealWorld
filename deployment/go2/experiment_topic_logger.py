@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Persist NavDP status, CEC and evaluation receipts as JSON Lines."""
+"""Persist NavDP status, CEC and arrival receipts as JSON Lines."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from typing import Any, TextIO
 TOPICS = {
     "/navdp/status": "status.jsonl",
     "/navdp/cec_receipt": "cec_receipt.jsonl",
-    "/navdp/imagegoal_evaluation": "imagegoal_evaluation.jsonl",
+    "/navdp/rgb_arrival_status": "rgb_arrival_status.jsonl",
     "/navdp/gt/status": "odin_gt_status.jsonl",
     "/navdp/experiment_event": "experiment_event.jsonl",
 }

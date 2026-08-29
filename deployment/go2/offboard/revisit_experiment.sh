@@ -47,7 +47,7 @@ formal-start:
   Safely restarts both machines, loads and verifies the sealed survey, uses
   the current camera view to initialize only NavDP's short FIFO, installs the
   selected historical goal and starts the Go2 bridge.  Motion remains LOCKED;
-  a field operator must separately start an evaluator and explicitly arm.
+  a field operator must verify the selected arrival module and explicitly arm.
 EOF
 }
 
@@ -324,13 +324,13 @@ PY
   echo "  run root: $run_root"
   echo "  goal:     $run_root/selected_goal.jpg"
   if [[ -s "$run_root/selected_goal_depth.png" ]]; then
-    echo "  eval depth: $run_root/selected_goal_depth.png (policy authority: none)"
+    echo "  offline depth: $run_root/selected_goal_depth.png (policy/arrival authority: none)"
   else
-    echo "  eval depth: missing; do not claim autonomous visual arrival"
+    echo "  offline depth: missing (optional; RGB arrival does not use it)"
   fi
   echo "  motion:   LOCKED (disabled + estop)"
   echo
-  echo "Do not arm until the independent evaluator/physical termination procedure"
+  echo "Do not arm until the RGB arrival/physical termination procedure"
   echo "is running and a field operator is holding the Unitree controller."
 }
 

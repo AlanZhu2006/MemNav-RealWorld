@@ -21,8 +21,8 @@ AUDIT_TOPICS=(
   /navdp/estop
   /navdp/enabled
   /navdp/image_goal
-  /navdp/imagegoal_evaluation
-  /navdp/imagegoal_match_debug
+  /navdp/rgb_arrival_status
+  /navdp/rgb_arrival_debug
   /navdp/debug/markers
   /navdp/experiment_event
   /rt/sportmodestate
@@ -59,8 +59,8 @@ Usage (run on Jetson while the NavDP stack and RViz are already running):
   experiment_capture.sh verify RUN_ID
 
 Profiles:
-  audit  Records policy state, CEC receipts, trajectories, commands, evaluator
-         output and RViz. The RTX episodic dataset remains the causal RGB
+  audit  Records policy state, CEC receipts, trajectories, commands, RGB
+         arrival output and RViz. The RTX episodic dataset remains the causal RGB
          authority. This is the recommended formal-run profile.
   full   Adds raw D435i RGB and aligned depth to the rosbag. Use only when disk
          bandwidth and capacity have been checked; policy authority is unchanged.

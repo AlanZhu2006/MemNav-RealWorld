@@ -45,12 +45,12 @@
     "path": "/odin1/path",
     "tf": "/tf",
     "gt_status": "/navdp/gt/status",
-    "d435i_visual_evaluator": "/navdp/imagegoal_evaluation"
+    "d435i_rgb_arrival": "/navdp/rgb_arrival_status"
   },
   "metric_contract": {
     "shortest_path_L_i": "8-connected A* on frozen Odin-derived 2D occupancy with unknown blocked and frozen footprint inflation",
     "actual_path_P_i": "sum of consecutive Odin odometry xy increments after relocalization gate becomes ready",
-    "success_S_i": "stable relocalization AND metric goal radius AND fresh D435i goal-object recognition AND stationary hold",
+    "success_S_i": "stable relocalization AND metric goal radius AND fresh D435i RGB arrival latch AND stationary hold",
     "spl_formula": "S_i * L_i / max(L_i, P_i)",
     "map_correction_policy": "map_to_odom is used for start/goal/current map pose but never for P_i increments"
   },
@@ -64,7 +64,7 @@
     "maximum_tf_translation_change_m": 0.15,
     "maximum_tf_rotation_change_deg": 5.0,
     "odometry_timeout_s": 0.5,
-    "visual_timeout_s": 1.0,
+    "arrival_status_timeout_s": 1.0,
     "arrival_distance_m": 0.85,
     "arrival_speed_mps": 0.1,
     "arrival_hold_s": 1.0,

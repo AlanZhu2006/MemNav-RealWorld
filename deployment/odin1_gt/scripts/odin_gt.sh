@@ -357,7 +357,7 @@ source $(printf '%q' "$SCRIPT_DIR/common.sh")
 odin_source_ros
 exec ros2 bag record --include-unpublished-topics -o $(printf '%q' "$root/rosbag/odin_formal") \
   /odin1/odometry /odin1/odometry_high /odin1/odometry_highfreq /odin1/path \
-  /odin1/cloud_slam /tf /tf_static /navdp/gt/status /navdp/imagegoal_evaluation \
+  /odin1/cloud_slam /tf /tf_static /navdp/gt/status /navdp/rgb_arrival_status \
   /navdp/status /navdp/cmd_vel /navdp/trajectory /navdp/estop
 EOF
   chmod +x "$root/receipts/launch_"*.sh

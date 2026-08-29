@@ -41,7 +41,7 @@ Odin1 mode 1 ──> .bin map + cloud_slam ──> frozen occupancy ──> A* L
       |
 Odin1 mode 2 ──> stable map->odom ──> map pose / local odom increments ──> P_i
                                       |
-D435i visual evaluator ───────────────┴──> S_i / arrival receipt ──> SPL
+D435i RGB arrival gate ──────────────┴──> S_i / arrival receipt ──> SPL
 
 第三人称视频 + RViz/dashboard + NavDP receipts + Odin receipts ──> hash manifest
 ```
@@ -136,14 +136,15 @@ P_i = sum || odom_xy(k) - odom_xy(k-1) ||_2
 ```text
 relocalization_ready
 AND Odin map distance <= 0.85 m
-AND fresh D435i goal_object_recognized
+AND fresh D435i RGB arrival latch
 AND Odin planar speed <= 0.10 m/s
 AND all conditions held for 1.0 s
 ```
 
-这比仅靠电机里程计或仅靠SIFT/RANSAC更稳健：Odin给出独立metric region，D435i确认
-确实看到了目标内容，静止门避免高速掠过。GT monitor只记录成功，不自动急停；Go2最终
-停止仍由现有NavDP evaluator/现场操作员和安全链负责，防止评测器意外获得运动权限。
+这比仅靠电机里程计或仅靠SIFT/RANSAC更稳健：Odin给出独立metric region，D435i 的
+纯 RGB arrival gate确认目标画面，静止门避免高速掠过。GT monitor只记录成功，不自动
+急停；Go2最终停止仍由 RGB arrival gate、现场操作员和安全链负责，防止GT参考栈意外
+获得运动权限。
 
 上述`0.85 m/0.10 m/s/1.0 s`仍是实现默认值，不是已发表标定结果。正式campaign前必须
 用`0/0.25/0.5/1.0 m × 0/±10/±20°`物理偏置实验冻结。
@@ -352,7 +353,7 @@ bash deployment/go2/offboard/experiment_capture.sh start scene01_formal_01 \
   --gt-source odin1
 ```
 
-此时ROS bag同时记录NavDP、CEC、D435 evaluator、Odin odom/cloud/TF和
+此时ROS bag同时记录NavDP、CEC、D435 RGB arrival、Odin odom/cloud/TF和
 `/navdp/gt/status`，桌面继续录RViz dashboard；第三人称相机同步开录。
 
 ### 8.3 再启动NavDP正式episode
@@ -371,7 +372,7 @@ ros2 topic echo /navdp/gt/status
 - `relocalization_evidence.invalid_reason=""`；
 - `odometry.invalid_reason=""`；
 - `distance_to_goal_m`连续合理；
-- `visual.goal_object_recognized`只在D435i目标可确认时为true；
+- `rgb_arrival.latched`只在纯 RGB 到达模块已锁存时为true；
 - `arrival.success=true`后仍由现有安全链/操作员确认停止。
 
 ### 8.4 结束、评分和封包
