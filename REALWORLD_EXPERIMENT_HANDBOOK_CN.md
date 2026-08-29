@@ -1851,7 +1851,7 @@ Commissioning smoke如果必须使用不同控制参数，应显式设置
 | `CURRENT_STATUS.md` | 最新已验证/未验证边界，实验前必须查看 |
 | `ARCHITECTURE.md` | protocol-v3、mono transaction和failure semantics |
 | `RUNBOOK.md` | 通用启动、fault injection和旧在线两阶段兼容流程 |
-| `TWO_PASS_REVISIT_RUNBOOK_20260825.md` | sealed Survey/Formal生命周期 |
+| `TWO_PASS_REVISIT_RUNBOOK.md` | sealed Survey/Formal生命周期 |
 | `EXPERIMENT_DATA_COLLECTION.md` | ROS bag、dashboard、third-view和manifest |
 | `REALWORLD_EVALUATION.md` | 4×5 paired空白结果登记页 |
 | `deployment/go2/README_CN.md` | Jetson/Go2组件级部署细节和旧ImageGoal evaluator流程 |

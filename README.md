@@ -172,7 +172,7 @@ tethering for first motion, or the Unitree hand controller.
 | <code>baselines/x-navdp/</code> | Upstream X-NavDP baseline and Jetson compatibility fixes |
 | <code>REALWORLD_EXPERIMENT_HANDBOOK_CN.md</code> | Complete Chinese experiment, safety, evidence, metric and handoff protocol |
 | <code>REALWORLD_EVALUATION.md</code> | Planned four-scene, five-paired-block native/CEC registry with empty result slots |
-| <code>REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md</code> | Dated integration evidence and measured limitations |
+| <code>docs/</code> | Documentation index and archived historical integration/release records |
 
 Model checkpoints, research datasets, local environments, runtime buffers and
 raw experiment evidence are intentionally excluded. Curated engineering demo
@@ -328,25 +328,9 @@ See [CURRENT_STATUS.md](CURRENT_STATUS.md) before any new experiment.
 
 ## Documentation
 
-Current operational documents:
-
-- [REALWORLD_EXPERIMENT_HANDBOOK_CN.md](REALWORLD_EXPERIMENT_HANDBOOK_CN.md): single-entry Chinese field experiment and handoff manual.
-- [RUNBOOK.md](RUNBOOK.md): current start, inspect, stop and revisit sequence.
-- [TWO_PASS_REVISIT_RUNBOOK_20260825.md](TWO_PASS_REVISIT_RUNBOOK_20260825.md): immutable survey and formal replay procedure.
-- [EXPERIMENT_DATA_COLLECTION.md](EXPERIMENT_DATA_COLLECTION.md): ROS bag, receipt and dual-view recording workflow.
-- [REALWORLD_EVALUATION.md](REALWORLD_EVALUATION.md): blank four-scene, five-run SR/SPL and media publication registry.
-- [deployment/odin1_gt/README_CN.md](deployment/odin1_gt/README_CN.md): independent Odin1 map/relocalization/arrival/SPL deployment and calibration guide.
-- [ARCHITECTURE.md](ARCHITECTURE.md): responsibilities, routing and fail-closed behavior.
-- [CURRENT_STATUS.md](CURRENT_STATUS.md): verified gates and remaining physical acceptance.
-- [SOURCE_MANIFEST.md](SOURCE_MANIFEST.md): source snapshot and excluded artifacts.
-- [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): upstream code and model notices.
-- [deployment/go2/README_CN.md](deployment/go2/README_CN.md): complete Jetson/Go2 guide in Chinese.
-
-Historical snapshots, retained as evidence rather than current instructions:
-
-- [FULL_MONO_RELEASE_20260821.md](FULL_MONO_RELEASE_20260821.md): protocol-v2 synchronization receipt.
-- [FULL_MONO_RELEASE_20260821_V3.md](FULL_MONO_RELEASE_20260821_V3.md): protocol-v3 transition release note.
-- [REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md](REALWORLD_GO2_DUAL_MACHINE_DEPLOYMENT_20260818.md): initial RGB-D dual-machine integration record.
+Use the centralized [documentation index](docs/README.md). Start with
+[CURRENT_STATUS.md](CURRENT_STATUS.md) before an experiment; dated release and
+integration records live under `docs/archive/` and are not current runbooks.
 
 ## Upstream NavDP
 

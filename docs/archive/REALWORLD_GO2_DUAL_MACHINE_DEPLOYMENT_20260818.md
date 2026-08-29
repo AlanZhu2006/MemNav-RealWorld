@@ -1,8 +1,10 @@
 # CEC + NavDP Unitree Go2 双机部署（2026-08-18）
 
 > **历史文档，已被当前 Full-Mono 栈取代。** 当前架构、统一启动入口与安全口径请以
-> `ARCHITECTURE.md`、`deployment/go2/STACK_MODULES_CN.md`、`RUNBOOK.md` 和
-> `CURRENT_STATUS.md` 为准。本文仅保留最早 RGB-D 双机联调的测量记录，下面的直接
+> [`ARCHITECTURE.md`](../../ARCHITECTURE.md)、
+> [`deployment/go2/STACK_MODULES_CN.md`](../../deployment/go2/STACK_MODULES_CN.md)、
+> [`RUNBOOK.md`](../../RUNBOOK.md) 和 [`CURRENT_STATUS.md`](../../CURRENT_STATUS.md)
+> 为准。本文仅保留最早 RGB-D 双机联调的测量记录，下面的直接
 > `run_offboard_stack.sh` 命令不得复制到新实验流程。
 
 ## 1. 当前结论

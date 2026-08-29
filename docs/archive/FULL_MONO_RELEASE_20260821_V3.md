@@ -1,8 +1,9 @@
 # Full-Mono Protocol-v3 Release (2026-08-21)
 
 > Historical protocol transition record. The current launcher, arrival modules
-> and claim boundary are documented in `deployment/go2/STACK_MODULES_CN.md`,
-> `RUNBOOK.md` and `CURRENT_STATUS.md`.
+> and claim boundary are documented in
+> [`deployment/go2/STACK_MODULES_CN.md`](../../deployment/go2/STACK_MODULES_CN.md),
+> [`RUNBOOK.md`](../../RUNBOOK.md) and [`CURRENT_STATUS.md`](../../CURRENT_STATUS.md).
 
 This release upgrades the deployed episode contract from protocol v2 to v3.
 It is a direct response to the first tethered revisit trial, which failed

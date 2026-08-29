@@ -1,4 +1,7 @@
-# 真机两阶段 Revisit 框架（2026-08-25）
+# 真机两阶段 Revisit 框架
+
+Current procedure; first introduced on 2026-08-25 and maintained without a
+date-stamped filename.
 
 ## 1. 目标
 

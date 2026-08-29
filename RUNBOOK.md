@@ -1,7 +1,7 @@
 # Full-Mono Runtime Runbook
 
 > 两次独立运行的长程 Revisit 数据集与一键 formal-ready 流程见
-> `TWO_PASS_REVISIT_RUNBOOK_20260825.md`。新正式实验优先使用该流程；本文件后面的
+> `TWO_PASS_REVISIT_RUNBOOK.md`。新正式实验优先使用该流程；本文件后面的
 > 单次在线 recording -> revisit 命令只用于机制调试，不是第二套正式流程。
 > 每轮 ROS bag、CEC 收据、RViz dashboard 与第三人称视频采集见
 > `EXPERIMENT_DATA_COLLECTION.md`。
