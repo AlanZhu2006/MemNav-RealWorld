@@ -77,6 +77,7 @@ PROPOSAL_ORDER = "geometry_first"
 NAVIGATION_SENSOR_CONTRACT = "causal_monocular_rgb_v1"
 NAVDP_DEPTH_SOURCE = "monocular_sidecar"
 CLIENT_DEPTH_CONTRACT = "local_safety_only_not_forwarded"
+AUTHORITY_MODES = ("cec", "native")
 
 
 class HybridBackendError(RuntimeError):
@@ -95,6 +96,14 @@ class UpstreamConfig:
     goal_min_frame_gap: int = GOAL_MIN_FRAME_GAP
     goal_min_inliers: int = GOAL_MIN_INLIERS
     goal_max_cos: float = GOAL_MAX_COS
+    authority_mode: str = "cec"
+
+    def __post_init__(self) -> None:
+        if self.authority_mode not in AUTHORITY_MODES:
+            raise ValueError(
+                f"unsupported authority mode {self.authority_mode!r}; "
+                f"choose one of {AUTHORITY_MODES}"
+            )
 
     @property
     def timeout(self) -> tuple[float, float]:
@@ -1259,6 +1268,58 @@ class CecHybridRouter:
             ) from error
 
         navdp_form = _bind_monocular_depth_transaction(form, probe, image)
+        if self.config.authority_mode == "native":
+            # The paired real-robot baseline keeps the same causal monocular
+            # stream and exact goal/history bytes, but grants no memory or
+            # direct-pose authority.  The retrieval probe is retained because
+            # it is the single append transaction that materializes current
+            # LingBot depth; its proposals are deliberately not consumed.
+            certificate = {
+                "ok": False,
+                "accepted": False,
+                "reason": "authority_disabled_formal_native_arm",
+            }
+            decision = adapt_revisit_pointgoal(
+                mode="verified_bearing_v1",
+                router_active=False,
+                pointgoal=None,
+                source="authority_disabled_formal_native_arm",
+                pointgoal_units=POINTGOAL_UNITS,
+            )
+            local_evidence = {
+                "status": "authority_disabled_formal_native_arm",
+                "certificate_accepted": False,
+            }
+            local_decision = decide_local_pose_handoff(
+                long_range_available=False,
+                evidence=local_evidence,
+                local_latched=False,
+                stop_streak=0,
+            )
+            self.terminal_local_latched = False
+            self.terminal_stop_streak = 0
+            result = self._native_plan(image, goal, navdp_form)
+            result.update(decision.audit_dict())
+            result.update(local_decision.audit_dict())
+            result.update({
+                "cec_authority_mode": self.config.authority_mode,
+                "cec_takeover": False,
+                "cec_reason": certificate["reason"],
+                "cec_controller": "navdp_image_authority_disabled",
+                "cec_step_index": self.step_index,
+                "cec_frame_idx": probe.get("frame_idx"),
+                "cec_selected_anchor": None,
+                "cec_certificate": None,
+                "cec_relocalization_ms": None,
+                "cec_candidate_ceiling_override": (
+                    None
+                    if self.active_goal is None
+                    else self.active_goal.get("candidate_ceiling_override")
+                ),
+                "terminal_localization": local_evidence,
+            })
+            return result
+
         candidates = probe.get("certified_visual_candidates")
         if not isinstance(candidates, list):
             candidates = []
@@ -1338,6 +1399,7 @@ class CecHybridRouter:
         result.update(decision.audit_dict())
         result.update(local_decision.audit_dict())
         result.update({
+            "cec_authority_mode": self.config.authority_mode,
             "cec_takeover": decision.takeover,
             "cec_reason": certificate.get("reason", decision.reason),
             "cec_controller": controller,
@@ -1396,6 +1458,7 @@ def create_app(router: CecHybridRouter) -> Flask:
             "metric_depth_sensor_consumed_by_policy": False,
             "client_depth_contract": CLIENT_DEPTH_CONTRACT,
             "camera_height_m": float(router.config.camera_height_m),
+            "cec_authority_mode": router.config.authority_mode,
         })
 
     @app.post("/navigator_reset")
@@ -1679,6 +1742,14 @@ def main() -> None:
     parser.add_argument("--request-timeout-s", type=float, default=180.0)
     parser.add_argument("--camera-height-m", type=float, required=True)
     parser.add_argument(
+        "--authority-mode",
+        choices=AUTHORITY_MODES,
+        default="cec",
+        help=("cec enables certified long/local bearing authority; native "
+              "keeps the same monocular stream but always calls the native "
+              "ImageGoal endpoint"),
+    )
+    parser.add_argument(
         "--goal-candidate-dir", default=None,
         help=("directory for goal-candidate photos captured during memory "
               "recording; they are never appended to the memory stream"))
@@ -1736,6 +1807,7 @@ def main() -> None:
         goal_min_frame_gap=max(1, args.goal_min_frame_gap),
         goal_min_inliers=max(1, args.goal_min_inliers),
         goal_max_cos=float(args.goal_max_cos),
+        authority_mode=args.authority_mode,
     ), dataset_store=dataset_store,
        auto_dataset_id=args.auto_dataset_id,
        auto_dataset_metadata=auto_dataset_metadata)

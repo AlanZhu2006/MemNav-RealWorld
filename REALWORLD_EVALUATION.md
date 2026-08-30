@@ -18,6 +18,14 @@ interleaved as 20 matched pairs rather than collected in separate campaigns.
 The controlling machine-readable plan is
 [`manifests/realworld_paired_evaluation_plan_v2.json`](manifests/realworld_paired_evaluation_plan_v2.json).
 
+The executable arm boundary is explicit.  `formal-start --arm mono_native`
+keeps the same sealed Survey, goal image, current RGB, and causal-monocular
+depth transaction but skips certificate and direct-local bearing authority;
+every plan records `cec_authority_mode=native` and calls the native ImageGoal
+endpoint.  `--arm mono_cec` enables the frozen certificate/bearing path.  A
+certificate that happens to reject is not accepted as a substitute for the
+native arm.
+
 ## Why the design is paired
 
 Within one pair, both arms must share:

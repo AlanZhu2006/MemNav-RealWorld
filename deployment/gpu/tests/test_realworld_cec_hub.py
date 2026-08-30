@@ -200,6 +200,58 @@ def test_certificate_reject_calls_exact_native():
     ]
 
 
+def test_formal_native_authority_mode_skips_all_bearing_authority():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(),
+        warmup_response(),
+        FakeResponse({
+            "frame_idx": 3,
+            "certified_visual_candidates": [{"anchor": 2}],
+        }),
+        nav_result("native-authority-disabled"),
+    ])
+    router = CecHybridRouter(
+        UpstreamConfig(
+            "http://mem",
+            "http://nav",
+            camera_height_m=0.5,
+            authority_mode="native",
+        ),
+        session=session,
+    )
+    do_reset(router)
+    enter_revisit(router)
+
+    result = router.plan_imagegoal(image=b"i", goal=b"g", depth=b"d")
+
+    assert result["marker"] == "native-authority-disabled"
+    assert result["cec_authority_mode"] == "native"
+    assert result["cec_takeover"] is False
+    assert result["cec_controller"] == "navdp_image_authority_disabled"
+    assert result["cec_reason"] == "authority_disabled_formal_native_arm"
+    assert result["terminal_handoff_disposition"] == "native"
+    assert result["terminal_proof_active"] is False
+    assert result["client_metric_depth_forwarded"] is False
+    assert [call[0] for call in session.calls[-2:]] == [
+        "http://mem/retrieval_probe_step",
+        "http://nav/imagegoal_step",
+    ]
+    assert not any(
+        call[0].endswith(("/certified_relocalize", "/local_pose_query"))
+        for call in session.calls
+    )
+
+
+def test_invalid_authority_mode_is_rejected_before_runtime():
+    with pytest.raises(ValueError, match="unsupported authority mode"):
+        UpstreamConfig(
+            "http://mem",
+            "http://nav",
+            camera_height_m=0.5,
+            authority_mode="raw",
+        )
+
+
 def test_certificate_accept_projects_to_frozen_radius_and_calls_mixed():
     session = FakeSession(reset_responses() + [
         memory_step_response(),
@@ -761,6 +813,7 @@ def test_http_contract_and_busy_safe_validation():
     health = client.get("/healthz").get_json()
     assert health["navigation_sensor_contract"] == NAVIGATION_SENSOR_CONTRACT
     assert health["terminal_handoff_schema"] == TERMINAL_HANDOFF_SCHEMA
+    assert health["cec_authority_mode"] == "cec"
     assert health["phase"] == "memory_recording"
     assert health["frames_recorded"] == 0
     missing = client.post(

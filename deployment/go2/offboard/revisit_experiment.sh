@@ -6,7 +6,8 @@ set -euo pipefail
 # Pass 1 records an immutable, exact-JPEG survey while the robot is driven by
 # the hand controller.  Pass 2 restarts the stack, replays only that frozen
 # long-term memory, installs a memory-excluded goal candidate and leaves the
-# robot at disabled+estop.  This script never grants motor authority.
+# robot at disabled+estop.  The formal arm is explicit and hash-bound.  This
+# script never grants motor authority.
 
 OFFBOARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GO2_DIR="$(cd "$OFFBOARD_DIR/.." && pwd)"
@@ -24,7 +25,7 @@ Usage (run on Jetson):
   revisit_experiment.sh survey-status
   revisit_experiment.sh survey-return DATASET_ID
   revisit_experiment.sh survey-seal DATASET_ID
-  revisit_experiment.sh formal-start DATASET_ID [--with-rviz]
+  revisit_experiment.sh formal-start DATASET_ID --arm mono_native|mono_cec [--with-rviz]
   revisit_experiment.sh formal-status
   revisit_experiment.sh stop
 
@@ -46,8 +47,9 @@ survey-return:
 formal-start:
   Safely restarts both machines, loads and verifies the sealed survey, uses
   the current camera view to initialize only NavDP's short FIFO, installs the
-  selected historical goal and starts the Go2 bridge.  Motion remains LOCKED;
-  a field operator must verify the selected arrival module and explicitly arm.
+  selected historical goal and starts the Go2 bridge.  The required arm is
+  verified from RTX health.  Motion remains LOCKED; a field operator must
+  verify the selected arrival module and explicitly arm.
 EOF
 }
 
@@ -255,13 +257,26 @@ formal_start() {
   shift
   validate_id "$dataset_id"
   local with_rviz=false
+  local arm=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --with-rviz) with_rviz=true ;;
+      --arm)
+        [[ $# -ge 2 ]] || die "--arm requires mono_native or mono_cec"
+        arm="$2"
+        shift
+        ;;
       *) die "unknown formal-start option: $1" ;;
     esac
     shift
   done
+  local authority_mode
+  case "$arm" in
+    mono_native) authority_mode="native" ;;
+    mono_cec) authority_mode="cec" ;;
+    "") die "formal-start requires --arm mono_native or --arm mono_cec" ;;
+    *) die "unsupported formal arm: $arm" ;;
+  esac
 
   if tmux has-session -t "$SESSION" 2>/dev/null; then
     force_motion_lock
@@ -271,7 +286,7 @@ formal_start() {
   bash "$FULLMONO" stop
   local stamp run_root
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-  run_root="$RUNTIME_ROOT/$dataset_id/formal_$stamp"
+  run_root="$RUNTIME_ROOT/$dataset_id/formal_${arm}_$stamp"
   mkdir -p "$run_root"
   local args=(start --with-go2)
   [[ "$with_rviz" == false ]] || args+=(--with-rviz)
@@ -280,6 +295,7 @@ formal_start() {
     NAVDP_NAVIGATE_DURING_MEMORY_RECORDING=false \
     NAVDP_PAUSE_MEMORY_RECORDING=true \
     NAVDP_AUTO_SELECT_GOAL_CANDIDATE=true \
+    CEC_AUTHORITY_MODE="$authority_mode" \
     bash "$FULLMONO" "${args[@]}"
   wait_empty_recording_hub
   force_motion_lock
@@ -304,11 +320,12 @@ PY
   fi
   local health
   health="$(hub_get /healthz)"
-  python3 - "$health" "$dataset_id" <<'PY'
+  python3 - "$health" "$dataset_id" "$authority_mode" <<'PY'
 import json, sys
 p = json.loads(sys.argv[1])
 assert p["phase"] == "revisit_query"
 assert p["active_goal_sha256"]
+assert p["cec_authority_mode"] == sys.argv[3]
 ds = p["episodic_dataset"]
 assert ds["loaded_dataset_id"] == sys.argv[2]
 assert ds["loaded_dataset_manifest_sha256"]
@@ -322,6 +339,7 @@ PY
   echo
   echo "Formal software stack is READY."
   echo "  run root: $run_root"
+  echo "  arm:      $arm (authority_mode=$authority_mode)"
   echo "  goal:     $run_root/selected_goal.jpg"
   if [[ -s "$run_root/selected_goal_depth.png" ]]; then
     echo "  offline depth: $run_root/selected_goal_depth.png (policy/arrival authority: none)"

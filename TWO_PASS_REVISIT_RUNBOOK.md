@@ -113,7 +113,7 @@ Seal 前脚本会再次发布 `set_enabled=false` 和 `estop=true`。若帧数�
 
 ```bash
 bash deployment/go2/offboard/revisit_experiment.sh \
-  formal-start office_loop_01 --with-rviz
+  formal-start office_loop_01 --arm mono_cec --with-rviz
 ```
 
 该命令会：
@@ -130,6 +130,12 @@ bash deployment/go2/offboard/revisit_experiment.sh \
 
 因此“一键启动”指一键达到**可审计、运动锁止的 formal-ready 状态**，不是无人值守给
 电机授权。当前自动到达/STOP 尚未通过物理标定，脚本故意没有 `arm` 子命令。
+
+正式配对实验必须显式选择 `--arm mono_native` 或 `--arm mono_cec`。前者仍重放同一
+sealed Survey、使用同一 goal、因果 RGB 和 LingBot 单目深度，但 RTX hub 会跳过
+certificate 与 direct-local bearing，并在每个 plan receipt 中写入
+`cec_authority_mode=native`、`cec_takeover=false` 和
+`cec_controller=navdp_image_authority_disabled`。不能用“CEC 恰好 reject”冒充 native arm。
 
 在启动独立 evaluator 和现场运动授权之前，先建立本轮双视角证据会话：
 

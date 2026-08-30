@@ -43,6 +43,10 @@ then
 else
   fail "CEC_CAMERA_HEIGHT_M must be finite and in [0.1, 2.0] m"
 fi
+case "${CEC_AUTHORITY_MODE:-cec}" in
+  cec|native) pass "authority mode: ${CEC_AUTHORITY_MODE:-cec}" ;;
+  *) fail "CEC_AUTHORITY_MODE must be cec or native" ;;
+esac
 for port in "$MEMNAV_PORT" "$NAVDP_PORT" "$CEC_HUB_PORT"; do
   if ss -ltn | awk '{print $4}' | grep -Eq "(^|:)$port$"; then
     fail "port already in use: $port"

@@ -17,6 +17,11 @@ GPU_SESSION="${CEC_TMUX_SESSION:-cec-realworld}"
 LOCAL_SESSION="${NAVDP_TMUX_SESSION:-navdp-go2-offboard}"
 LOCAL_PORT="${CEC_LOCAL_PORT:-18889}"
 REMOTE_PORT="${CEC_REMOTE_PORT:-18889}"
+CEC_AUTHORITY_MODE="${CEC_AUTHORITY_MODE:-cec}"
+case "$CEC_AUTHORITY_MODE" in
+  cec|native) ;;
+  *) echo "fullmono: CEC_AUTHORITY_MODE must be cec or native" >&2; exit 2 ;;
+esac
 SSH_OPTIONS=(
   -o BatchMode=yes
   -o ConnectTimeout=8
@@ -41,7 +46,8 @@ One-time RTX configuration:
 
 Optional overrides:
   CEC_HUB_SSH_HOST, CEC_GPU_REPO, CEC_TMUX_SESSION,
-  NAVDP_TMUX_SESSION, CEC_LOCAL_PORT, CEC_REMOTE_PORT.
+  NAVDP_TMUX_SESSION, CEC_LOCAL_PORT, CEC_REMOTE_PORT,
+  CEC_AUTHORITY_MODE=cec|native.
 EOF
 }
 
@@ -75,7 +81,9 @@ remote_health() {
 
 validate_health() {
   local payload="$1"
-  cec_validate_health_contract "$payload" "$GO2_DIR"
+  local expected_authority_mode="${2-$CEC_AUTHORITY_MODE}"
+  cec_validate_health_contract \
+    "$payload" "$GO2_DIR" "$expected_authority_mode"
   python3 - "$payload" <<'PY'
 import json
 import math
@@ -84,7 +92,11 @@ import sys
 p = json.loads(sys.argv[1])
 height = float(p["camera_height_m"])
 assert math.isfinite(height) and 0.1 <= height <= 2.0
-print(f"health=fullmono-v3-bearing-v2 camera_height_m={height:.3f}")
+print(
+    "health=fullmono-v3-bearing-v2 "
+    f"authority_mode={p['cec_authority_mode']} "
+    f"camera_height_m={height:.3f}"
+)
 PY
 }
 
@@ -164,6 +176,7 @@ PY
     # user environment, and the RTX preflight hard-fails without the height.
     # No default is supplied here on purpose -- the height is a safety gate.
     local remote_env="CEC_TMUX_SESSION=${quoted_gpu_session}"
+    remote_env+=" CEC_AUTHORITY_MODE=$(shell_quote "$CEC_AUTHORITY_MODE")"
     if [[ -n "${CEC_CAMERA_HEIGHT_M:-}" ]]; then
       remote_env+=" CEC_CAMERA_HEIGHT_M=$(shell_quote "$CEC_CAMERA_HEIGHT_M")"
     fi
@@ -230,7 +243,7 @@ status_stack() {
   local local_health
   if local_health="$(curl -fsS --max-time 3 "http://127.0.0.1:${LOCAL_PORT}/healthz" 2>/dev/null)"; then
     echo -n "Jetson tunnel:  "
-    validate_health "$local_health" || failures=$((failures + 1))
+    validate_health "$local_health" "" || failures=$((failures + 1))
   else
     echo "Jetson tunnel:  UNAVAILABLE"
     failures=$((failures + 1))
@@ -242,7 +255,7 @@ status_stack() {
       local gpu_health
       if gpu_health="$(remote_health 2>/dev/null)"; then
         echo -n "RTX hub:        "
-        validate_health "$gpu_health" || failures=$((failures + 1))
+        validate_health "$gpu_health" "" || failures=$((failures + 1))
       else
         echo "RTX hub:        UNHEALTHY"
         failures=$((failures + 1))

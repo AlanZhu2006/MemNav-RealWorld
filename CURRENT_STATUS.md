@@ -41,6 +41,13 @@ is a separately validated, scale-free terminal visual-servo / arrival contract.
 The robot is currently stopped.  No camera, NavDP adapter, Go2 bridge or RTX
 policy service is running.
 
+The paired campaign now has a fail-closed executable arm boundary.  The Jetson
+formal entry point requires `--arm mono_native|mono_cec`, forwards the choice
+to the RTX hub, verifies it from `/healthz`, and binds it into every plan
+receipt.  The native arm still consumes the same causal-monocular depth stream
+but skips both long-range certificate and direct-local bearing authority.  No
+formal rollout has been executed under this new control.
+
 The opt-in RGB-only arrival gate added on 2026-08-28 is a commissioning aid,
 not an established STOP contract.  Its first powered A -> D trial produced a
 false negative and is recorded below.  After controlled threshold tuning and
