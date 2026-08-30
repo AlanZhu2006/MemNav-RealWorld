@@ -228,6 +228,10 @@ route; automatic goal selection remains an optional lifelong demo.
   `.deployment_backups/20260825_bearing_v2_contract_pre_sync/`;
 - one stale ROS process that only published `estop=true` was removed by exact
   PID; no navigation process remains.
+- 2026-08-30 live fail-closed camera recovery was exercised after RGB-D became
+  stale for about 212 seconds: the service verified 11 fresh RGB and 10 fresh
+  aligned-depth frames, reduced `rgbd_age` to 0.027 s, and left
+  `enabled=false`, `estop=true`, and the commanded velocity at zero.
 
 Synchronization did not start the camera, ROS adapter, Go2 bridge or motors.
 
