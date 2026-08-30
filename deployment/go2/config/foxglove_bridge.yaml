@@ -1,12 +1,13 @@
 foxglove_bridge:
   ros__parameters:
-    # Observation plus one fail-closed STOP service. A browser must never gain
-    # start/reset/goal/parameter/topic-publish authority on a physical Go2.
+    # Observation plus two fail-closed operator services. A browser must never
+    # gain start/reset/goal/parameter/topic-publish authority on a physical Go2.
     capabilities:
       - services
       - connectionGraph
     service_whitelist:
       - "^/navdp_go2_adapter/operator_stop$"
+      - "^/navdp_camera_recovery/restart$"
     param_whitelist:
       - "(?!)"
     client_topic_whitelist:

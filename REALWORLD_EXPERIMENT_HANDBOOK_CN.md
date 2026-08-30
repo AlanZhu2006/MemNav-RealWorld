@@ -1020,7 +1020,8 @@ bash deployment/go2/offboard/revisit_experiment.sh stop
 
 ### 16.1 启动与连接
 
-实验配置使用 `launch.foxglove=true` 后，Jetson 启动无界面、观察为主且仅开放STOP的Bridge，
+实验配置使用 `launch.foxglove=true` 后，Jetson 启动无界面、观察为主且仅开放fail-closed
+操作的Bridge，
 不再需要VNC或本机图形桌面。操作电脑打开Foxglove，连接：
 
 ```text
@@ -1034,8 +1035,9 @@ deployment/go2/config/navdp_debug.foxglove-layout.json
 ```
 
 Bridge禁止client publish和参数修改；Service白名单精确限制为
-`/navdp_go2_adapter/operator_stop`。Foxglove不能reset、clear estop或enable，因此只具有
-观察权限和单向撤销运动权限。
+`/navdp_go2_adapter/operator_stop`与`/navdp_camera_recovery/restart`。后者先disable、assert
+estop并发布零速度，再重启相机并验证新RGB-D帧；成功后也保持锁止。Foxglove不能reset、
+clear estop或enable，因此只具有观察、单向撤销运动权限和锁止状态下的传感器恢复权限。
 默认配置监听所有网卡且没有TLS，因此只能放在可信实验局域网或Tailscale内；相机数据
 仍属于敏感遥测，不能把8765端口直接暴露到公网。查看Jetson端Bridge日志可执行：
 
@@ -1079,6 +1081,7 @@ JPEG并保留原始宽幅比例（当前通常为960×272）；`/navdp/status`�
 | RGB Arrival Match | `/navdp/foxglove/arrival/compressed`，保留左右对比图原始比例、最多5 Hz |
 | Operator status | `/navdp/foxglove/status/compressed`，安全锁、RGB-D/plan age、clearance、vx/wz、错误 |
 | STOP NAVIGATION | `/navdp_go2_adapter/operator_stop`，仅disabled + estop + zero，不具备启动能力 |
+| RECOVER CAMERA | `/navdp_camera_recovery/restart`，锁止运动、重启`rgbd`并验证RGB和aligned depth；不自动恢复运动 |
 | Candidate paths | `/navdp/debug/markers`，默认关闭，需要分析候选Q值时手动打开 |
 | Selected trajectory | `/navdp/trajectory` |
 | NavDP status | `/navdp/status`完整只读状态消息，从Topics侧栏按需查看 |
@@ -1480,6 +1483,15 @@ tail -n 100 runtime/go2/logs/realsense.log
 ### 22.2 `rgbd_stale`
 
 检查相机是否仍30Hz、同步skew、USB链路和CPU负载。不要调大timeout掩盖断流。
+若USB设备仍正常枚举，可在Foxglove点击`RECOVER CAMERA`，或直接调用：
+
+```bash
+ros2 service call /navdp_camera_recovery/restart std_srvs/srv/Trigger "{}"
+```
+
+返回`success=true`只表示重启后RGB和aligned depth各已收到至少10幅新帧；运动仍保持
+disabled + estop。若超时，继续检查供电、USB 3线材、Hub共享和D435i硬件，不得把服务返回
+当作已恢复导航。
 
 ### 22.3 `trajectory_stale`
 

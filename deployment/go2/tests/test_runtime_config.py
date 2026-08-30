@@ -162,7 +162,7 @@ def test_gpu_shell_contract_exposes_only_gpu_and_shared_fields(tmp_path):
     assert "CFG_IMAGE_GOAL=" not in exports
 
 
-def test_foxglove_layout_limits_control_to_one_stop_service():
+def test_foxglove_layout_limits_control_to_fail_closed_services():
     layout = json.loads(
         (
             REPO
@@ -175,17 +175,24 @@ def test_foxglove_layout_limits_control_to_one_stop_service():
     assert "Teleop" not in panel_kinds
     assert {"3D", "Image", "CallService"} <= panel_kinds
     assert "RawMessages" not in panel_kinds
-    stop_panels = {
+    service_panels = {
         panel_id: panel
         for panel_id, panel in layout["configById"].items()
         if panel_id.startswith("CallService!")
     }
-    assert set(stop_panels) == {"CallService!stop"}
-    assert stop_panels["CallService!stop"]["serviceName"] == (
+    assert set(service_panels) == {
+        "CallService!stop",
+        "CallService!camera-recovery",
+    }
+    assert service_panels["CallService!stop"]["serviceName"] == (
         "/navdp_go2_adapter/operator_stop"
     )
-    assert stop_panels["CallService!stop"]["requestPayload"] == "{}"
-    assert stop_panels["CallService!stop"]["buttonText"] == "STOP NAVIGATION"
+    assert service_panels["CallService!stop"]["requestPayload"] == "{}"
+    assert service_panels["CallService!stop"]["buttonText"] == "STOP NAVIGATION"
+    camera_panel = service_panels["CallService!camera-recovery"]
+    assert camera_panel["serviceName"] == "/navdp_camera_recovery/restart"
+    assert camera_panel["requestPayload"] == "{}"
+    assert camera_panel["buttonText"] == "RECOVER CAMERA"
 
 
 def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():
@@ -229,6 +236,7 @@ def test_foxglove_bridge_does_not_expose_raw_camera_images():
         "param_whitelist:", 1
     )[0]
     assert '"^/navdp_go2_adapter/operator_stop$"' in services
+    assert '"^/navdp_camera_recovery/restart$"' in services
     assert "set_enabled" not in services
     assert "reset_policy" not in services
     assert "begin_revisit" not in services

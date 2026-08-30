@@ -31,6 +31,7 @@ mkdir -p "$LOG_ROOT"
 policy_log="$LOG_ROOT/native_navdp.log"
 camera_log="$LOG_ROOT/realsense.log"
 adapter_log="$LOG_ROOT/adapter.log"
+camera_recovery_log="$LOG_ROOT/camera_recovery.log"
 : >"$policy_log"
 
 tmux new-session -d -s "$SESSION" -n policy \
@@ -80,6 +81,13 @@ if ! navdp_start_adapter_and_wait "$SESSION" "$adapter_log"; then
   echo "NavDP adapter did not publish status." >&2
   tail -n 100 "$adapter_log" >&2 || true
   exit 1
+fi
+if [[ "$CFG_WITH_CAMERA" == true ]]; then
+  if ! navdp_start_camera_recovery_and_wait "$SESSION" "$camera_recovery_log"; then
+    echo "Camera recovery service did not become ready." >&2
+    tail -n 100 "$camera_recovery_log" >&2 || true
+    exit 1
+  fi
 fi
 navdp_start_optional_windows "$SESSION"
 navdp_stamp_session_contract "$SESSION"

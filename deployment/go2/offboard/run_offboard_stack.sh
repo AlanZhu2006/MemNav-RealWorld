@@ -64,6 +64,15 @@ if ! navdp_start_adapter_and_wait "$SESSION" "$adapter_log"; then
   tmux kill-session -t "$SESSION" 2>/dev/null || true
   exit 1
 fi
+if [[ "$CFG_WITH_CAMERA" == true ]]; then
+  camera_recovery_log="$LOG_ROOT/camera_recovery.log"
+  if ! navdp_start_camera_recovery_and_wait "$SESSION" "$camera_recovery_log"; then
+    echo "Camera recovery service did not become ready; rolling back local stack." >&2
+    tail -n 100 "$camera_recovery_log" >&2 || true
+    tmux kill-session -t "$SESSION" 2>/dev/null || true
+    exit 1
+  fi
+fi
 navdp_start_optional_windows "$SESSION"
 navdp_stamp_session_contract "$SESSION"
 

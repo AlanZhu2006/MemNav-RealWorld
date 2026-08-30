@@ -155,6 +155,16 @@
       "buttonColor": "#d32f2f",
       "editingMode": false,
       "foxglovePanelTitle": "STOP only — cannot start"
+    },
+    "CallService!camera-recovery": {
+      "serviceName": "/navdp_camera_recovery/restart",
+      "requestPayload": "{}",
+      "layout": "vertical",
+      "buttonText": "RECOVER CAMERA",
+      "buttonTooltip": "Locks motion, restarts RealSense and verifies fresh RGB-D frames",
+      "buttonColor": "#ef6c00",
+      "editingMode": false,
+      "foxglovePanelTitle": "Camera recovery — motion stays locked"
     }
   },
   "globalVariables": {},
@@ -186,8 +196,13 @@
         "second": {
           "direction": "row",
           "first": "Image!status",
-          "second": "CallService!stop",
-          "splitPercentage": 72
+          "second": {
+            "direction": "column",
+            "first": "CallService!stop",
+            "second": "CallService!camera-recovery",
+            "splitPercentage": 50
+          },
+          "splitPercentage": 66
         },
         "splitPercentage": 54
       },

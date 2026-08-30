@@ -132,6 +132,25 @@ navdp_start_adapter_and_wait() {
   [[ "$adapter_ready" == true ]]
 }
 
+navdp_start_camera_recovery_and_wait() {
+  local session="$1"
+  local recovery_log="$2"
+  : >"$recovery_log"
+  tmux new-window -t "$session" -n camera-recovery \
+    "exec '$NAVDP_GO2_SCRIPT_DIR/run_camera_recovery.sh' --config '$NAVDP_RUN_CONFIG' >'$recovery_log' 2>&1"
+  local recovery_ready=false
+  for _ in $(seq 1 "$CFG_ADAPTER_READY_TIMEOUT_S"); do
+    if [[ "$(timeout 2 ros2 service type \
+        /navdp_camera_recovery/restart 2>/dev/null || true)" \
+        == "std_srvs/srv/Trigger" ]]; then
+      recovery_ready=true
+      break
+    fi
+    sleep 0.25
+  done
+  [[ "$recovery_ready" == true ]]
+}
+
 navdp_start_optional_windows() {
   local session="$1"
   if [[ "$CFG_ARRIVAL_MODULE" == rgb-homography ]]; then

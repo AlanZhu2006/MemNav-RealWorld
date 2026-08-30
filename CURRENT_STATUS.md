@@ -46,8 +46,9 @@ is a separately validated, scale-free terminal visual-servo / arrival contract.
 
 The robot is currently motion-locked (`disabled + estop`). The native stack,
 camera and observation-first Foxglove Bridge may remain live for inspection.
-Its sole control is a dedicated fail-closed STOP service; it cannot grant
-actuator authority, reset policy state or clear estop.
+Its only controls are a dedicated fail-closed STOP service and a camera-recovery
+service that first locks motion and verifies fresh RGB-D after restart. Neither
+can grant actuator authority, reset policy state or clear estop.
 
 The paired campaign now has a fail-closed executable arm boundary.  The Jetson
 formal entry point requires `--arm mono_native|mono_cec`, forwards the choice
@@ -103,8 +104,9 @@ performance.
 - Foxglove operator UI: selected trajectory is the default 3D signal; verbose
   candidate/Q-value markers are opt-in, arrival comparison preserves its native
   wide aspect, and a read-only status card summarizes lock/freshness/clearance/
-  command/error while raw JSON remains available for detailed diagnosis. A
-  single red STOP control can only disable + estop + command zero.
+  command/error while raw JSON remains available for detailed diagnosis. The
+  red STOP control can only disable + estop + command zero; the orange camera
+  recovery control applies that same lock, restarts RGB-D and never resumes motion.
 
 The terminal wire schema is
 `cec_direct_bearing_handoff_v2_20260824`.  Both reset and launcher preflight
