@@ -344,6 +344,7 @@ revisit_prepare() {
 
   bash "$REVISIT" --config "$experiment" formal-start "$dataset_id" \
     --scene-id "$scene_id" --run-id "$run_id" --arm mono_cec \
+    --engineering-unregistered \
     --goal "$goal" --expected-goal-sha256 "$goal_sha" \
     --expected-dataset-sha256 "$dataset_sha"
   update_state formal_ready "$dataset_sha" "$run_id"

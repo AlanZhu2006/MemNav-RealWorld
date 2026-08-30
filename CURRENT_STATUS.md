@@ -71,8 +71,15 @@ outcome-blank preregistration remains immutable; the read-only
 finalized capture manifests, rechecks Odin SPL receipts and explicit authority
 modes, and derives paired statistics only when every run passes.  Its current
 plan-only audit reports 40 structurally valid registered runs and, correctly,
-zero verified outcomes because the four-scene registry and arrival calibration
-are not yet frozen.
+zero verified outcomes.  The expanded pre-Formal audit exposes 65 explicit
+freeze blockers: the campaign-level held-out arrival/registry seal plus every
+scene role, dataset, goal, start, shortest path, budget, and artifact binding.
+`tools/freeze_realworld_paired_campaign.py` now closes those blockers only from
+verified field bytes and writes a new outcome-blank plan; it has no ROS, policy,
+or motion path.  `formal-start` now also requires that plan and records its SHA;
+the only unregistered route is explicitly marked engineering/debug and the
+final verifier rejects it.  No field registry or arrival calibration has yet
+been frozen.
 
 The opt-in RGB-only arrival gate added on 2026-08-28 is a commissioning aid,
 not an established STOP contract.  Its first powered A -> D trial produced a

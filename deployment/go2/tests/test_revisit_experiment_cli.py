@@ -36,11 +36,12 @@ def test_formal_start_rejects_goal_not_matching_registered_sha(tmp_path: Path):
         "formal-start",
         "survey01",
         "--scene-id",
-        "scene01",
+        "debug_scene01",
         "--run-id",
         "scene01_pair01_cec",
         "--arm",
         "mono_cec",
+        "--engineering-unregistered",
         "--goal",
         str(goal),
         "--expected-goal-sha256",
@@ -58,6 +59,7 @@ def test_help_exposes_role_hidden_frozen_goal_contract():
 
     assert result.returncode == 0
     assert "--expected-goal-sha256" in result.stdout
+    assert "--plan FROZEN_PAIRED_PLAN.json" in result.stdout
     assert "No Novel/Revisit label is passed to runtime" in result.stdout
 
 

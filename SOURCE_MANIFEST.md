@@ -51,9 +51,13 @@ auditable overlay instead of an anonymous source dump.
 | `REALWORLD_EXPERIMENT_HANDBOOK_CN.md` | Unified Chinese architecture, Survey/Formal, safety, evidence, metric and handoff manual |
 | `REALWORLD_EVALUATION.md` | Planned four-scene, five-paired-block SR/SPL and dual-view publication registry; contains no result claims |
 | `tools/verify_realworld_paired_campaign.py` | Read-only binding and independent SR/SPL/McNemar derivation for the immutable 20-pair preregistration |
+| `tools/freeze_realworld_paired_campaign.py` | Motion-free pre-Formal freezer: verifies the four-scene registry and held-out arrival calibration, then writes a new outcome-blank 20-pair plan without overwriting the template |
+| `tools/verify_realworld_formal_registration.py` | Role-hidden launch gate binding one scene/run/arm/dataset/goal tuple to the fully frozen paired-plan SHA before any formal stack starts |
 | `docs/archive/` | Superseded dated release and integration receipts retained only for audit history |
 | `manifests/realworld_evaluation_plan_v1.json` | Archived pre-meeting single-arm 20-run template; all metrics remain null |
 | `manifests/realworld_paired_evaluation_plan_v2.json` | Controlling machine-readable plan: 20 balanced native/CEC pairs, 40 physical rollouts, all metrics null until evidence is finalized |
+| `manifests/realworld_scene_registry_template_v1.json` | Outcome-blind field schema for four exact scene/dataset/goal/start/path/config bindings |
+| `manifests/realworld_arrival_calibration_template_v1.json` | Held-out independent-arrival calibration schema; remains pending in the public repository |
 | `manifests/odin1_gt_reference_v1.json` | Machine-readable Odin authority boundary, implemented defaults and null field-calibration gates |
 
 The MemNav model service remains an external research dependency because its

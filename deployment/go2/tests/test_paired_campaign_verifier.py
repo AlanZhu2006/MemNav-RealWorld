@@ -91,6 +91,7 @@ def _populate_formal_run(
     goal_sha: str,
     authority_mode: str,
     success: bool,
+    plan_sha256: str = "c" * 64,
 ) -> None:
     create_manifest(
         root,
@@ -106,6 +107,19 @@ def _populate_formal_run(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest["repository"]["tracked_files_dirty"] = False
     atomic_write_json(manifest_path, manifest)
+    (root / "formal_registration.json").write_text(json.dumps({
+        "schema": "memnav-realworld-formal-registration-v1",
+        "registered": True,
+        "formal_outcomes_read": False,
+        "runtime_role_visibility": "none",
+        "plan_sha256": plan_sha256,
+        "scene_id": "scene03",
+        "run_id": run_id,
+        "arm": "mono_cec" if authority_mode == "cec" else "mono_native",
+        "dataset_id": dataset_id,
+        "goal_sha256": goal_sha,
+        "dataset_manifest_sha256": dataset_sha,
+    }) + "\n", encoding="utf-8")
 
     (root / "rosbag").mkdir()
     (root / "rosbag" / "metadata.yaml").write_text("rosbag2_bagfile_information: {}\n")
@@ -205,6 +219,7 @@ def test_one_finalized_run_is_independently_reproduced():
             "order": ["mono_cec", "mono_native"],
             "arm": "mono_cec",
             "run_id": run_id,
+            "plan_sha256": "c" * 64,
         }, root)
 
         assert row["success"] == 1

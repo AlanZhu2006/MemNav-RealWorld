@@ -54,6 +54,7 @@ Usage (run on Jetson):
       --scene-id SCENE_ID --run-id RUN_ID
       --arm mono_native|mono_cec --goal FROZEN_GOAL_JPEG
       --expected-goal-sha256 SHA256 --expected-dataset-sha256 SHA256
+      --plan FROZEN_PAIRED_PLAN.json
   revisit_experiment.sh formal-status
   revisit_experiment.sh stop
 
@@ -78,6 +79,8 @@ formal-start:
   exact preregistered external goal and starts the Go2 bridge. Goal and dataset
   SHA-256 plus the required authority arm are verified from RTX health.
   No Novel/Revisit label is passed to runtime. Motion remains LOCKED.
+  A fully frozen paired plan is mandatory. Engineering debug must use the
+  explicit --engineering-unregistered flag and cannot enter formal results.
 EOF
 }
 
@@ -310,11 +313,12 @@ formal_start() {
   local dataset_id="$1"
   shift
   validate_id "$dataset_id"
-  local arm="" scene_id="" run_id="" frozen_goal=""
+  local arm="" scene_id="" run_id="" frozen_goal="" frozen_plan=""
+  local engineering_unregistered=0
   local expected_goal_sha256="" expected_dataset_sha256=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --arm|--scene-id|--run-id|--goal|--expected-goal-sha256|--expected-dataset-sha256)
+      --arm|--scene-id|--run-id|--goal|--expected-goal-sha256|--expected-dataset-sha256|--plan)
         [[ $# -ge 2 ]] || die "$1 requires a value"
         case "$1" in
           --arm) arm="$2" ;;
@@ -323,8 +327,13 @@ formal_start() {
           --goal) frozen_goal="$2" ;;
           --expected-goal-sha256) expected_goal_sha256="$2" ;;
           --expected-dataset-sha256) expected_dataset_sha256="$2" ;;
+          --plan) frozen_plan="$2" ;;
         esac
         shift 2
+        ;;
+      --engineering-unregistered)
+        engineering_unregistered=1
+        shift
         ;;
       *) die "unknown formal-start option: $1; Foxglove belongs in config" ;;
     esac
@@ -345,6 +354,38 @@ formal_start() {
   validate_id "$run_id"
   validate_sha256 "$expected_goal_sha256"
   validate_sha256 "$expected_dataset_sha256"
+  local registration_json
+  if [[ "$engineering_unregistered" == 1 ]]; then
+    [[ -z "$frozen_plan" ]] || die "engineering-unregistered cannot also use --plan"
+    [[ "$scene_id" == debug_* ]] \
+      || die "engineering-unregistered scene IDs must begin with debug_"
+    registration_json="$(python3 - "$scene_id" "$run_id" "$arm" "$dataset_id" \
+        "$expected_goal_sha256" "$expected_dataset_sha256" <<'PY'
+import json, sys
+print(json.dumps({
+    "schema": "memnav-realworld-formal-registration-v1",
+    "registered": False,
+    "engineering_unregistered": True,
+    "formal_outcomes_read": False,
+    "runtime_role_visibility": "none",
+    "scene_id": sys.argv[1], "run_id": sys.argv[2], "arm": sys.argv[3],
+    "dataset_id": sys.argv[4], "goal_sha256": sys.argv[5],
+    "dataset_manifest_sha256": sys.argv[6], "plan_sha256": None,
+    "method_config_sha256": None,
+}, sort_keys=True))
+PY
+)"
+  else
+    [[ -n "$frozen_plan" ]] || die "formal-start requires --plan"
+    [[ -f "$frozen_plan" ]] || die "frozen paired plan does not exist: $frozen_plan"
+    frozen_plan="$(readlink -f "$frozen_plan")"
+    registration_json="$(python3 "$NAVDP_ROOT/tools/verify_realworld_formal_registration.py" \
+      --plan "$frozen_plan" --scene-id "$scene_id" --run-id "$run_id" \
+      --arm "$arm" --dataset-id "$dataset_id" \
+      --goal-sha256 "$expected_goal_sha256" \
+      --dataset-manifest-sha256 "$expected_dataset_sha256")" \
+      || die "formal launch is not registered by the frozen paired plan"
+  fi
   [[ -f "$frozen_goal" ]] || die "frozen goal does not exist: $frozen_goal"
   frozen_goal="$(readlink -f "$frozen_goal")"
   local actual_goal_sha256 expected_committed_goal_sha256
@@ -352,6 +393,17 @@ formal_start() {
   [[ "$actual_goal_sha256" == "$expected_goal_sha256" ]] \
     || die "frozen goal SHA mismatch: expected $expected_goal_sha256, got $actual_goal_sha256"
   load_base_config
+  if [[ "$engineering_unregistered" == 0 ]]; then
+    local expected_method_config_sha actual_method_config_sha
+    expected_method_config_sha="$(python3 - "$registration_json" <<'PY'
+import json,sys
+print(json.loads(sys.argv[1])["method_config_sha256"])
+PY
+)"
+    actual_method_config_sha="$(sha256sum "$BASE_RESOLVED" | awk '{print $1}')"
+    [[ "$actual_method_config_sha" == "$expected_method_config_sha" ]] \
+      || die "resolved method config differs from the frozen scene registry"
+  fi
   expected_committed_goal_sha256="$(
     "$CFG_JETSON_PYTHON" "$GO2_DIR/goal_wire_identity.py" \
       --sha256 "$frozen_goal"
@@ -367,6 +419,7 @@ formal_start() {
   # formal pass proves load/replay instead of accidentally reusing survey RAM.
   bash "$FULLMONO" stop --config "$(active_config)"
   mkdir -p "$run_root"
+  write_receipt "$run_root/formal_registration.json" "$registration_json"
   local config_path="$run_root/formal_config.json"
   python3 "$CONFIG_TOOL" derive-formal \
     --config "$BASE_RESOLVED" --dataset-id "$dataset_id" \
@@ -429,10 +482,11 @@ PY
   formal_ready="$(python3 - "$scene_id" "$run_id" "$dataset_id" "$arm" \
       "$authority_mode" "$frozen_goal" "$expected_goal_sha256" \
       "$expected_committed_goal_sha256" "$expected_dataset_sha256" \
-      "$health" "$formal_config_id" <<'PY'
+      "$health" "$formal_config_id" "$registration_json" <<'PY'
 from datetime import datetime, timezone
 import json, sys
 health = json.loads(sys.argv[10])
+registration = json.loads(sys.argv[12])
 print(json.dumps({
     "schema": "memnav_realworld_formal_ready_v1_20260830",
     "created_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -448,6 +502,9 @@ print(json.dumps({
     "loaded_dataset_id": health["episodic_dataset"]["loaded_dataset_id"],
     "loaded_dataset_manifest_sha256": health["episodic_dataset"]["loaded_dataset_manifest_sha256"],
     "resolved_config_id": sys.argv[11],
+    "registered_plan_sha256": registration.get("plan_sha256"),
+    "formal_registration": registration.get("registered") is True,
+    "engineering_unregistered": registration.get("engineering_unregistered") is True,
 }, sort_keys=True))
 PY
 )"

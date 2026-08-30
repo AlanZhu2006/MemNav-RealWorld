@@ -34,6 +34,8 @@ REQUIRED_PATHS = (
     "manifests/realworld_fullmono_v4.json",
     "manifests/realworld_evaluation_plan_v1.json",
     "manifests/realworld_paired_evaluation_plan_v2.json",
+    "manifests/realworld_scene_registry_template_v1.json",
+    "manifests/realworld_arrival_calibration_template_v1.json",
     "manifests/odin1_gt_reference_v1.json",
     "docs/README.md",
     "docs/archive/FULL_MONO_RELEASE_20260821.md",
@@ -78,6 +80,8 @@ REQUIRED_PATHS = (
     "tools/archive/score_realworld_revisit_goal.py",
     "tools/transcode_demo_media.sh",
     "tools/build_demo_previews.py",
+    "tools/freeze_realworld_paired_campaign.py",
+    "tools/verify_realworld_formal_registration.py",
     "tools/verify_realworld_paired_campaign.py",
 )
 
@@ -380,6 +384,14 @@ def main() -> int:
         ).read_text()
         and '"runtime_role_visibility": "none"' in formal_source,
         "formal entry binds an external exact goal without role input",
+        failures,
+    )
+    check(
+        "--plan FROZEN_PAIRED_PLAN.json" in formal_source
+        and "verify_realworld_formal_registration.py" in formal_source
+        and 'write_receipt "$run_root/formal_registration.json"' in formal_source
+        and "--engineering-unregistered" in formal_source,
+        "formal entry is plan-bound and debug is explicitly non-formal",
         failures,
     )
     capture_source = (

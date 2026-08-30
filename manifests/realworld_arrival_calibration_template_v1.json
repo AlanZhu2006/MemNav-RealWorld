@@ -1,0 +1,15 @@
+{
+  "schema": "memnav-realworld-arrival-calibration-v1",
+  "status": "pending",
+  "formal_outcomes_read": false,
+  "held_out_from_formal_scenes": true,
+  "calibration_scene_ids": [],
+  "calibration_trials": 0,
+  "termination_authority": null,
+  "success_region_contract": null,
+  "stationary_hold_s": null,
+  "relocalization_stability_contract": null,
+  "path_measurement_contract": null,
+  "dropout_policy": null,
+  "evidence": []
+}

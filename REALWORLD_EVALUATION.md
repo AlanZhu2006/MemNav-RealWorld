@@ -132,6 +132,34 @@ robot or result access:
 python tools/verify_realworld_paired_campaign.py
 ```
 
+Once the four field scene receipts and a held-out arrival calibration are
+complete, freeze them into a **new** outcome-blank plan before Formal 01:
+
+```bash
+python tools/freeze_realworld_paired_campaign.py \
+  --template manifests/realworld_paired_evaluation_plan_v2.json \
+  --scene-registry /path/to/four_scene_registry.json \
+  --arrival-calibration /path/to/heldout_arrival_calibration.json \
+  --output /path/to/realworld_paired_evaluation_plan_frozen.json
+```
+
+Field-fillable source schemas are provided in
+`manifests/realworld_scene_registry_template_v1.json` and
+`manifests/realworld_arrival_calibration_template_v1.json`.  Copy them to the
+evidence volume; do not fill or commit fabricated placeholders in this public
+workspace.
+
+The freezer verifies every named dataset, goal, start, shortest-path, method
+configuration, and calibration-evidence byte before writing.  It requires two
+Novel and two Revisit scenes, disjoint calibration scenes, positive frozen
+budgets, and all 40 outcome fields still blank.  It never overwrites a plan,
+starts ROS, calls a policy endpoint, or grants motion authority.  The resulting
+plan must replace the template as `--plan` for both `formal-start` and the
+final read-only verifier.  `formal-start` refuses an unregistered
+scene/run/arm/hash tuple and records the plan SHA in the run root.  The debug
+launcher uses an explicit `--engineering-unregistered` receipt and therefore
+cannot pass the formal campaign verifier.
+
 After all run directories have been independently finalized, derive the result
 without modifying the preregistration:
 

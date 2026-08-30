@@ -141,6 +141,37 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[list[str], list[str], list[
     if plan.get("expected_shape") != expected_shape:
         errors.append("expected_shape differs from the registered 4x5 paired campaign")
 
+    freeze = plan.get("freeze_receipts")
+    if not isinstance(freeze, Mapping):
+        blockers.append("campaign: scene registry and arrival calibration are not sealed")
+    else:
+        if freeze.get("schema") != "memnav-realworld-paired-freeze-v1":
+            errors.append("campaign: unsupported freeze receipt schema")
+        if freeze.get("formal_outcomes_read") is not False:
+            errors.append("campaign: freeze receipt must remain outcome-blind")
+        for name in ("template", "scene_registry", "arrival_calibration"):
+            receipt = freeze.get(name)
+            if not isinstance(receipt, Mapping) or not _is_sha256(receipt.get("sha256")):
+                errors.append(f"campaign: invalid {name} freeze receipt")
+        arrival = freeze.get("arrival_calibration")
+        if isinstance(arrival, Mapping):
+            if not arrival.get("calibration_scene_ids"):
+                errors.append("campaign: arrival calibration scene IDs are missing")
+            if not isinstance(arrival.get("calibration_trials"), int) or isinstance(
+                arrival.get("calibration_trials"), bool
+            ) or int(arrival.get("calibration_trials", 0)) <= 0:
+                errors.append("campaign: arrival calibration trial count is invalid")
+            if not arrival.get("termination_authority"):
+                errors.append("campaign: arrival termination authority is missing")
+        execution = plan.get("execution_contract", {})
+        metric = plan.get("metric_contract", {})
+        if execution.get("independent_arrival_calibration_verified") is not True:
+            errors.append("campaign: independent arrival calibration is not verified")
+        if metric.get("success_threshold_status") != (
+            "frozen_from_heldout_arrival_calibration"
+        ):
+            errors.append("campaign: success threshold is not frozen")
+
     scenes = plan.get("scenes", [])
     if not isinstance(scenes, list) or len(scenes) != 4:
         errors.append("the plan must contain exactly four scenes")
@@ -184,6 +215,55 @@ def _validate_plan(plan: Mapping[str, Any]) -> tuple[list[str], list[str], list[
             or float(shortest) <= 0.0
         ):
             errors.append(f"{scene_id}: shortest_feasible_path_m must be positive")
+        extended_fields = {
+            "start_region": scene.get("start_region"),
+            "start_yaw_deg": scene.get("start_yaw_deg"),
+            "start_yaw_tolerance_deg": scene.get("start_yaw_tolerance_deg"),
+            "goal_region": scene.get("goal_region"),
+            "time_budget_s": scene.get("time_budget_s"),
+            "path_budget_m": scene.get("path_budget_m"),
+            "collision_abort_rule": scene.get("collision_abort_rule"),
+            "artifact_receipts": scene.get("artifact_receipts"),
+        }
+        for field, value in extended_fields.items():
+            if value is None:
+                blockers.append(f"{scene_id}: {field} is not frozen")
+        for field in ("start_region", "goal_region", "collision_abort_rule"):
+            value = extended_fields[field]
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                errors.append(f"{scene_id}: {field} must be a non-empty string")
+        for field in (
+            "start_yaw_deg",
+            "start_yaw_tolerance_deg",
+            "time_budget_s",
+            "path_budget_m",
+        ):
+            value = extended_fields[field]
+            if value is None:
+                continue
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                errors.append(f"{scene_id}: {field} must be finite")
+                continue
+            if isinstance(value, bool) or not math.isfinite(number):
+                errors.append(f"{scene_id}: {field} must be finite")
+            elif field != "start_yaw_deg" and number <= 0.0:
+                errors.append(f"{scene_id}: {field} must be positive")
+        artifacts = extended_fields["artifact_receipts"]
+        if isinstance(artifacts, Mapping):
+            for name in (
+                "dataset_manifest",
+                "goal_image",
+                "start_pose",
+                "shortest_path",
+                "method_config",
+            ):
+                receipt = artifacts.get(name)
+                if not isinstance(receipt, Mapping) or not _is_sha256(
+                    receipt.get("sha256")
+                ):
+                    errors.append(f"{scene_id}: invalid {name} artifact receipt")
 
         blocks = scene.get("paired_blocks", [])
         if not isinstance(blocks, list) or len(blocks) != 5:
@@ -283,6 +363,30 @@ def _verify_run(entry: Mapping[str, Any], run_root: Path) -> dict[str, Any]:
     verification = verify_manifest(run_root)
     manifest = read_manifest(run_root)
     errors: list[str] = []
+    registration_path = run_root / "formal_registration.json"
+    registration = _read_json(registration_path)
+    expected_plan_sha = entry.get("plan_sha256")
+    if registration.get("schema") != "memnav-realworld-formal-registration-v1":
+        errors.append("unexpected formal registration schema")
+    if registration.get("registered") is not True:
+        errors.append("run was not launched from a frozen formal plan")
+    if registration.get("formal_outcomes_read") is not False:
+        errors.append("formal registration crossed the outcome boundary")
+    if registration.get("runtime_role_visibility") != "none":
+        errors.append("formal registration exposed the role")
+    if registration.get("plan_sha256") != expected_plan_sha:
+        errors.append("formal registration plan SHA differs from verifier input")
+    registration_bindings = {
+        "scene_id": entry["scene_id"],
+        "run_id": run_id,
+        "arm": arm,
+        "dataset_id": scene.get("dataset_id"),
+        "goal_sha256": scene.get("goal_sha256"),
+        "dataset_manifest_sha256": scene.get("dataset_manifest_sha256"),
+    }
+    for field, expected in registration_bindings.items():
+        if registration.get(field) != expected:
+            errors.append(f"formal registration {field} mismatch")
     if verification.get("run_id") != run_id:
         errors.append("capture manifest run_id mismatch")
     if manifest.get("dataset_id") != scene.get("dataset_id"):
@@ -359,6 +463,8 @@ def _verify_run(entry: Mapping[str, Any], run_root: Path) -> dict[str, Any]:
         "capture_manifest_sha256": verification["manifest_sha256"],
         "capture_artifacts": verification["artifacts"],
         "odin_spl_receipt_sha256": sha256_file(receipt_path),
+        "formal_registration_sha256": sha256_file(registration_path),
+        "registered_plan_sha256": expected_plan_sha,
     }
 
 
@@ -438,6 +544,7 @@ def verify_campaign(
 ) -> dict[str, Any]:
     plan_path = plan_path.expanduser().resolve()
     plan = _read_json(plan_path)
+    plan_sha256 = sha256_file(plan_path)
     plan_errors, blockers, registered = _validate_plan(plan)
     evidence_rows: list[dict[str, Any]] = []
     evidence_errors: list[str] = []
@@ -455,7 +562,9 @@ def verify_campaign(
                 )
                 continue
             try:
-                evidence_rows.append(_verify_run(entry, run_root))
+                evidence_rows.append(_verify_run(
+                    {**entry, "plan_sha256": plan_sha256}, run_root
+                ))
             except (CampaignVerificationError, CaptureManifestError, OSError) as error:
                 evidence_errors.append(str(error))
     complete = bool(
@@ -469,7 +578,7 @@ def verify_campaign(
         "schema": "memnav-realworld-paired-verification-v1",
         "plan": {
             "path": str(plan_path),
-            "sha256": sha256_file(plan_path),
+            "sha256": plan_sha256,
             "canonical_payload_sha256": _canonical_sha256(plan),
             "campaign_id": plan.get("campaign_id"),
             "registered_runs": len(registered),
