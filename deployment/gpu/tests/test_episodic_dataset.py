@@ -77,6 +77,62 @@ def test_short_or_candidate_free_dataset_cannot_be_sealed(tmp_path):
         store.seal(protocol={})
 
 
+def test_exact_one_way_external_goal_contract_allows_no_candidates(tmp_path):
+    store = EpisodicDatasetStore(tmp_path, minimum_frames=1)
+    store.start(
+        "external-goal-debug",
+        metadata={
+            "collection_mode": "manual_one_way_external_goal_debug",
+            "goal_selection_contract": "operator_frozen_external_required",
+            "goal_candidates_required": False,
+        },
+    )
+    store.append_memory(frame_index=0, image=b"m0", upstream_sha256=None)
+    receipt = store.seal(protocol={})
+    assert receipt["goal_candidates"] == 0
+    assert list(store.load("external-goal-debug").goal_candidates()) == []
+
+
+def test_one_way_external_goal_contract_rejects_survey_candidates(tmp_path):
+    store = EpisodicDatasetStore(tmp_path, minimum_frames=1)
+    store.start(
+        "external-goal-with-candidate",
+        metadata={
+            "collection_mode": "manual_one_way_external_goal_debug",
+            "goal_selection_contract": "operator_frozen_external_required",
+            "goal_candidates_required": False,
+        },
+    )
+    store.append_memory(frame_index=0, image=b"m0", upstream_sha256=None)
+    store.append_candidate(record=candidate(), image=b"goal")
+    with pytest.raises(DatasetContractError, match="external-goal-only"):
+        store.seal(protocol={})
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {},
+        {
+            "collection_mode": "manual_one_way_external_goal_debug",
+            "goal_selection_contract": "operator_frozen_external_required",
+            "goal_candidates_required": True,
+        },
+        {
+            "collection_mode": "manual_long_out_and_back",
+            "goal_selection_contract": "operator_frozen_external_required",
+            "goal_candidates_required": False,
+        },
+    ],
+)
+def test_candidate_free_exception_is_fail_closed(tmp_path, metadata):
+    store = EpisodicDatasetStore(tmp_path, minimum_frames=1)
+    store.start("strict", metadata=metadata)
+    store.append_memory(frame_index=0, image=b"m0", upstream_sha256=None)
+    with pytest.raises(DatasetContractError, match="no supported"):
+        store.seal(protocol={})
+
+
 def test_load_detects_artifact_tampering(tmp_path):
     store = EpisodicDatasetStore(tmp_path, minimum_frames=1)
     store.start("tamper")

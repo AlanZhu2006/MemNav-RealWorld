@@ -22,6 +22,8 @@ from typing import Any, Iterable, Mapping
 
 SCHEMA_VERSION = "cec_realworld_episodic_dataset_v1_20260825"
 _DATASET_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
+ONE_WAY_EXTERNAL_GOAL_MODE = "manual_one_way_external_goal_debug"
+EXTERNAL_GOAL_CONTRACT = "operator_frozen_external_required"
 
 
 class DatasetContractError(RuntimeError):
@@ -60,6 +62,23 @@ def validate_dataset_id(dataset_id: str) -> str:
             "dataset_id must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}"
         )
     return value
+
+
+def candidate_free_external_goal_debug(metadata: Mapping[str, Any]) -> bool:
+    """Return whether this engineering dataset must use an external goal.
+
+    Registered Survey/Formal datasets retain the stricter candidate rule.  A
+    one-way M->query-start debug trace has no physical return leg and installs
+    an exact externally frozen goal during formal preparation, so manufacturing
+    an unrelated Survey candidate would weaken rather than strengthen its
+    audit contract.
+    """
+
+    return (
+        metadata.get("collection_mode") == ONE_WAY_EXTERNAL_GOAL_MODE
+        and metadata.get("goal_selection_contract") == EXTERNAL_GOAL_CONTRACT
+        and metadata.get("goal_candidates_required") is False
+    )
 
 
 @dataclass(frozen=True)
@@ -255,7 +274,12 @@ class EpisodicDatasetStore:
                 f"dataset has {len(self._memory_frames)} frames; "
                 f"minimum is {self.minimum_frames}"
             )
-        if not self._goal_candidates:
+        external_goal_only = candidate_free_external_goal_debug(self._metadata)
+        if external_goal_only and self._goal_candidates:
+            raise DatasetContractError(
+                "external-goal-only debug dataset contains Survey candidates"
+            )
+        if not self._goal_candidates and not external_goal_only:
             raise DatasetContractError(
                 "dataset has no supported, memory-excluded goal candidate"
             )
@@ -355,7 +379,18 @@ class EpisodicDatasetStore:
             memory_hashes.add(record["sha256"])
 
         candidates = manifest.get("goal_candidates", [])
-        if not isinstance(candidates, list) or not candidates:
+        metadata = manifest.get("metadata", {})
+        external_goal_only = (
+            isinstance(metadata, dict)
+            and candidate_free_external_goal_debug(metadata)
+        )
+        if not isinstance(candidates, list):
+            raise DatasetContractError("sealed dataset goal candidates are invalid")
+        if external_goal_only and candidates:
+            raise DatasetContractError(
+                "external-goal-only debug dataset contains Survey candidates"
+            )
+        if not candidates and not external_goal_only:
             raise DatasetContractError("sealed dataset has no goal candidates")
         for expected_id, record in enumerate(candidates):
             if int(record.get("candidate_id", -1)) != expected_id:

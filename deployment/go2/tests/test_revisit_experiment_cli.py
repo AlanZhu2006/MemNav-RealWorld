@@ -7,6 +7,7 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "deployment" / "go2" / "offboard" / "revisit_experiment.sh"
+DEBUG_SCRIPT = ROOT / "deployment" / "go2" / "offboard" / "revisit_debug.sh"
 
 
 def _run(*arguments: str) -> subprocess.CompletedProcess[str]:
@@ -58,3 +59,19 @@ def test_help_exposes_role_hidden_frozen_goal_contract():
     assert result.returncode == 0
     assert "--expected-goal-sha256" in result.stdout
     assert "No Novel/Revisit label is passed to runtime" in result.stdout
+
+
+def test_debug_help_exposes_locked_record_and_prepare_boundary():
+    result = subprocess.run(
+        ["bash", str(DEBUG_SCRIPT), "--help"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "record-start" in result.stdout
+    assert "record-stop" in result.stdout
+    assert "revisit-prepare" in result.stdout
+    assert "It never starts physical motion" in result.stdout

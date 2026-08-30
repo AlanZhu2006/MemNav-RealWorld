@@ -119,6 +119,32 @@ def test_survey_and_formal_are_derived_from_one_contract(tmp_path):
     )["config_id"]
 
 
+def test_one_way_external_goal_debug_is_explicitly_labeled(tmp_path):
+    base = rc.resolve(make_source_config(tmp_path), tmp_path / "base.json")
+    survey = rc._derive(
+        base,
+        tmp_path / "survey.json",
+        "survey",
+        "route_debug_01",
+        None,
+        collection_mode="manual_one_way_external_goal_debug",
+    )
+
+    payload = rc.load_resolved(survey)
+
+    assert payload["dataset"]["metadata"]["collection_mode"] == (
+        "manual_one_way_external_goal_debug"
+    )
+    assert payload["dataset"]["metadata"]["candidate_contract"] == (
+        "external_frozen_goal_only_no_survey_candidate"
+    )
+    assert payload["dataset"]["metadata"]["goal_selection_contract"] == (
+        "operator_frozen_external_required"
+    )
+    assert payload["dataset"]["metadata"]["goal_candidates_required"] is False
+    assert payload["launch"]["go2_bridge"] is False
+
+
 def test_shell_contract_has_explicit_imagegoal_and_no_legacy_names(tmp_path):
     path = rc.resolve(make_source_config(tmp_path), tmp_path / "resolved.json")
     exports = rc.shell_exports(rc.load_resolved(path), "jetson")

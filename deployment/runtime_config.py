@@ -593,6 +593,7 @@ def _derive(
     frozen_goal: Path | None = None,
     expected_goal_sha256: str | None = None,
     expected_dataset_sha256: str | None = None,
+    collection_mode: str = "manual_long_out_and_back",
 ) -> Path:
     payload = load_resolved(base_path)
     if payload["experiment"]["profile"] != "fullmono-lingbot-cec":
@@ -603,16 +604,34 @@ def _derive(
     payload["source"]["derived_from_config_id"] = load_resolved(base_path)["config_id"]
     payload["experiment"]["phase"] = phase
     if phase == "survey":
+        if collection_mode not in {
+            "manual_long_out_and_back",
+            "manual_one_way_external_goal_debug",
+        }:
+            raise ConfigError(f"unsupported survey collection mode: {collection_mode}")
+        one_way_external_debug = (
+            collection_mode == "manual_one_way_external_goal_debug"
+        )
         payload["dataset"] = {
             "auto_open": True,
             "id": dataset_id,
             "metadata": {
                 "dataset_id": dataset_id,
-                "collection_mode": "manual_long_out_and_back",
+                "collection_mode": collection_mode,
                 "robot": "unitree_go2",
                 "motion_authority": "unitree_hand_controller_only",
                 "adapter_enabled": False,
-                "candidate_contract": "memory_excluded_with_post_guard",
+                "candidate_contract": (
+                    "external_frozen_goal_only_no_survey_candidate"
+                    if one_way_external_debug
+                    else "memory_excluded_with_post_guard"
+                ),
+                "goal_selection_contract": (
+                    "operator_frozen_external_required"
+                    if one_way_external_debug
+                    else "survey_supported_candidate_required"
+                ),
+                "goal_candidates_required": not one_way_external_debug,
             },
         }
         payload["memory"]["navigate_during_recording"] = False
@@ -909,6 +928,14 @@ def main() -> int:
     p_survey.add_argument("--config", required=True, type=Path)
     p_survey.add_argument("--dataset-id", required=True)
     p_survey.add_argument("--output", required=True, type=Path)
+    p_survey.add_argument(
+        "--collection-mode",
+        choices=(
+            "manual_long_out_and_back",
+            "manual_one_way_external_goal_debug",
+        ),
+        default="manual_long_out_and_back",
+    )
     p_formal = sub.add_parser("derive-formal")
     p_formal.add_argument("--config", required=True, type=Path)
     p_formal.add_argument("--dataset-id", required=True)
@@ -939,7 +966,14 @@ def main() -> int:
             else:
                 print(value)
         elif args.command == "derive-survey":
-            print(_derive(args.config, args.output, "survey", args.dataset_id, None))
+            print(_derive(
+                args.config,
+                args.output,
+                "survey",
+                args.dataset_id,
+                None,
+                collection_mode=args.collection_mode,
+            ))
         else:
             print(_derive(
                 args.config,

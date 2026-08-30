@@ -10,6 +10,7 @@ import numpy as np
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from navdp_ros_node import NavDPGo2Adapter  # noqa: E402
+from revisit_goal_monitor import render_match_debug  # noqa: E402
 from rgb_goal_arrival import RgbGoalArrivalVerifier  # noqa: E402
 
 
@@ -96,6 +97,19 @@ class RgbGoalArrivalVerifierTests(unittest.TestCase):
 
         self.assertFalse(result.matched)
         self.assertEqual(result.reason, "scale_mismatch")
+
+
+class RevisitGoalMonitorRenderTests(unittest.TestCase):
+    def test_match_banner_preserves_wide_comparison(self):
+        verifier = RgbGoalArrivalVerifier(textured_image(51), image_width=320)
+        result = verifier.evaluate(verifier.target_rgb)
+        comparison = verifier.last_debug_rgb
+
+        rendered = render_match_debug(comparison, result, point_label="M")
+
+        self.assertEqual(rendered.shape[1], comparison.shape[1])
+        self.assertEqual(rendered.shape[0], comparison.shape[0] + 58)
+        self.assertGreater(float(rendered[:58, :, 1].mean()), 100.0)
 
 
 class _Logger:

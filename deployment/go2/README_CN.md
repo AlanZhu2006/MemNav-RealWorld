@@ -190,6 +190,42 @@ bash deployment/go2/offboard/revisit_experiment.sh formal-start DATASET_ID \
 脚本从 Full-Mono 基础配置派生带哈希的 survey/formal 配置，不使用临时环境变量。
 Formal 会自动设置选中历史目标的输出路径并启动 Go2 bridge，但仍保持运动锁定。
 
+### 5.1 M 点单程工程调试
+
+若目的是先在 M 点冻结外部目标、再用原装 Unitree 手柄从 M 开到新的物理起点，关闭
+双机栈后重新加载同一段历史做 CEC Revisit，使用独立的 engineering 入口：
+
+```bash
+bash deployment/go2/offboard/revisit_debug.sh record-start m_route_01 \
+  --goal /absolute/path/to/revisit_m.png --point-label M
+
+# 只用 Unitree 手柄开动；策略运动保持 disabled + estop，Go2 bridge 不启动。
+bash deployment/go2/offboard/revisit_debug.sh status
+
+# 到达新的 Revisit 起点后；未满足持久化 seal 门时会拒绝停止并保留记录现场。
+bash deployment/go2/offboard/revisit_debug.sh record-stop
+
+# 以后在同一物理起点重新加载历史并安装 exact M 目标；仍然不会启动运动。
+bash deployment/go2/offboard/revisit_debug.sh revisit-prepare
+```
+
+`record-start`启动 RTX 上的 MemNav、LingBot、CEC 和 frozen NavDP，但 Jetson 不启动
+Go2命令 bridge。它把单程采集明确标为
+`manual_one_way_external_goal_debug`。该模式不制造与任务无关的Survey候选，候选数量
+必须为零，并在数据契约中强制后续使用命令行指定且由SHA-256冻结的外部M图；普通正式
+去程—回程Survey仍必须包含至少一个受支持、memory-excluded候选。
+
+更严格地说，单程模式封存时的 Survey 候选数必须正好为零。若异常中断后留下一个与
+causal memory 完全重复的候选，只能在双机停止、原始 staging 已逐文件哈希备份的前提
+下使用 `deployment/gpu/recover_one_way_debug_dataset.py` 做离线恢复；恢复工具保留原始
+staging 和无效候选用于审计，只把验证后的 memory 与“必须使用外部 M”契约写入最终
+manifest。它不是普通正式往返 Survey 的候选门绕过工具。
+
+Survey 锁停期间，`m-match` 是纯观察节点：持续比较 M 与实时 RGB，在 Foxglove 宽幅
+match panel 顶部显示绿色 `MATCH` 或红色 `NO MATCH`，并发布 good matches、inliers、
+scale 和拒绝原因。它没有 `/navdp/arrival`、enable、estop 或速度 publisher。完成
+`revisit-prepare` 后，标准 RGB arrival 模块恢复；最终有电授权仍必须由现场人员单独执行。
+
 ## 6. 状态、安全和停止
 
 ```bash

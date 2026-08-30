@@ -46,6 +46,7 @@ usage() {
   cat <<'EOF'
 Usage (run on Jetson):
   revisit_experiment.sh [--config EXPERIMENT.json] survey-start DATASET_ID
+      [--collection-mode manual_long_out_and_back|manual_one_way_external_goal_debug]
   revisit_experiment.sh survey-status
   revisit_experiment.sh survey-return DATASET_ID
   revisit_experiment.sh survey-seal DATASET_ID
@@ -195,7 +196,21 @@ survey_start() {
   local dataset_id="$1"
   shift
   validate_id "$dataset_id"
-  [[ $# -eq 0 ]] || die "survey-start accepts only DATASET_ID; Foxglove belongs in config"
+  local collection_mode="manual_long_out_and_back"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --collection-mode)
+        [[ $# -ge 2 ]] || die "--collection-mode requires a value"
+        collection_mode="$2"
+        shift 2
+        ;;
+      *) die "unknown survey-start option: $1; Foxglove belongs in config" ;;
+    esac
+  done
+  case "$collection_mode" in
+    manual_long_out_and_back|manual_one_way_external_goal_debug) ;;
+    *) die "unsupported survey collection mode: $collection_mode" ;;
+  esac
   load_base_config
   ! tmux has-session -t "$SESSION" 2>/dev/null \
     || die "stack is already running; seal or stop it first"
@@ -203,6 +218,7 @@ survey_start() {
   mkdir -p "$(dirname "$config_path")"
   python3 "$CONFIG_TOOL" derive-survey \
     --config "$BASE_RESOLVED" --dataset-id "$dataset_id" \
+    --collection-mode "$collection_mode" \
     --output "$config_path" >/dev/null
   bash "$FULLMONO" start --config "$config_path"
   wait_survey_dataset "$dataset_id"
@@ -213,9 +229,14 @@ survey_start() {
   echo "$receipt" | python3 -m json.tool
   echo
   echo "Survey recording is active and motion is policy-locked."
-  echo "Drive with the Unitree hand controller: outbound first, then return over"
-  echo "the same region with natural 10-30 degree viewpoint differences."
-  echo "At the turnaround, run: $0 survey-return $dataset_id"
+  if [[ "$collection_mode" == "manual_one_way_external_goal_debug" ]]; then
+    echo "Drive one way with the Unitree hand controller. The frozen external"
+    echo "goal is installed only during Revisit; Survey candidate capture is off."
+  else
+    echo "Drive with the Unitree hand controller: outbound first, then return over"
+    echo "the same region with natural 10-30 degree viewpoint differences."
+    echo "At the turnaround, run: $0 survey-return $dataset_id"
+  fi
   echo "Monitor: $0 survey-status"
   echo "Seal:    $0 survey-seal $dataset_id"
 }
@@ -262,12 +283,19 @@ survey_seal() {
   sleep 1
   local receipt
   receipt="$(hub_post_json /dataset/seal '{}')"
-  python3 - "$dataset_id" "$receipt" <<'PY'
+  local active collection_mode
+  active="$(active_config)"
+  collection_mode="$(python3 "$CONFIG_TOOL" get \
+    --config "$active" dataset.metadata.collection_mode)"
+  python3 - "$dataset_id" "$receipt" "$collection_mode" <<'PY'
 import json, sys
 p = json.loads(sys.argv[2])
 assert p["dataset_id"] == sys.argv[1]
 assert int(p["memory_frames"]) >= 1
-assert int(p["goal_candidates"]) >= 1
+if sys.argv[3] == "manual_one_way_external_goal_debug":
+    assert int(p["goal_candidates"]) == 0
+else:
+    assert int(p["goal_candidates"]) >= 1
 assert int(p["goal_memory_exact_sha_overlap"]) == 0
 assert p["evaluation_depth_consumed_by_policy"] is False
 PY

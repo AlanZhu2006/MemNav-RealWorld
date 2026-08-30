@@ -132,7 +132,7 @@
         "rectifyImage": false,
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
-      "foxglovePanelTitle": "Last RGB arrival match (native wide aspect)"
+      "foxglovePanelTitle": "Goal vs live RGB match (green = MATCH, wide aspect)"
     },
     "Image!status": {
       "scene": {},
