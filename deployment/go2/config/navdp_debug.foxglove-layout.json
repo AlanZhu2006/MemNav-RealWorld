@@ -28,7 +28,7 @@
           "lineWidth": 4
         },
         "/navdp/debug/markers": {
-          "visible": true
+          "visible": false
         },
         "/odin1/cloud_slam": {
           "visible": false,
@@ -64,7 +64,7 @@
           "frameId": "navdp_local"
         }
       },
-      "foxglovePanelTitle": "NavDP trajectory / markers"
+      "foxglovePanelTitle": "Selected NavDP trajectory (debug markers off)"
     },
     "Image!rgb": {
       "scene": {},
@@ -128,23 +128,23 @@
         "rectifyImage": false,
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
-      "foxglovePanelTitle": "RGB arrival match"
+      "foxglovePanelTitle": "Last RGB arrival match (native wide aspect)"
     },
-    "RawMessages!status": {
-      "topicPath": "/navdp/status",
-      "diffTopicPath": "",
-      "diffMethod": "custom",
-      "diffEnabled": false,
-      "showFullMessageForDiff": false,
-      "foxglovePanelTitle": "NavDP status (read-only)"
-    },
-    "RawMessages!arrival": {
-      "topicPath": "/navdp/rgb_arrival_status",
-      "diffTopicPath": "",
-      "diffMethod": "custom",
-      "diffEnabled": false,
-      "showFullMessageForDiff": false,
-      "foxglovePanelTitle": "Arrival status (read-only)"
+    "Image!status": {
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "synchronize": false,
+      "imageMode": {
+        "imageTopic": "/navdp/foxglove/status/compressed",
+        "rotation": 0,
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rectifyImage": false,
+        "publish": {"clickEnabled": false, "hoverEnabled": false}
+      },
+      "foxglovePanelTitle": "Operator safety / motion status"
     }
   },
   "globalVariables": {},
@@ -156,33 +156,28 @@
   },
   "layout": {
     "direction": "row",
-    "first": "3D!navdp",
+    "first": {
+      "direction": "column",
+      "first": "3D!navdp",
+      "second": "Image!arrival",
+      "splitPercentage": 64
+    },
     "second": {
       "direction": "column",
-      "first": {
-        "direction": "row",
-        "first": "Image!rgb",
-        "second": "Image!depth",
-        "splitPercentage": 50
-      },
+      "first": "Image!rgb",
       "second": {
         "direction": "column",
         "first": {
           "direction": "row",
           "first": "Image!goal",
-          "second": "Image!arrival",
+          "second": "Image!depth",
           "splitPercentage": 50
         },
-        "second": {
-          "direction": "row",
-          "first": "RawMessages!status",
-          "second": "RawMessages!arrival",
-          "splitPercentage": 50
-        },
-        "splitPercentage": 58
+        "second": "Image!status",
+        "splitPercentage": 54
       },
       "splitPercentage": 42
     },
-    "splitPercentage": 42
+    "splitPercentage": 60
   }
 }

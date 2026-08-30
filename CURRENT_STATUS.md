@@ -99,6 +99,10 @@ performance.
   commissioning gate has one successful powered near-goal latch.
 - optional Odin1 lane: evaluation-only map/relocalization/path/arrival evidence;
   it has no policy, motion or estop authority.
+- Foxglove operator UI: selected trajectory is the default 3D signal; verbose
+  candidate/Q-value markers are opt-in, arrival comparison preserves its native
+  wide aspect, and a read-only status card summarizes lock/freshness/clearance/
+  command/error while raw JSON remains available for detailed diagnosis.
 
 The terminal wire schema is
 `cec_direct_bearing_handoff_v2_20260824`.  Both reset and launcher preflight

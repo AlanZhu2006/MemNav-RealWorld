@@ -14,6 +14,8 @@ from foxglove_image_relay import (  # noqa: E402
     colorize_depth_preview,
     depth_message_to_u16,
     encode_jpeg,
+    prepare_color_preview,
+    render_status_card,
     resize_rgb_preview,
     rgb_message_to_bgr,
 )
@@ -66,6 +68,44 @@ def test_rgb_decoder_respects_padded_rows():
     assert bgr.shape == (2, 2, 3)
     assert np.array_equal(bgr[0, 0], [0, 0, 255])
     assert np.array_equal(bgr[0, 1], [0, 255, 0])
+
+
+def test_arrival_preview_can_preserve_native_wide_aspect():
+    arrival = np.zeros((272, 960, 3), dtype=np.uint8)
+    arrival[:, :480, 0] = 255
+    message = _message(arrival, "rgb8")
+
+    native = prepare_color_preview(message, 640, 360, resize=False)
+    resized = prepare_color_preview(message, 640, 360, resize=True)
+
+    assert native.shape == (272, 960, 3)
+    assert resized.shape == (360, 640, 3)
+    assert np.array_equal(native[100, 100], [0, 0, 255])
+
+
+def test_operator_status_card_is_readable_jpeg_at_configured_size():
+    payload = {
+        "enabled": False,
+        "estop": True,
+        "arrival_latched": False,
+        "rgbd_age_s": 0.08,
+        "plan_age_s": 0.31,
+        "clearance_m": 1.42,
+        "cmd_vx": 0.0,
+        "cmd_wz": 0.0,
+        "image_goal_loaded": True,
+        "phase": "revisit_query",
+        "stop_reason": "estop",
+        "last_error": "",
+    }
+    card = render_status_card(payload, 720, 272)
+    decoded = cv2.imdecode(
+        np.frombuffer(encode_jpeg(card, 80), dtype=np.uint8), cv2.IMREAD_COLOR
+    )
+
+    assert card.shape == (272, 720, 3)
+    assert decoded.shape == (272, 720, 3)
+    assert np.unique(card.reshape(-1, 3), axis=0).shape[0] > 10
 
 
 def test_depth_preview_preserves_invalid_mask_and_colorizes_range():

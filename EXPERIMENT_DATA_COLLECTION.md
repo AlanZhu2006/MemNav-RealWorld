@@ -76,9 +76,13 @@ Foxglove to `ws://JETSON_IP:8765`, import
 `deployment/go2/config/navdp_debug.foxglove-layout.json`, and start a screen
 recording before motion authorization.
 
-The dashboard layout uses display-only JPEG previews: RGB is 640x360 at 15 Hz,
-and aligned depth is colorized over 200--4000 mm at 640x360 and 10 Hz. The
-ImageGoal repeats at 2 Hz and arrival debug is capped at 5 Hz as JPEG previews.
+The operator-first dashboard uses display-only JPEG previews: RGB is 640x360 at
+15 Hz, and aligned depth is colorized over 200--4000 mm at 640x360 and 10 Hz.
+The ImageGoal repeats at 2 Hz; arrival debug is capped at 5 Hz while preserving
+its native wide side-by-side aspect (currently typically 960x272). A 720x272,
+2 Hz status card exposes motion lock, sensor/plan freshness, clearance, command
+and errors without occupying the layout with raw JSON. The selected trajectory
+is visible by default; candidate/Q-value markers remain available but hidden.
 The original image topics remain unchanged for policy, arrival and the optional
 `full` MCAP profile. Re-import the versioned layout after an upgrade; Foxglove
 does not automatically replace a previously imported local copy. Do not expect

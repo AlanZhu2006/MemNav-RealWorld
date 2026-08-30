@@ -131,6 +131,9 @@ def test_shell_contract_has_explicit_imagegoal_and_no_legacy_names(tmp_path):
     assert "CFG_FOXGLOVE_PREVIEW_DEPTH_FPS=10" in exports
     assert "CFG_FOXGLOVE_PREVIEW_GOAL_TOPIC=/navdp/foxglove/goal/compressed" in exports
     assert "CFG_FOXGLOVE_PREVIEW_ARRIVAL_FPS=5" in exports
+    assert "CFG_FOXGLOVE_PREVIEW_STATUS_TOPIC=/navdp/foxglove/status/compressed" in exports
+    assert "CFG_FOXGLOVE_PREVIEW_STATUS_WIDTH=720" in exports
+    assert "CFG_FOXGLOVE_PREVIEW_ARRIVAL_PRESERVE_RESOLUTION=true" in exports
     assert "CFG_WITH_RVIZ" not in exports
     assert "NAVDP_IMAGE_GOAL_PATH" not in exports
     assert "CEC_CAMERA_HEIGHT_M" not in exports
@@ -170,7 +173,8 @@ def test_foxglove_layout_contains_no_control_panels():
     assert "Publish" not in panel_kinds
     assert "ServiceCall" not in panel_kinds
     assert "Teleop" not in panel_kinds
-    assert {"3D", "Image", "RawMessages"} <= panel_kinds
+    assert {"3D", "Image"} <= panel_kinds
+    assert "RawMessages" not in panel_kinds
 
 
 def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():
@@ -186,6 +190,7 @@ def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():
         "Image!depth": "/navdp/foxglove/depth_color/compressed",
         "Image!goal": "/navdp/foxglove/goal/compressed",
         "Image!arrival": "/navdp/foxglove/arrival/compressed",
+        "Image!status": "/navdp/foxglove/status/compressed",
     }
     for panel_id, topic in expected_images.items():
         panel = panels[panel_id]
@@ -196,9 +201,7 @@ def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():
             "hoverEnabled": False,
         }
     assert panels["3D!navdp"]["topics"]["/navdp/trajectory"]["visible"]
-    assert panels["3D!navdp"]["topics"]["/navdp/debug/markers"]["visible"]
-    assert panels["RawMessages!status"]["topicPath"] == "/navdp/status"
-    assert panels["RawMessages!arrival"]["topicPath"] == "/navdp/rgb_arrival_status"
+    assert not panels["3D!navdp"]["topics"]["/navdp/debug/markers"]["visible"]
 
 
 def test_foxglove_bridge_does_not_expose_raw_camera_images():

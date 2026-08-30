@@ -1046,12 +1046,15 @@ ros2 topic hz /navdp/foxglove/rgb/compressed
 ros2 topic hz /navdp/foxglove/depth_color/compressed
 ros2 topic hz /navdp/foxglove/goal/compressed
 ros2 topic hz /navdp/foxglove/arrival/compressed
+ros2 topic hz /navdp/foxglove/status/compressed
 ```
 
 `fox-preview`只生成显示侧车：RGB为640×360、15 Hz JPEG，深度先按200--4000 mm
 Turbo着色，再生成640×360、10 Hz JPEG；ImageGoal以2 Hz、arrival debug最多以5 Hz生成
-JPEG。原始图继续进入策略、arrival和可选full MCAP，不经过预览侧车。Foxglove保存导入
-布局的本地副本；仓库布局更新后需要重新导入一次，已有dashboard不会自动改topic。
+JPEG并保留原始宽幅比例（当前通常为960×272）；`/navdp/status`另外被渲染成
+720×272、2 Hz操作状态卡。原始图继续进入策略、arrival和可选full MCAP，不经过预览
+侧车。Foxglove保存导入布局的本地副本；仓库布局更新后需要重新导入一次，已有dashboard
+不会自动改topic或可见性。
 
 远程Bridge白名单不暴露四个原始图像topic，因此旧布局会显示`waiting for message`，但不会
 继续占满网络。需要原始RGB-D时只能在Jetson本机订阅，或使用`--profile full`的MCAP回放。
@@ -1063,13 +1066,21 @@ JPEG。原始图继续进入策略、arrival和可选full MCAP，不经过预览
 | RGB Camera | `/navdp/foxglove/rgb/compressed`，640×360、15 Hz显示预览 |
 | Aligned Depth | `/navdp/foxglove/depth_color/compressed`，200--4000 mm彩色显示预览 |
 | Image Goal | `/navdp/foxglove/goal/compressed`，当前安装目标预览 |
-| RGB Arrival Match | `/navdp/foxglove/arrival/compressed`，最多5 Hz预览 |
-| Candidate paths | `/navdp/debug/markers` |
+| RGB Arrival Match | `/navdp/foxglove/arrival/compressed`，保留左右对比图原始比例、最多5 Hz |
+| Operator status | `/navdp/foxglove/status/compressed`，安全锁、RGB-D/plan age、clearance、vx/wz、错误 |
+| Candidate paths | `/navdp/debug/markers`，默认关闭，需要分析候选Q值时手动打开 |
 | Selected trajectory | `/navdp/trajectory` |
-| Goal/status markers | phase、CEC、clearance、vx/wz、error |
-| NavDP status | `/navdp/status`完整只读状态消息 |
-| Arrival status | `/navdp/rgb_arrival_status`匹配分数与停靠判断 |
+| NavDP status | `/navdp/status`完整只读状态消息，从Topics侧栏按需查看 |
+| Arrival status | `/navdp/rgb_arrival_status`匹配分数与停靠判断，从Topics侧栏按需查看 |
 | Local grid | `navdp_local` robot-local frame |
+
+默认布局的视觉层级是：左上为唯一高亮的selected trajectory，左下为宽幅arrival对比；
+右上为当前RGB，右中为ImageGoal和aligned depth，右下为状态卡。debug markers中还包含一份
+selected path、六条候选path、Q值文字、lookahead和状态文字，因此默认关闭；需要策略诊断时
+再从3D panel的Topics列表打开，不能把那一团marker误当成单条实际轨迹。
+ImageGoal、最后一次arrival对比和状态卡为transient-local显示快照，Bridge/Foxglove重连后
+不会因为错过一次发布而长期显示`Waiting for image messages`。其中arrival图只代表最后
+一次实际评估；锁定或未armed时不会伪造新的匹配结果。
 
 Bridge还允许Foxglove按需查看`/navdp/*`、`/tf`、`/tf_static`、Go2状态以及可选Odin
 参考topic；布局只把最常用内容固定成dashboard，其余允许topic仍可从Topics侧栏临时加入。

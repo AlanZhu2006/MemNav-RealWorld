@@ -301,27 +301,40 @@ def _validate_system(system: Mapping[str, Any]) -> None:
     _positive_port(foxglove["port"], "stack.foxglove.port")
     preview = _object(foxglove["preview"], "stack.foxglove.preview")
     preview_fields = {
-        "rgb_topic", "depth_topic", "goal_topic", "arrival_topic", "width", "height",
-        "rgb_fps", "depth_fps", "goal_fps", "arrival_fps", "rgb_jpeg_quality",
+        "rgb_topic", "depth_topic", "goal_topic", "arrival_topic", "status_topic",
+        "width", "height", "status_width", "status_height", "rgb_fps", "depth_fps",
+        "goal_fps", "arrival_fps", "status_fps", "rgb_jpeg_quality",
         "depth_jpeg_quality", "goal_jpeg_quality", "arrival_jpeg_quality",
-        "depth_min_mm", "depth_max_mm",
+        "status_jpeg_quality", "arrival_preserve_resolution", "depth_min_mm",
+        "depth_max_mm",
     }
     _exact_keys(preview, preview_fields, "stack.foxglove.preview")
     _required_keys(preview, preview_fields, "stack.foxglove.preview")
-    for field in ("rgb_topic", "depth_topic", "goal_topic", "arrival_topic"):
+    for field in (
+        "rgb_topic", "depth_topic", "goal_topic", "arrival_topic", "status_topic"
+    ):
         if not isinstance(preview[field], str) or not preview[field].startswith("/"):
             raise ConfigError(
                 f"stack.foxglove.preview.{field} must be an absolute ROS topic"
             )
     for field in (
-        "width", "height", "rgb_fps", "depth_fps", "goal_fps", "arrival_fps"
+        "width", "height", "status_width", "status_height", "rgb_fps", "depth_fps",
+        "goal_fps", "arrival_fps", "status_fps",
     ):
         _positive_integer(preview[field], f"stack.foxglove.preview.{field}")
+    if preview["status_width"] < 480 or preview["status_height"] < 220:
+        raise ConfigError(
+            "stack.foxglove.preview status card must be at least 480x220"
+        )
     for field in (
         "rgb_jpeg_quality", "depth_jpeg_quality", "goal_jpeg_quality",
-        "arrival_jpeg_quality",
+        "arrival_jpeg_quality", "status_jpeg_quality",
     ):
         _integer_range(preview[field], f"stack.foxglove.preview.{field}", 1, 100)
+    if not isinstance(preview["arrival_preserve_resolution"], bool):
+        raise ConfigError(
+            "stack.foxglove.preview.arrival_preserve_resolution must be boolean"
+        )
     depth_min = _number(
         preview["depth_min_mm"], "stack.foxglove.preview.depth_min_mm", 0
     )
@@ -734,16 +747,22 @@ def shell_exports(payload: Mapping[str, Any], site: str) -> str:
         "CFG_FOXGLOVE_PREVIEW_DEPTH_TOPIC": payload["stack"]["foxglove"]["preview"]["depth_topic"],
         "CFG_FOXGLOVE_PREVIEW_GOAL_TOPIC": payload["stack"]["foxglove"]["preview"]["goal_topic"],
         "CFG_FOXGLOVE_PREVIEW_ARRIVAL_TOPIC": payload["stack"]["foxglove"]["preview"]["arrival_topic"],
+        "CFG_FOXGLOVE_PREVIEW_STATUS_TOPIC": payload["stack"]["foxglove"]["preview"]["status_topic"],
         "CFG_FOXGLOVE_PREVIEW_WIDTH": payload["stack"]["foxglove"]["preview"]["width"],
         "CFG_FOXGLOVE_PREVIEW_HEIGHT": payload["stack"]["foxglove"]["preview"]["height"],
+        "CFG_FOXGLOVE_PREVIEW_STATUS_WIDTH": payload["stack"]["foxglove"]["preview"]["status_width"],
+        "CFG_FOXGLOVE_PREVIEW_STATUS_HEIGHT": payload["stack"]["foxglove"]["preview"]["status_height"],
         "CFG_FOXGLOVE_PREVIEW_RGB_FPS": payload["stack"]["foxglove"]["preview"]["rgb_fps"],
         "CFG_FOXGLOVE_PREVIEW_DEPTH_FPS": payload["stack"]["foxglove"]["preview"]["depth_fps"],
         "CFG_FOXGLOVE_PREVIEW_GOAL_FPS": payload["stack"]["foxglove"]["preview"]["goal_fps"],
         "CFG_FOXGLOVE_PREVIEW_ARRIVAL_FPS": payload["stack"]["foxglove"]["preview"]["arrival_fps"],
+        "CFG_FOXGLOVE_PREVIEW_STATUS_FPS": payload["stack"]["foxglove"]["preview"]["status_fps"],
         "CFG_FOXGLOVE_PREVIEW_RGB_JPEG_QUALITY": payload["stack"]["foxglove"]["preview"]["rgb_jpeg_quality"],
         "CFG_FOXGLOVE_PREVIEW_DEPTH_JPEG_QUALITY": payload["stack"]["foxglove"]["preview"]["depth_jpeg_quality"],
         "CFG_FOXGLOVE_PREVIEW_GOAL_JPEG_QUALITY": payload["stack"]["foxglove"]["preview"]["goal_jpeg_quality"],
         "CFG_FOXGLOVE_PREVIEW_ARRIVAL_JPEG_QUALITY": payload["stack"]["foxglove"]["preview"]["arrival_jpeg_quality"],
+        "CFG_FOXGLOVE_PREVIEW_STATUS_JPEG_QUALITY": payload["stack"]["foxglove"]["preview"]["status_jpeg_quality"],
+        "CFG_FOXGLOVE_PREVIEW_ARRIVAL_PRESERVE_RESOLUTION": payload["stack"]["foxglove"]["preview"]["arrival_preserve_resolution"],
         "CFG_FOXGLOVE_PREVIEW_DEPTH_MIN_MM": payload["stack"]["foxglove"]["preview"]["depth_min_mm"],
         "CFG_FOXGLOVE_PREVIEW_DEPTH_MAX_MM": payload["stack"]["foxglove"]["preview"]["depth_max_mm"],
         "CFG_ADAPTER_READY_TIMEOUT_S": payload["stack"]["adapter_ready_timeout_s"],

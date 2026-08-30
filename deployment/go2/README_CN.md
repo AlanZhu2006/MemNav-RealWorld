@@ -75,11 +75,19 @@ ImageGoal。
 
 为避免原始RGB-D把无线链路占满，启动器同时运行观察专用的`fox-preview`窗口：RGB被缩放为
 640×360、15 Hz、JPEG质量75，深度被缩放、按200--4000 mm做Turbo着色后以640×360、
-10 Hz、JPEG质量70发布；ImageGoal以2 Hz、arrival debug最多以5 Hz压缩。版本化布局默认
-订阅`/navdp/foxglove/{rgb,depth_color,goal,arrival}/compressed`四路预览。
+10 Hz、JPEG质量70发布；ImageGoal以2 Hz压缩，arrival debug最多以5 Hz压缩并保留原始
+宽幅比例（当前通常为960×272），不会再把左右两幅图强拉成640×360。侧车还把
+`/navdp/status`渲染成720×272、2 Hz的只读操作状态卡。
+
+版本化布局左侧优先显示选中轨迹和宽幅arrival对比，右侧显示当前RGB、ImageGoal、深度及
+状态卡。`/navdp/debug/markers`仍保留候选路径和Q值供诊断，但默认关闭，避免与
+`/navdp/trajectory`中的绿色选中轨迹重复叠加。完整`/navdp/status`和
+`/navdp/rgb_arrival_status`仍可从Topics侧栏按需查看，不再占用默认dashboard。
+ImageGoal、最后一次arrival对比和状态卡使用transient-local显示QoS，因此Bridge或浏览器
+重连后仍能立即取得最近快照；arrival panel表示“最后一次评估”，不是锁定期间的新判断。
 这些topic有损且只用于显示；NavDP、arrival和`--profile full`采集仍读取原始
 848×480×30 Hz RGB-D。修改布局文件不会覆盖Foxglove已经导入的本地副本，升级后需要重新
-导入一次布局，或手动切换两个Image panel的topic。
+导入一次布局，或手动更新对应panel的topic和可见性。
 
 Bridge白名单故意不暴露四个原始图像topic，防止旧布局或临时panel绕过限流；相机标定、
 状态和其他低带宽调试topic仍可查看。需要原始传感器回放时使用本机ROS或`--profile full`
