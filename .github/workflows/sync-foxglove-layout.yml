@@ -1,0 +1,91 @@
+name: Sync Foxglove organization layout
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - deployment/go2/config/navdp_debug.foxglove-layout.json
+      - deployment/go2/scripts/sync_foxglove_layout.py
+      - .github/workflows/sync-foxglove-layout.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: foxglove-layout-navdp-debug
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: Publish organization layout
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      LAYOUT_FILE: deployment/go2/config/navdp_debug.foxglove-layout.json
+      LAYOUT_ID: 6f3394a6-b25e-5988-8b75-0c6f348b47c3
+      LAYOUT_NAME: MemNav Go2 Navigation
+      LAYOUT_FOLDER: MemNav-RealWorld
+      FOXGLOVE_API_KEY: ${{ secrets.FOXGLOVE_API_KEY }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate tracked layout
+        run: |
+          python3 deployment/go2/scripts/sync_foxglove_layout.py \
+            --layout "$LAYOUT_FILE" \
+            --layout-id "$LAYOUT_ID" \
+            --name "$LAYOUT_NAME" \
+            --folder-name "$LAYOUT_FOLDER" \
+            --permission ORG_WRITE \
+            --dry-run
+
+      - name: Require Foxglove API key
+        run: |
+          if [ -z "${FOXGLOVE_API_KEY:-}" ]; then
+            echo "Missing GitHub Actions secret: FOXGLOVE_API_KEY" >&2
+            exit 1
+          fi
+
+      - name: Create or update organization layout
+        run: |
+          python3 deployment/go2/scripts/sync_foxglove_layout.py \
+            --layout "$LAYOUT_FILE" \
+            --layout-id "$LAYOUT_ID" \
+            --name "$LAYOUT_NAME" \
+            --folder-name "$LAYOUT_FOLDER" \
+            --permission ORG_WRITE \
+            --result "$RUNNER_TEMP/foxglove-layout-result.json"
+
+      - name: Write workflow summary
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          result_path = Path(os.environ["RUNNER_TEMP"]) / "foxglove-layout-result.json"
+          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          if not result_path.exists():
+              summary_path.write_text(
+                  "## Foxglove layout sync\n\nSync did not produce a result. Review the failed step.\n",
+                  encoding="utf-8",
+              )
+          else:
+              result = json.loads(result_path.read_text(encoding="utf-8"))
+              layout = result["layout"]
+              layout_id = layout["id"]
+              link = f"https://app.foxglove.dev/~/view?layoutId={layout_id}"
+              summary_path.write_text(
+                  "## Foxglove layout sync\n\n"
+                  f"- Action: `{result['action']}`\n"
+                  f"- Layout: `{layout.get('name', 'MemNav Go2 Navigation')}`\n"
+                  f"- Layout ID: `{layout_id}`\n"
+                  f"- Source SHA-256: `{result['sha256']}`\n"
+                  f"- [Open organization layout]({link})\n",
+                  encoding="utf-8",
+              )
+          PY

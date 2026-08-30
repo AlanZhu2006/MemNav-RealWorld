@@ -238,8 +238,26 @@ The output names the final ImageGoal, content hash, source revision and
 
 ### 6. Supervised Run
 
-Set `launch.go2_bridge` and `launch.foxglove` in the experiment JSON as required,
-then start with the same one-argument contract:
+For a supervised native RGB-D episode, the explicit motion command is:
+
+~~~bash
+bash deployment/go2/nav_stack.sh run
+~~~
+
+It reuses a healthy current stack and cold-starts only when the session is
+absent, stale, incomplete, or unhealthy. A single fail-closed agent prints
+relative phase timings, locks motion, resets the policy, validates one fresh
+trajectory and the live goal view, arms, monitors arrival, and stops on any
+error, interruption, or timeout. Use `nav_stack.sh start --config ...` when the
+intent is to start services while retaining the motion lock.
+
+The tracked Foxglove dashboard is also published as the organization layout
+`MemNav Go2 Navigation` by `.github/workflows/sync-foxglove-layout.yml` whenever
+its JSON changes on `main`. The workflow reads `FOXGLOVE_API_KEY` only from a
+GitHub Actions secret and updates one stable layout ID in place, so operators
+select the cloud layout once instead of repeatedly importing JSON.
+
+Full-Mono formal runs remain separate and start locked:
 
 ~~~bash
 bash deployment/go2/nav_stack.sh start \
@@ -253,8 +271,8 @@ ros2 service call /navdp_go2_adapter/set_enabled \
   std_srvs/srv/SetBool "{data: true}"
 ~~~
 
-Startup remains disabled and estopped; the service call is a separate onsite
-operator decision. For formal Survey/Revisit, use
+Full-Mono startup remains disabled and estopped; the service call is a separate
+onsite operator decision. For formal Survey/Revisit, use
 `deployment/go2/offboard/revisit_experiment.sh`, which derives immutable
 survey/formal configs from the same base file.
 

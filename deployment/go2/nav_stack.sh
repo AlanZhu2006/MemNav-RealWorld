@@ -15,6 +15,7 @@ Usage:
   nav_stack.sh describe PROFILE
   nav_stack.sh resolve --config EXPERIMENT.json
   nav_stack.sh start --config EXPERIMENT.json [--dry-run]
+  nav_stack.sh run [--config EXPERIMENT.json] [--timeout-s SECONDS]
   nav_stack.sh status [--config EXPERIMENT.json]
   nav_stack.sh stop [--config EXPERIMENT.json]
 
@@ -25,6 +26,10 @@ No NAVDP_*/CEC_* environment override is accepted.
 Startup is motion-locked. It never clears estop or calls set_enabled=true.
 Starting an already-running profile safely replaces the complete stack so one
 tmux session never intentionally mixes runtime contracts.
+
+"run" is the explicit onsite motion command for the native profile. It reuses
+a healthy current stack, cold-refreshes only when required, prints phase
+timings, verifies a fresh post-reset plan, arms, monitors, and fails closed.
 EOF
 }
 
@@ -118,6 +123,74 @@ start_stack() {
   esac
 }
 
+native_session_is_current_and_healthy() {
+  local session="$CFG_NATIVE_SESSION"
+  tmux has-session -t "$session" 2>/dev/null || return 1
+  local active_id windows window_states
+  active_id="$(tmux show-environment -t "$session" MEMNAV_CONFIG_ID 2>/dev/null \
+    | sed -n 's/^MEMNAV_CONFIG_ID=//p' || true)"
+  [[ "$active_id" == "$CFG_CONFIG_ID" ]] || return 1
+  window_states="$(tmux list-windows -t "$session" \
+    -F '#{window_name} #{pane_dead}' 2>/dev/null)" \
+    || return 1
+  grep -Eq ' 1$' <<<"$window_states" && return 1
+  windows="$(cut -d' ' -f1 <<<"$window_states")"
+  local required=(policy adapter)
+  [[ "$CFG_WITH_CAMERA" != true ]] || required+=(rgbd camera-recovery)
+  [[ "$CFG_ARRIVAL_MODULE" != rgb-homography ]] || required+=(arrival)
+  [[ "$CFG_WITH_GO2" != true ]] || required+=(go2)
+  [[ "$CFG_WITH_FOXGLOVE" != true ]] || required+=(fox-preview foxglove)
+  local window
+  for window in "${required[@]}"; do
+    grep -Fxq "$window" <<<"$windows" || return 1
+  done
+}
+
+run_navigation() {
+  local source="$DEFAULT_NATIVE" timeout_s=60
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --config)
+        [[ $# -ge 2 ]] || die "--config requires a value"
+        source="$2"
+        shift 2
+        ;;
+      --timeout-s)
+        [[ $# -ge 2 ]] || die "--timeout-s requires a value"
+        timeout_s="$2"
+        shift 2
+        ;;
+      *) die "unknown run option: $1" ;;
+    esac
+  done
+
+  [[ "$timeout_s" =~ ^[0-9]+([.][0-9]+)?$ ]] || {
+    die "--timeout-s must be a positive number"
+  }
+  awk -v value="$timeout_s" \
+    'BEGIN { exit !(value > 0 && value <= 900) }' || {
+    die "--timeout-s must be in (0, 900]"
+  }
+
+  local resolved
+  resolved="$(resolve_config "$source")"
+  load_jetson_config "$resolved"
+  [[ "$CFG_PROFILE" == native-navdp-rgbd ]] || {
+    die "run currently supports profile=native-navdp-rgbd only"
+  }
+
+  if native_session_is_current_and_healthy; then
+    echo "FAST PATH: reusing current healthy stack config_id=$CFG_CONFIG_ID"
+  else
+    echo "COLD PATH: stack is absent, stale, incomplete, or unhealthy"
+    start_stack --config "$source"
+    load_jetson_config "$resolved"
+  fi
+
+  bash "$GO2_DIR/scripts/run_navigation.sh" \
+    --config "$resolved" --timeout-s "$timeout_s"
+}
+
 resolve_only() {
   [[ $# -eq 2 && "$1" == --config ]] || die "resolve requires --config EXPERIMENT.json"
   local resolved
@@ -140,7 +213,7 @@ status_one() {
     echo "  config=${active_config:-unknown}"
     if [[ "$contract_state" == stale ]]; then
       echo "  expected_config_id=$CFG_CONFIG_ID"
-      echo "  run nav_stack.sh start --config <experiment.json> to replace the complete stack"
+      echo "  use nav_stack.sh run to refresh and navigate, or start to refresh locked"
     fi
     tmux list-windows -t "$session" -F '  window=#{window_name} dead=#{pane_dead}'
   else
@@ -211,6 +284,7 @@ main() {
     describe) [[ $# -eq 1 ]] || die "describe requires PROFILE"; python3 "$PROFILE_TOOL" show "$1" ;;
     resolve) resolve_only "$@" ;;
     start) start_stack "$@" ;;
+    run) run_navigation "$@" ;;
     status) status_stack "$@" ;;
     stop) stop_stack "$@" ;;
     -h|--help|help) usage ;;

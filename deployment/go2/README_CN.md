@@ -54,17 +54,41 @@ bash deployment/go2/scripts/capture_image_goal.sh \
 输入 RGB arrival；原生 baseline 的当前 aligned depth 是 NavDP 和本地安全输入，
 Full-Mono 的 D435 depth 只留在 Jetson 本地安全层。
 
-## 3. 启动原生 baseline
+## 3. 一条命令运行原生 baseline
 
 按需修改 `native_imagegoal.json` 的 `launch.go2_bridge`、`launch.foxglove` 和 arrival，
-然后：
+现场人员和遥控器就位后直接执行：
+
+```bash
+bash deployment/go2/nav_stack.sh run
+```
+
+`run` 默认使用 `deployment/config/experiments/native_imagegoal.json`，本身就是本次
+运动的显式授权。它先确保机器人锁止；若当前 tmux 合同一致且所有窗口健康，就复用
+相机、模型和 Foxglove，不做整栈重启。仅在会话不存在、config ID 过期、窗口缺失或
+进程死亡时才走冷启动。随后它在一个 ROS 进程内完成策略 reset、等待一条 reset 后的
+新轨迹、检查 RGB-D 新鲜度、ImageGoal、到达锁存、轨迹几何和至少 `0.80 m` 前方净空，
+再依次 clear estop 和 enable。到达、异常、Ctrl-C 或默认 `60 s` 超时都会恢复
+`disabled + estop + zero command`。
+
+CMD 会以 `[+ 0.0s]` 形式输出 `CONNECT / RESET / PLAN / GOAL / ARM / RUNNING /
+ARRIVED` 各阶段累计时间。正常热运行不再枚举全部 topic 或读取 tmux 日志；只有预检
+失败时才输出具体阻塞原因。需要另一份原生配置或不同运行上限时使用：
+
+```bash
+bash deployment/go2/nav_stack.sh run \
+  --config deployment/config/experiments/native_imagegoal.json \
+  --timeout-s 90
+```
+
+若只想启动观察服务而绝不授权运动，仍使用锁止入口：
 
 ```bash
 bash deployment/go2/nav_stack.sh start \
   --config deployment/config/experiments/native_imagegoal.json
 ```
 
-`start` 也是唯一的整栈刷新入口：若同 profile 的 tmux 会话已经存在，它会先调用
+`start` 是唯一的整栈刷新入口：若同 profile 的 tmux 会话已经存在，它会先调用
 fail-closed 停止路径、关闭整个旧会话，再让所有窗口使用当前 revision 解析出的同一
 配置启动。提交代码后不要人工混用新旧配置重启单个窗口；相机恢复按钮除外，因为它
 始终沿用当前会话的运行合同，并且不会恢复运动权限。
@@ -74,8 +98,8 @@ fail-closed 停止路径、关闭整个旧会话，再让所有窗口使用当�
 ImageGoal。
 
 `launch.foxglove=true`只在Jetson启动无界面、观察为主的Bridge。操作电脑打开Foxglove，
-连接`ws://JETSON_IP:8765`并导入
-`deployment/go2/config/navdp_debug.foxglove-layout.json`。不需要VNC。Bridge不允许浏览器
+连接`ws://JETSON_IP:8765`并选择组织 Layout `MemNav Go2 Navigation`；组织同步尚未配置时，
+才回退到导入`deployment/go2/config/navdp_debug.foxglove-layout.json`。不需要VNC。Bridge不允许浏览器
 发布topic、修改参数、reset、解除estop或enable；只开放两个fail-closed调用：
 `/navdp_go2_adapter/operator_stop`和`/navdp_camera_recovery/restart`。
 
@@ -99,6 +123,24 @@ depth各至少10幅新帧后才返回成功；无论成功或失败都不自动�
 这些topic有损且只用于显示；NavDP、arrival和`--profile full`采集仍读取原始
 848×480×30 Hz RGB-D。修改布局文件不会覆盖Foxglove已经导入的本地副本，升级后需要重新
 导入一次布局，或手动更新对应panel的topic和可见性。
+
+仓库同时提供组织级 Layout 自动同步：`.github/workflows/sync-foxglove-layout.yml`
+只在 `navdp_debug.foxglove-layout.json` 或同步器本身变化并 push 到 `main` 时运行，使用
+固定 Layout ID `6f3394a6-b25e-5988-8b75-0c6f348b47c3` 创建或原位更新组织 Layout
+`MemNav Go2 Navigation`，不会反复生成副本。首次启用前，由 Foxglove 组织管理员创建
+具备 Layout 读取、创建和更新能力的新 API Key，并通过交互式命令写入 GitHub Secret；
+不要把 Key 放入 JSON、workflow、shell 历史或文档：
+
+```bash
+gh secret set FOXGLOVE_API_KEY --repo AlanZhu2006/MemNav-RealWorld
+```
+
+随后可在 GitHub Actions 手动运行一次 `Sync Foxglove organization layout`，或修改布局
+并 push。Foxglove 客户端只需首次从 Organization layouts 选择该 Layout；以后 CI
+保存的云端版本会跨设备同步，不再导入本地 JSON。如果客户端对该 Layout 有未保存的
+本地草稿，Foxglove会保护草稿而不会强制覆盖，此时需要在 Layout 菜单选择 Revert 或
+刷新。同步器将 Foxglove 的 `data` 当作不稳定的不透明对象整包 round-trip，不自行转换
+panel schema。
 
 Bridge白名单故意不暴露四个原始图像topic，防止旧布局或临时panel绕过限流；相机标定、
 状态和其他低带宽调试topic仍可查看。需要原始传感器回放时使用本机ROS或`--profile full`

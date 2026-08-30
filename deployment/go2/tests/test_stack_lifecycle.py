@@ -54,3 +54,108 @@ stop_existing_local_stack /tmp/new.json navdp-go2 native-navdp-rgbd
     )
 
     assert result.stdout == ""
+
+
+def test_run_fast_path_reuses_current_stack_and_forwards_timeout():
+    command = f"""
+source {NAV_STACK!s}
+resolve_config() {{ echo /tmp/resolved.json; }}
+load_jetson_config() {{
+  CFG_PROFILE=native-navdp-rgbd
+  CFG_CONFIG_ID=current-id
+}}
+native_session_is_current_and_healthy() {{ return 0; }}
+start_stack() {{ echo unexpected-cold-start; return 99; }}
+bash() {{ printf 'child=%s\n' "$*"; }}
+run_navigation --timeout-s 45
+"""
+
+    result = subprocess.run(
+        ["bash", "-c", command],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "FAST PATH: reusing current healthy stack config_id=current-id" in result.stdout
+    assert "unexpected-cold-start" not in result.stdout
+    assert "scripts/run_navigation.sh --config /tmp/resolved.json --timeout-s 45" in result.stdout
+
+
+def test_run_cold_path_refreshes_once_before_agent():
+    command = f"""
+source {NAV_STACK!s}
+resolve_config() {{ echo /tmp/resolved.json; }}
+load_jetson_config() {{
+  CFG_PROFILE=native-navdp-rgbd
+  CFG_CONFIG_ID=expected-id
+}}
+native_session_is_current_and_healthy() {{ return 1; }}
+start_stack() {{ printf 'cold=%s\n' "$*"; }}
+bash() {{ printf 'child=%s\n' "$*"; }}
+run_navigation --config /tmp/experiment.json --timeout-s 30
+"""
+
+    result = subprocess.run(
+        ["bash", "-c", command],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "COLD PATH:" in result.stdout
+    assert "cold=--config /tmp/experiment.json" in result.stdout
+    assert "scripts/run_navigation.sh --config /tmp/resolved.json --timeout-s 30" in result.stdout
+
+
+def test_native_session_health_checks_every_required_window_for_dead_panes():
+    command = f"""
+source {NAV_STACK!s}
+CFG_NATIVE_SESSION=navdp-go2
+CFG_CONFIG_ID=expected-id
+CFG_WITH_CAMERA=true
+CFG_ARRIVAL_MODULE=rgb-homography
+CFG_WITH_GO2=true
+CFG_WITH_FOXGLOVE=true
+tmux() {{
+  case "$1" in
+    has-session) return 0 ;;
+    show-environment) echo MEMNAV_CONFIG_ID=expected-id ;;
+    list-windows) printf '%s\n' \
+      'policy 0' 'rgbd 0' 'adapter 0' 'camera-recovery 0' \
+      'arrival 0' 'go2 0' 'fox-preview 0' 'foxglove 1' ;;
+  esac
+}}
+if native_session_is_current_and_healthy; then
+  echo unexpectedly-healthy
+else
+  echo correctly-unhealthy
+fi
+"""
+
+    result = subprocess.run(
+        ["bash", "-c", command],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.strip() == "correctly-unhealthy"
+
+
+def test_invalid_run_timeout_is_rejected_before_cold_start():
+    command = f"""
+source {NAV_STACK!s}
+start_stack() {{ echo unexpected-cold-start; }}
+run_navigation --timeout-s invalid
+"""
+    result = subprocess.run(
+        ["bash", "-c", command],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "--timeout-s must be a positive number" in result.stderr
+    assert "unexpected-cold-start" not in result.stdout

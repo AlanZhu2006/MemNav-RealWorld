@@ -1,13 +1,13 @@
 # Go2 真机栈：模块与入口
 
-日常只使用一个入口和一个配置参数：
+原生 NavDP 的日常监督运行只使用一个入口：
 
 ```bash
-bash deployment/go2/nav_stack.sh start \
-  --config deployment/config/experiments/native_imagegoal.json
+bash deployment/go2/nav_stack.sh run
 ```
 
-启动行为不再由命令行选项、`.env` 或 `NAVDP_*`/`CEC_*` 环境变量拼装。机器、
+它默认读取 `native_imagegoal.json`；`run` 是显式运动授权，而 `start` 只启动锁止栈。
+运行行为不再由 `.env` 或 `NAVDP_*`/`CEC_*` 环境变量拼装。机器、
 模型、端口和安全值在 `deployment/config/system.json`；本次实验选择在
 `deployment/config/experiments/*.json`。
 
@@ -22,7 +22,10 @@ experiment.json + system.json
               resolved JSON（唯一运行合同）
                     │
           nav_stack.sh
-            ├─ native ───> scripts/run_stack.sh（Jetson）
+            ├─ native start ─> scripts/run_stack.sh（锁止栈）
+            ├─ native run ───> 健康合同则复用，否则先 start
+            │                     └─ navigation_run_agent.py
+            │                         lock → reset → plan → arm → monitor
             └─ Full-Mono -> offboard/fullmono.sh
                                 ├─ 同一 JSON -> RTX policy stack
                                 └─ 同一 JSON -> Jetson offboard stack
@@ -50,6 +53,7 @@ bash deployment/go2/nav_stack.sh resolve \
   --config deployment/config/experiments/native_imagegoal.json
 bash deployment/go2/nav_stack.sh start \
   --config deployment/config/experiments/native_imagegoal.json --dry-run
+bash deployment/go2/nav_stack.sh run
 bash deployment/go2/nav_stack.sh status
 bash deployment/go2/nav_stack.sh stop
 ```
@@ -58,5 +62,6 @@ bash deployment/go2/nav_stack.sh stop
 Full-Mono 还会把同一字节序列复制到 4090；两端 revision 或 config ID 不一致就拒绝
 启动。
 
-启动成功仍是 `disabled + estop`。只有现场操作员检查画面、到达模块和遥控接管后，
-才能显式解除急停并调用 `/navdp_go2_adapter/set_enabled`。
+`start` 成功仍是 `disabled + estop`。`run` 只供现场监督运行：该命令自动验证 reset 后
+的新轨迹并执行两步授权，同时输出各阶段耗时；任何失败、超时或中断都调用单向
+`operator_stop`。Foxglove仍不暴露 reset、clear-estop 或 enable。
