@@ -174,3 +174,14 @@ navdp_stamp_session_contract() {
   tmux set-environment -t "$session" MEMNAV_RUN_CONFIG "$NAVDP_RUN_CONFIG"
   tmux set-environment -t "$session" MEMNAV_CONFIG_ID "$CFG_CONFIG_ID"
 }
+
+navdp_lock_motion_before_shutdown() {
+  # A stack replacement must never carry motion authority across process
+  # generations.  The adapter service is the primary stop path; normal node
+  # shutdown remains the fallback when ROS or the adapter is unavailable.
+  if navdp_source_ros >/dev/null 2>&1; then
+    timeout 4 ros2 service call \
+      /navdp_go2_adapter/operator_stop std_srvs/srv/Trigger '{}' \
+      >/dev/null 2>&1 || true
+  fi
+}

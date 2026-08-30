@@ -17,6 +17,11 @@ deployment/go2/nav_stack.sh start \
 两机参数。Full-Mono 会把这一份完全相同的文件复制到 4090，再由两端分别
 校验 `config_id`；因此不会出现 SSH 或 tmux 少传某个变量的情况。
 
+代码提交后不要单独用新版本重启某个 tmux 窗口。再次执行同一个 `start` 命令时，
+入口会先锁停并停止已有整栈，再用当前 revision 对应的新 resolved 配置统一启动；
+正常的相机恢复仍在同一份运行合同内只重启 `rgbd`。`status` 中
+`contract=current|stale` 用于提示运行会话是否仍对应当前源码。
+
 要换 ImageGoal，只修改（或复制）实验 JSON 里的
 `experiment.navigation.image_goal`。到达检测可独立使用另一张图，路径在
 `experiment.arrival.image_goal`。

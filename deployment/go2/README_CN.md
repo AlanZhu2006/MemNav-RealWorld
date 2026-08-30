@@ -64,6 +64,11 @@ bash deployment/go2/nav_stack.sh start \
   --config deployment/config/experiments/native_imagegoal.json
 ```
 
+`start` 也是唯一的整栈刷新入口：若同 profile 的 tmux 会话已经存在，它会先调用
+fail-closed 停止路径、关闭整个旧会话，再让所有窗口使用当前 revision 解析出的同一
+配置启动。提交代码后不要人工混用新旧配置重启单个窗口；相机恢复按钮除外，因为它
+始终沿用当前会话的运行合同，并且不会恢复运动权限。
+
 原生 profile 不访问 4090，不启动 CEC/MemNav/LingBot。它调用原版
 `NavDP_Agent.step_imagegoal()`，当前 RGB-D 进入策略，配置中的目标 RGB 作为
 ImageGoal。

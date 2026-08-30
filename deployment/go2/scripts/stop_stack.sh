@@ -11,6 +11,7 @@ if ! command -v tmux >/dev/null 2>&1 || ! tmux has-session -t "$SESSION" 2>/dev/
   exit 0
 fi
 
+navdp_lock_motion_before_shutdown
 tmux send-keys -t "$SESSION:adapter" C-c 2>/dev/null || true
 tmux send-keys -t "$SESSION:go2" C-c 2>/dev/null || true
 sleep 1

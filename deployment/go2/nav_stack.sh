@@ -23,6 +23,8 @@ system.json. The resolved, hash-verified JSON is the only runtime contract.
 No NAVDP_*/CEC_* environment override is accepted.
 
 Startup is motion-locked. It never clears estop or calls set_enabled=true.
+Starting an already-running profile safely replaces the complete stack so one
+tmux session never intentionally mixes runtime contracts.
 EOF
 }
 
@@ -60,6 +62,32 @@ show_contract() {
   echo "  max_linear_mps=$CFG_MAX_LINEAR_MPS max_angular_rps=$CFG_MAX_ANGULAR_RPS"
 }
 
+stop_existing_local_stack() {
+  local resolved="$1" session="$2" profile="$3"
+  tmux has-session -t "$session" 2>/dev/null || return 0
+
+  local active_config stop_config
+  active_config="$(tmux show-environment -t "$session" MEMNAV_RUN_CONFIG 2>/dev/null \
+    | sed -n 's/^MEMNAV_RUN_CONFIG=//p' || true)"
+  stop_config="$resolved"
+  if [[ -n "$active_config" && -f "$active_config" ]]; then
+    stop_config="$active_config"
+  fi
+
+  echo "Replacing the complete running stack: session=$session"
+  echo "  old_config=${active_config:-unknown}"
+  echo "  new_config=$resolved"
+  case "$profile" in
+    native-navdp-rgbd)
+      bash "$GO2_DIR/scripts/stop_stack.sh" --config "$stop_config"
+      ;;
+    fullmono-lingbot-cec)
+      bash "$GO2_DIR/offboard/fullmono.sh" stop --config "$stop_config"
+      ;;
+    *) die "profile has no stop path: $profile" ;;
+  esac
+}
+
 start_stack() {
   local source="" dry_run=false
   while [[ $# -gt 0 ]]; do
@@ -78,8 +106,14 @@ start_stack() {
     return 0
   fi
   case "$CFG_PROFILE" in
-    native-navdp-rgbd) bash "$GO2_DIR/scripts/run_stack.sh" --config "$resolved" ;;
-    fullmono-lingbot-cec) bash "$GO2_DIR/offboard/fullmono.sh" start --config "$resolved" ;;
+    native-navdp-rgbd)
+      stop_existing_local_stack "$resolved" "$CFG_NATIVE_SESSION" "$CFG_PROFILE"
+      bash "$GO2_DIR/scripts/run_stack.sh" --config "$resolved"
+      ;;
+    fullmono-lingbot-cec)
+      stop_existing_local_stack "$resolved" "$CFG_FULLMONO_SESSION" "$CFG_PROFILE"
+      bash "$GO2_DIR/offboard/fullmono.sh" start --config "$resolved"
+      ;;
     *) die "profile has no launcher: $CFG_PROFILE" ;;
   esac
 }
@@ -100,8 +134,14 @@ status_one() {
     local active_id active_config
     active_id="$(tmux show-environment -t "$session" MEMNAV_CONFIG_ID 2>/dev/null | sed -n 's/^MEMNAV_CONFIG_ID=//p')"
     active_config="$(tmux show-environment -t "$session" MEMNAV_RUN_CONFIG 2>/dev/null | sed -n 's/^MEMNAV_RUN_CONFIG=//p')"
-    echo "RUNNING session=$session profile=$CFG_PROFILE config_id=${active_id:-unknown}"
+    local contract_state="stale"
+    [[ "$active_id" == "$CFG_CONFIG_ID" ]] && contract_state="current"
+    echo "RUNNING session=$session profile=$CFG_PROFILE contract=$contract_state config_id=${active_id:-unknown}"
     echo "  config=${active_config:-unknown}"
+    if [[ "$contract_state" == stale ]]; then
+      echo "  expected_config_id=$CFG_CONFIG_ID"
+      echo "  run nav_stack.sh start --config <experiment.json> to replace the complete stack"
+    fi
     tmux list-windows -t "$session" -F '  window=#{window_name} dead=#{pane_dead}'
   else
     echo "STOPPED session=$session profile=$CFG_PROFILE"
@@ -162,16 +202,22 @@ stop_stack() {
   stop_one "$(resolve_config "$2")"
 }
 
-[[ $# -gt 0 ]] || { usage; exit 2; }
-command="$1"
-shift
-case "$command" in
-  list) [[ $# -eq 0 ]] || die "list takes no arguments"; python3 "$PROFILE_TOOL" list ;;
-  describe) [[ $# -eq 1 ]] || die "describe requires PROFILE"; python3 "$PROFILE_TOOL" show "$1" ;;
-  resolve) resolve_only "$@" ;;
-  start) start_stack "$@" ;;
-  status) status_stack "$@" ;;
-  stop) stop_stack "$@" ;;
-  -h|--help|help) usage ;;
-  *) die "unknown command: $command" ;;
-esac
+main() {
+  [[ $# -gt 0 ]] || { usage; return 2; }
+  local command="$1"
+  shift
+  case "$command" in
+    list) [[ $# -eq 0 ]] || die "list takes no arguments"; python3 "$PROFILE_TOOL" list ;;
+    describe) [[ $# -eq 1 ]] || die "describe requires PROFILE"; python3 "$PROFILE_TOOL" show "$1" ;;
+    resolve) resolve_only "$@" ;;
+    start) start_stack "$@" ;;
+    status) status_stack "$@" ;;
+    stop) stop_stack "$@" ;;
+    -h|--help|help) usage ;;
+    *) die "unknown command: $command" ;;
+  esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
