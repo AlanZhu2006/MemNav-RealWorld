@@ -1,11 +1,12 @@
 foxglove_bridge:
   ros__parameters:
-    # Observation only. A browser must never gain motion authority through the
-    # visualization bridge on a physical Go2.
+    # Observation plus one fail-closed STOP service. A browser must never gain
+    # start/reset/goal/parameter/topic-publish authority on a physical Go2.
     capabilities:
+      - services
       - connectionGraph
     service_whitelist:
-      - "(?!)"
+      - "^/navdp_go2_adapter/operator_stop$"
     param_whitelist:
       - "(?!)"
     client_topic_whitelist:

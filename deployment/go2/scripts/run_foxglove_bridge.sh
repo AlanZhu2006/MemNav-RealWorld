@@ -37,10 +37,11 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "Starting read-only Foxglove Bridge"
+echo "Starting observation + STOP-only Foxglove Bridge"
 echo "  websocket: ws://$CFG_FOXGLOVE_ADDRESS:$CFG_FOXGLOVE_PORT"
 echo "  layout:    $CFG_FOXGLOVE_LAYOUT"
-echo "  control:   client publish, services and parameter mutation disabled"
+echo "  control:   only /navdp_go2_adapter/operator_stop is callable"
+echo "             client publish, start/reset and parameter mutation disabled"
 
 ros2 run foxglove_bridge foxglove_bridge --ros-args \
   --params-file "$PARAMS" \

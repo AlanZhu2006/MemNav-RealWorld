@@ -988,7 +988,15 @@ ros2 service call /navdp_go2_adapter/set_enabled \
 
 ### 15.5 紧急停止
 
-现场优先使用 Unitree 遥控器。软件侧：
+现场优先使用 Unitree 遥控器。Foxglove版本化布局中的红色`STOP NAVIGATION`调用专用
+`/navdp_go2_adapter/operator_stop`；它会原子设置disabled、assert estop并立即发布零速度，
+且可安全重复调用。也可从Jetson命令行直接调用同一个fail-closed端点：
+
+```bash
+ros2 service call /navdp_go2_adapter/operator_stop std_srvs/srv/Trigger "{}"
+```
+
+传统软件侧两步停止仍可作为备用：
 
 ```bash
 ros2 topic pub --once /navdp/estop \
@@ -1012,7 +1020,7 @@ bash deployment/go2/offboard/revisit_experiment.sh stop
 
 ### 16.1 启动与连接
 
-实验配置使用 `launch.foxglove=true` 后，Jetson 只启动无界面、只读的 Bridge，
+实验配置使用 `launch.foxglove=true` 后，Jetson 启动无界面、观察为主且仅开放STOP的Bridge，
 不再需要VNC或本机图形桌面。操作电脑打开Foxglove，连接：
 
 ```text
@@ -1025,7 +1033,9 @@ ws://JETSON_IP:8765
 deployment/go2/config/navdp_debug.foxglove-layout.json
 ```
 
-Bridge禁止client publish、service call和参数修改，Foxglove只具有观察权限。
+Bridge禁止client publish和参数修改；Service白名单精确限制为
+`/navdp_go2_adapter/operator_stop`。Foxglove不能reset、clear estop或enable，因此只具有
+观察权限和单向撤销运动权限。
 默认配置监听所有网卡且没有TLS，因此只能放在可信实验局域网或Tailscale内；相机数据
 仍属于敏感遥测，不能把8765端口直接暴露到公网。查看Jetson端Bridge日志可执行：
 
@@ -1068,6 +1078,7 @@ JPEG并保留原始宽幅比例（当前通常为960×272）；`/navdp/status`�
 | Image Goal | `/navdp/foxglove/goal/compressed`，当前安装目标预览 |
 | RGB Arrival Match | `/navdp/foxglove/arrival/compressed`，保留左右对比图原始比例、最多5 Hz |
 | Operator status | `/navdp/foxglove/status/compressed`，安全锁、RGB-D/plan age、clearance、vx/wz、错误 |
+| STOP NAVIGATION | `/navdp_go2_adapter/operator_stop`，仅disabled + estop + zero，不具备启动能力 |
 | Candidate paths | `/navdp/debug/markers`，默认关闭，需要分析候选Q值时手动打开 |
 | Selected trajectory | `/navdp/trajectory` |
 | NavDP status | `/navdp/status`完整只读状态消息，从Topics侧栏按需查看 |

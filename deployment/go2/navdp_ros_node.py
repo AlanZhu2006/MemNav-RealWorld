@@ -151,6 +151,7 @@ class NavDPGo2Adapter(Node):
         self.create_subscription(Bool, self.estop_topic, self._on_estop, command_qos)
         self.create_subscription(Bool, self.arrival_topic, self._on_arrival, command_qos)
 
+        self.create_service(Trigger, "~/operator_stop", self._operator_stop_service)
         self.create_service(SetBool, "~/set_enabled", self._set_enabled_service)
         self.create_service(Trigger, "~/reset_policy", self._reset_policy_service)
         if self.two_phase_episode:
@@ -496,6 +497,27 @@ class NavDPGo2Adapter(Node):
         self._set_enabled(bool(request.data), "set_enabled service")
         response.success = True
         response.message = f"NavDP motion {'enabled' if request.data else 'disabled'}"
+        return response
+
+    def _operator_stop_service(self, _request, response):
+        """Latch the adapter into its fail-closed state from an operator UI.
+
+        This endpoint is deliberately one-way: it cannot clear estop, enable
+        motion, reset policy state or change a goal.  Foxglove exposes only
+        this service, never the general motion-control topics or services.
+        """
+
+        with self._lock:
+            self._enabled = False
+            self._estop = True
+            self._target_command = VelocityCommand()
+        self._publish_zero("operator_stop")
+        response.success = True
+        response.message = (
+            "Operator STOP latched: motion disabled, estop asserted, "
+            "zero command active"
+        )
+        self.get_logger().warning(response.message)
         return response
 
     def _reset_policy_service(self, _request, response):

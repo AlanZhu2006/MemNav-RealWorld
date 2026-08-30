@@ -145,6 +145,16 @@
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
       "foxglovePanelTitle": "Operator safety / motion status"
+    },
+    "CallService!stop": {
+      "serviceName": "/navdp_go2_adapter/operator_stop",
+      "requestPayload": "{}",
+      "layout": "vertical",
+      "buttonText": "STOP NAVIGATION",
+      "buttonTooltip": "Fail-closed only: disable motion, assert estop and command zero",
+      "buttonColor": "#d32f2f",
+      "editingMode": false,
+      "foxglovePanelTitle": "STOP only — cannot start"
     }
   },
   "globalVariables": {},
@@ -173,7 +183,12 @@
           "second": "Image!depth",
           "splitPercentage": 50
         },
-        "second": "Image!status",
+        "second": {
+          "direction": "row",
+          "first": "Image!status",
+          "second": "CallService!stop",
+          "splitPercentage": 72
+        },
         "splitPercentage": 54
       },
       "splitPercentage": 42

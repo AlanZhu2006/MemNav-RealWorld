@@ -68,10 +68,11 @@ bash deployment/go2/nav_stack.sh start \
 `NavDP_Agent.step_imagegoal()`，当前 RGB-D 进入策略，配置中的目标 RGB 作为
 ImageGoal。
 
-`launch.foxglove=true`只在Jetson启动无界面、只读Bridge。操作电脑打开Foxglove，
+`launch.foxglove=true`只在Jetson启动无界面、观察为主的Bridge。操作电脑打开Foxglove，
 连接`ws://JETSON_IP:8765`并导入
-`deployment/go2/config/navdp_debug.foxglove-layout.json`。不需要VNC；Bridge不允许
-浏览器发布topic、调用service或修改参数。
+`deployment/go2/config/navdp_debug.foxglove-layout.json`。不需要VNC。Bridge不允许浏览器
+发布topic、修改参数、reset、解除estop或enable；唯一开放的调用是fail-closed
+`/navdp_go2_adapter/operator_stop`。
 
 为避免原始RGB-D把无线链路占满，启动器同时运行观察专用的`fox-preview`窗口：RGB被缩放为
 640×360、15 Hz、JPEG质量75，深度被缩放、按200--4000 mm做Turbo着色后以640×360、
@@ -85,6 +86,8 @@ ImageGoal。
 `/navdp/rgb_arrival_status`仍可从Topics侧栏按需查看，不再占用默认dashboard。
 ImageGoal、最后一次arrival对比和状态卡使用transient-local显示QoS，因此Bridge或浏览器
 重连后仍能立即取得最近快照；arrival panel表示“最后一次评估”，不是锁定期间的新判断。
+状态卡右侧的红色`STOP NAVIGATION`按钮只执行`enabled=false + estop=true + zero command`；
+它不能启动机器人，重复点击也安全。调用成功后应在状态卡看到`E-STOP / LOCKED`和零命令。
 这些topic有损且只用于显示；NavDP、arrival和`--profile full`采集仍读取原始
 848×480×30 Hz RGB-D。修改布局文件不会覆盖Foxglove已经导入的本地副本，升级后需要重新
 导入一次布局，或手动更新对应panel的topic和可见性。
@@ -93,8 +96,9 @@ Bridge白名单故意不暴露四个原始图像topic，防止旧布局或临时
 状态和其他低带宽调试topic仍可查看。需要原始传感器回放时使用本机ROS或`--profile full`
 MCAP，不通过远程dashboard传输。
 
-默认Bridge监听所有网卡且不启用TLS。虽然它没有控制权限，但会暴露相机与状态数据，
-所以只应在可信实验局域网或Tailscale内使用；跨公网时必须另加防火墙或加密代理。
+默认Bridge监听所有网卡且不启用TLS。它会暴露相机与状态数据，并允许已连接客户端触发
+单向STOP，因此只应在可信实验局域网或Tailscale内使用；跨公网时必须另加防火墙或加密
+代理。STOP只能移除运动权限，不能授予运动权限。
 
 数据链路是`ROS publisher -> Foxglove Bridge广告白名单topic -> 可见panel按需订阅`。
 Bridge不会把所有高带宽图像无条件推给浏览器；如果Topics侧栏能看到topic但panel没有画面，

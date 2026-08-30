@@ -162,7 +162,7 @@ def test_gpu_shell_contract_exposes_only_gpu_and_shared_fields(tmp_path):
     assert "CFG_IMAGE_GOAL=" not in exports
 
 
-def test_foxglove_layout_contains_no_control_panels():
+def test_foxglove_layout_limits_control_to_one_stop_service():
     layout = json.loads(
         (
             REPO
@@ -173,8 +173,19 @@ def test_foxglove_layout_contains_no_control_panels():
     assert "Publish" not in panel_kinds
     assert "ServiceCall" not in panel_kinds
     assert "Teleop" not in panel_kinds
-    assert {"3D", "Image"} <= panel_kinds
+    assert {"3D", "Image", "CallService"} <= panel_kinds
     assert "RawMessages" not in panel_kinds
+    stop_panels = {
+        panel_id: panel
+        for panel_id, panel in layout["configById"].items()
+        if panel_id.startswith("CallService!")
+    }
+    assert set(stop_panels) == {"CallService!stop"}
+    assert stop_panels["CallService!stop"]["serviceName"] == (
+        "/navdp_go2_adapter/operator_stop"
+    )
+    assert stop_panels["CallService!stop"]["requestPayload"] == "{}"
+    assert stop_panels["CallService!stop"]["buttonText"] == "STOP NAVIGATION"
 
 
 def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():
@@ -214,3 +225,15 @@ def test_foxglove_bridge_does_not_expose_raw_camera_images():
     assert '"^/navdp/.*"' not in parameters
     assert "/navdp/image_goal" not in parameters
     assert "/navdp/rgb_arrival_debug" not in parameters
+    services = parameters.split("service_whitelist:", 1)[1].split(
+        "param_whitelist:", 1
+    )[0]
+    assert '"^/navdp_go2_adapter/operator_stop$"' in services
+    assert "set_enabled" not in services
+    assert "reset_policy" not in services
+    assert "begin_revisit" not in services
+    capabilities = parameters.split("capabilities:", 1)[1].split(
+        "service_whitelist:", 1
+    )[0]
+    assert "- services" in capabilities
+    assert "clientPublish" not in capabilities

@@ -83,6 +83,9 @@ its native wide side-by-side aspect (currently typically 960x272). A 720x272,
 2 Hz status card exposes motion lock, sensor/plan freshness, clearance, command
 and errors without occupying the layout with raw JSON. The selected trajectory
 is visible by default; candidate/Q-value markers remain available but hidden.
+The only dashboard control is a one-way `STOP NAVIGATION` service that disables
+motion, asserts estop and commands zero. It cannot arm, reset or alter goals;
+evidence capture itself still never changes motion authority.
 The original image topics remain unchanged for policy, arrival and the optional
 `full` MCAP profile. Re-import the versioned layout after an upgrade; Foxglove
 does not automatically replace a previously imported local copy. Do not expect

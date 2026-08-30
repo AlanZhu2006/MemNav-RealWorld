@@ -45,8 +45,9 @@ arbitrary-start ImageGoal rollout or a formal STOP contract.  The remaining P0
 is a separately validated, scale-free terminal visual-servo / arrival contract.
 
 The robot is currently motion-locked (`disabled + estop`). The native stack,
-camera and read-only Foxglove Bridge may remain live for inspection; this does
-not grant actuator authority.
+camera and observation-first Foxglove Bridge may remain live for inspection.
+Its sole control is a dedicated fail-closed STOP service; it cannot grant
+actuator authority, reset policy state or clear estop.
 
 The paired campaign now has a fail-closed executable arm boundary.  The Jetson
 formal entry point requires `--arm mono_native|mono_cec`, forwards the choice
@@ -102,7 +103,8 @@ performance.
 - Foxglove operator UI: selected trajectory is the default 3D signal; verbose
   candidate/Q-value markers are opt-in, arrival comparison preserves its native
   wide aspect, and a read-only status card summarizes lock/freshness/clearance/
-  command/error while raw JSON remains available for detailed diagnosis.
+  command/error while raw JSON remains available for detailed diagnosis. A
+  single red STOP control can only disable + estop + command zero.
 
 The terminal wire schema is
 `cec_direct_bearing_handoff_v2_20260824`.  Both reset and launcher preflight
