@@ -12,7 +12,6 @@ __pycache__
 .pytest_cache/
 runtime/
 vis_output/
-deployment/gpu/.env
 deployment/go2/goals/*
 !deployment/go2/goals/.gitkeep
 deployment/go2/releases/

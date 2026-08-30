@@ -49,6 +49,7 @@ show_contract() {
   echo "  source_revision=$CFG_GIT_REVISION"
   echo "  experiment=$CFG_EXPERIMENT_ID phase=$CFG_EXPERIMENT_PHASE"
   echo "  profile=$CFG_PROFILE"
+  echo "  authority_mode=$CFG_AUTHORITY_MODE"
   echo "  ImageGoal=$CFG_IMAGE_GOAL"
   echo "  ImageGoal_sha256=$CFG_IMAGE_GOAL_SHA256"
   echo "  arrival=$CFG_ARRIVAL_MODULE arrival_goal=$CFG_ARRIVAL_GOAL"

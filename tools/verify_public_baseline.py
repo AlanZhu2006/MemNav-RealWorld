@@ -65,7 +65,10 @@ REQUIRED_PATHS = (
     "deployment/gpu/revisit_bearing_adapter.py",
     "deployment/gpu/revisit_local_pose_adapter.py",
     "deployment/gpu/audit_visual_convergence.py",
-    "deployment/gpu/env.example",
+    "deployment/config/system.json",
+    "deployment/config/experiments/native_imagegoal.json",
+    "deployment/config/experiments/fullmono_imagegoal.json",
+    "deployment/runtime_config.py",
     "tools/transcode_demo_media.sh",
     "tools/build_demo_previews.py",
     "tools/verify_realworld_paired_campaign.py",
@@ -277,9 +280,13 @@ def main() -> int:
     ).read_text()
     check("enable_on_start: false" in adapter_config, "adapter lock", failures)
     check("max_linear_mps: 0.30" in adapter_config, "adapter speed", failures)
-    check('GO2_TIMEOUT_SEC="${GO2_TIMEOUT_SEC:-0.35}"' in bridge_script,
+    system_config = json.loads(
+        (root / "deployment/config/system.json").read_text()
+    )
+    unitree_config = system_config["sites"]["jetson"]["unitree"]
+    check(unitree_config.get("timeout_s") == 0.35,
           "bridge watchdog", failures)
-    check('GO2_MAX_VX="${GO2_MAX_VX:-0.30}"' in bridge_script,
+    check(unitree_config.get("max_vx") == 0.30,
           "bridge speed", failures)
     check(
         'args.host not in {"127.0.0.1", "::1", "localhost"}' in hub_source,
@@ -322,8 +329,11 @@ def main() -> int:
     check(
         "--expected-goal-sha256" in formal_source
         and "--expected-dataset-sha256" in formal_source
-        and "NAVDP_REVISIT_IMAGE_GOAL_PATH" in formal_source
-        and "NAVDP_AUTO_SELECT_GOAL_CANDIDATE=false" in formal_source
+        and "derive-formal" in formal_source
+        and "--frozen-goal" in formal_source
+        and 'payload["memory"]["auto_select_goal_candidate"] = False' in (
+            root / "deployment/runtime_config.py"
+        ).read_text()
         and '"runtime_role_visibility": "none"' in formal_source,
         "formal entry binds an external exact goal without role input",
         failures,

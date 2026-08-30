@@ -20,3 +20,7 @@ deployment/go2/nav_stack.sh start \
 要换 ImageGoal，只修改（或复制）实验 JSON 里的
 `experiment.navigation.image_goal`。到达检测可独立使用另一张图，路径在
 `experiment.arrival.image_goal`。
+
+`experiment.authority_mode` 固定普通 Full-Mono 的 `cec|native` 权限边界。正式
+paired run 仍必须通过 `formal-start --arm mono_native|mono_cec` 显式选择；脚本会把
+该选择写入派生配置并和 frozen goal/dataset SHA 一起校验。

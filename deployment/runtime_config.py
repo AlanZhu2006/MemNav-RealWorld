@@ -480,10 +480,22 @@ def verify(path: Path, site: str) -> dict[str, Any]:
             f"{payload['source']['git_revision']}"
         )
     if site == "jetson":
-        artifact = payload["navigation"]["image_goal"]
-        goal = Path(artifact["path"])
-        if not goal.is_file() or _sha256_file(goal) != artifact["sha256"]:
-            raise ConfigError(f"navigation ImageGoal changed or disappeared: {goal}")
+        artifacts = [
+            ("navigation ImageGoal", payload["navigation"]["image_goal"]),
+            ("arrival ImageGoal", payload["arrival"]["image_goal"]),
+        ]
+        if payload["navigation"]["revisit_image_goal"] is not None:
+            artifacts.append(
+                ("revisit ImageGoal", payload["navigation"]["revisit_image_goal"])
+            )
+        verified_paths: set[Path] = set()
+        for label, artifact in artifacts:
+            goal = Path(artifact["path"])
+            if goal in verified_paths:
+                continue
+            verified_paths.add(goal)
+            if not goal.is_file() or _sha256_file(goal) != artifact["sha256"]:
+                raise ConfigError(f"{label} changed or disappeared: {goal}")
         for field in ("python", "ros_setup"):
             if not Path(payload["sites"]["jetson"][field]).exists():
                 raise ConfigError(f"configured Jetson {field} is missing")
