@@ -145,19 +145,19 @@ scene04_formal_01 ... scene04_formal_05
 | Unified CEC Hub | `127.0.0.1:18889` |
 | tmux session | 默认 `cec-realworld` |
 
-如现场路径变化，必须通过 `CEC_HUB_SSH_HOST` 和 `CEC_GPU_REPO` 显式覆盖；不要修改脚本
-默认值来掩盖机器差异。
+如现场路径变化，必须修改受 Git 管理的 `deployment/config/system.json`，审核 diff 后让
+Jetson 与 4090 同步到同一 commit；不再使用环境变量覆盖机器差异。
 
 ### 3.3 Camera height
 
 2026-08-21 记录的 D435i optical-center height 为 `0.42 m`，但相机支架、机身姿态或安装
-位置发生变化后必须重新测量。4090 启动要求显式提供：
+位置发生变化后必须重新测量。测量值是受 Git 管理的站点配置：
 
-```bash
-export CEC_CAMERA_HEIGHT_M=0.42
+```json
+"camera_height_m": 0.42
 ```
 
-没有默认值。健康检查只接受有限且位于 `[0.1, 2.0] m` 的显式测量值。
+健康检查只接受有限且位于 `[0.1, 2.0] m` 的已解析测量值。
 
 ---
 
@@ -365,10 +365,8 @@ Formal 01 之前应填写并冻结：
 
 ```bash
 cd /home/nvidia/twork/MemNav-RealWorld
-export CEC_HUB_SSH_HOST=work-pc
-
 bash deployment/go2/offboard/revisit_experiment.sh \
-  survey-start scene01_dataset --with-rviz
+  survey-start scene01_dataset
 ```
 
 该命令会：
@@ -541,7 +539,7 @@ bash deployment/go2/offboard/revisit_experiment.sh \
   --scene-id scene01 --run-id scene01_pair01_cec \
   --arm mono_cec --goal /absolute/path/to/scene01_goal.jpg \
   --expected-goal-sha256 "$GOAL_SHA256" \
-  --expected-dataset-sha256 "$DATASET_SHA256" --with-rviz
+  --expected-dataset-sha256 "$DATASET_SHA256"
 ```
 
 它会：
@@ -603,8 +601,9 @@ metric_depth_sensor_consumed_by_policy = false
 在导航停止、机器人位于目标位置且静止时，单独采集目标参考：
 
 ```bash
-bash deployment/go2/scripts/run_realsense.sh
-bash deployment/go2/scripts/capture_image_goal.sh
+# 确保 D435i 已由带 --config 的栈启动并稳定发布
+bash deployment/go2/scripts/capture_image_goal.sh \
+  --output deployment/go2/goals/image_goal.png
 ```
 
 冻结：
@@ -623,7 +622,7 @@ bash deployment/go2/offboard/revisit_experiment.sh \
   --scene-id scene01 --run-id scene01_pair01_cec \
   --arm mono_cec --goal /absolute/path/to/frozen_goal.png \
   --expected-goal-sha256 "$GOAL_SHA256" \
-  --expected-dataset-sha256 "$DATASET_SHA256" --with-rviz
+  --expected-dataset-sha256 "$DATASET_SHA256"
 ```
 
 Adapter会调用Hub的`prepare_revisit_goal`，目标来源收据应为
@@ -934,7 +933,7 @@ estop_on_start=true
 plan_while_disabled=true
 ```
 
-`--with-go2` 只启动 watchdog bridge，不是 arm。Formal-start 故意没有无人值守 `arm`
+`launch.go2_bridge=true` 只启动 watchdog bridge，不是 arm。Formal-start 故意没有无人值守 `arm`
 子命令。
 
 ### 15.2 Enable前现场门
@@ -1015,7 +1014,7 @@ bash deployment/go2/offboard/revisit_experiment.sh stop
 
 ### 16.1 启动与连接
 
-Formal-start使用 `--with-rviz` 后：
+实验配置使用 `launch.rviz=true` 后：
 
 ```bash
 tmux attach -t navdp-go2-offboard
@@ -1576,10 +1575,8 @@ bridge min_cmd_w=0.20
 
 ```bash
 cd /home/nvidia/twork/MemNav-RealWorld
-export CEC_HUB_SSH_HOST=work-pc
-
 bash deployment/go2/offboard/revisit_experiment.sh \
-  survey-start scene01_dataset --with-rviz
+  survey-start scene01_dataset
 
 bash deployment/go2/offboard/revisit_experiment.sh survey-status
 
@@ -1598,7 +1595,7 @@ bash deployment/go2/offboard/revisit_experiment.sh \
   --scene-id scene01 --run-id scene01_pair01_cec \
   --arm mono_cec --goal /absolute/path/to/scene01_goal.jpg \
   --expected-goal-sha256 "$GOAL_SHA256" \
-  --expected-dataset-sha256 "$DATASET_SHA256" --with-rviz
+  --expected-dataset-sha256 "$DATASET_SHA256"
 
 bash deployment/go2/offboard/revisit_experiment.sh formal-status
 
@@ -1677,50 +1674,48 @@ git rev-parse HEAD
 git status --short
 ```
 
-正式run前工作树应保持已知状态。Runtime evidence和local `.env`被Git忽略是正常的；未知
+正式run前工作树应保持已知状态。Runtime evidence和目标图片被Git忽略是正常的；未知
 source修改必须在run manifest notes中解释或先恢复到发布commit。
 
-### A.2 4090 `.env`
+### A.2 两机受 Git 管理的配置
 
-在4090：
+在 Jetson 修改并提交：
 
 ```bash
-cd /home/asus/Research/MemNav-RealWorld
-cp deployment/gpu/env.example deployment/gpu/.env
-nano deployment/gpu/.env
+cd /home/nvidia/twork/MemNav-RealWorld
+nano deployment/config/system.json
+nano deployment/config/experiments/fullmono_imagegoal.json
 ```
 
-必须指向本地合法artifact：
+`system.json` 的 GPU models 字段必须指向本地合法 artifact：
 
-| 变量 | 内容 |
+| 配置字段 | 内容 |
 | --- | --- |
-| `MEMNAV_PY` | MemNav/Full-Mono Python interpreter |
-| `MEMNAV_SOURCE_ROOT` | external Nav-graph-blind source |
-| `MEMNAV_CKPT` | MemNav checkpoint |
-| `INTERNNAV_ROOT` | InternNav source |
-| `LINGBOT_REPO` | LingBot repository |
-| `LINGBOT_WEIGHTS` | LingBot weights |
-| `LIGHTGLUE_REPO` | LightGlue source |
-| `DEPENDENCY_ROOT` | frozen Python dependency tree |
-| `NAVDP_CKPT` | frozen NavDP ImageGoal checkpoint |
+| `sites.gpu.python` | MemNav/Full-Mono Python interpreter |
+| `models.memnav_source_root` | external Nav-graph-blind source |
+| `models.memnav_checkpoint` | MemNav checkpoint |
+| `models.internnav_root` | InternNav source |
+| `models.lingbot_repository` | LingBot repository |
+| `models.lingbot_weights` | LingBot weights |
+| `models.lightglue_repository` | LightGlue source |
+| `models.dependency_root` | frozen Python dependency tree |
+| `models.navdp_checkpoint` | frozen NavDP ImageGoal checkpoint |
 
-`.env`只保存路径，不保存SSH key、token或其他credentials。External research source和model
-weights不进入本仓库。
+SSH key仍只保存在用户的`~/.ssh`，不进入配置或仓库。External research source和model
+weights也不进入本仓库；Git 只管理其本机路径。
 
 ### A.3 4090 preflight和测试
 
 ```bash
 cd /home/asus/Research/MemNav-RealWorld
-export CEC_CAMERA_HEIGHT_M=0.42
-
-bash deployment/gpu/scripts/preflight.sh
-python3 -m pytest -q deployment/gpu/tests
+/home/asus/miniconda3/envs/memnav-realworld/bin/python -m pytest -q deployment/gpu/tests
 ```
 
-需要单独验证服务时：
+GPU 服务由 Jetson 复制 resolved config 后启动；需要单独诊断时必须传该文件：
 
 ```bash
-bash deployment/gpu/scripts/run_policy_stack.sh
+bash deployment/gpu/scripts/preflight.sh --config runtime/config/CONFIG_ID.json
+bash deployment/gpu/scripts/run_policy_stack.sh --config runtime/config/CONFIG_ID.json
 curl -fsS http://127.0.0.1:18889/healthz | python3 -m json.tool
 tmux attach -t cec-realworld
 ```
@@ -1728,7 +1723,7 @@ tmux attach -t cec-realworld
 完成后：
 
 ```bash
-bash deployment/gpu/scripts/stop_policy_stack.sh
+bash deployment/gpu/scripts/stop_policy_stack.sh --config runtime/config/CONFIG_ID.json
 ```
 
 三个端口必须只监听loopback。不要将`8888/18888/18889`暴露到LAN或公网。
@@ -1740,7 +1735,8 @@ cd /home/nvidia/twork/MemNav-RealWorld
 
 bash deployment/go2/scripts/download_weights.sh all
 bash deployment/go2/scripts/setup_jetson.sh
-bash deployment/go2/scripts/preflight.sh --backend base
+bash deployment/go2/nav_stack.sh start \
+  --config deployment/config/experiments/native_imagegoal.json --dry-run
 ```
 
 随后运行不接机器人、不发运动命令的测试：
@@ -1765,16 +1761,16 @@ bash deployment/go2/scripts/preflight.sh --backend base
 
 ```bash
 ssh work-pc 'hostname; test -d /home/asus/Research/MemNav-RealWorld'
-
-export CEC_HUB_SSH_HOST=work-pc
-bash deployment/go2/offboard/run_policy_tunnel.sh
+bash deployment/go2/nav_stack.sh start \
+  --config deployment/config/experiments/fullmono_imagegoal.json --dry-run
 ```
 
 另一个Jetson终端：
 
 ```bash
 curl -fsS http://127.0.0.1:18889/healthz | python3 -m json.tool
-bash deployment/go2/offboard/preflight_offboard.sh
+bash deployment/go2/offboard/preflight_offboard.sh \
+  --config runtime/config/CONFIG_ID.json
 ```
 
 Preflight必须验证protocol version、monocular sensor contract、metric-depth exclusion和terminal
@@ -1785,14 +1781,8 @@ schema。仅端口可连接或`algo`字段正确不足以通过。
 首次部署、换相机、换支架或更新依赖后，不启动Go2 bridge：
 
 ```bash
-export NAVDP_GOAL=/absolute/path/to/image_goal.png
-export CEC_CAMERA_HEIGHT_M=0.42
 bash deployment/go2/nav_stack.sh start \
-  --profile fullmono-lingbot-cec \
-  --goal "$NAVDP_GOAL" \
-  --arrival operator \
-  --camera-height "$CEC_CAMERA_HEIGHT_M" \
-  --with-rviz
+  --config deployment/config/experiments/fullmono_imagegoal.json
 tmux attach -t navdp-go2-offboard
 ```
 
@@ -1819,10 +1809,10 @@ bash deployment/go2/nav_stack.sh stop
 ### A.7 首次有电运动验收
 
 只在上述静态门全部通过后，以`0.5–1.0 m`短路线、系绳、宽阔平地和遥控器操作者进行。
-启动`--with-go2 --with-rviz`后adapter仍disabled，必须按第15节现场检查和两步授权。
+配置`launch.go2_bridge=true`和`launch.rviz=true`后adapter仍disabled，必须按第15节现场检查和两步授权。
 
 Commissioning smoke如果必须使用不同控制参数，应显式设置
-`NAVDP_CONTROL_PROFILE=acceptance`，并标记为engineering run；它不能进入正式SR/SPL。
+在实验配置中设置`control.profile=acceptance`，并标记为engineering run；它不能进入正式SR/SPL。
 
 ---
 

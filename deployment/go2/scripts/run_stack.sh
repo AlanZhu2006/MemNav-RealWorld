@@ -2,94 +2,127 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SESSION="${NAVDP_TMUX_SESSION:-navdp-go2}"
-backend="x"
-mode="startgoal"
-with_go2=false
-with_camera=true
-with_rviz=false
-arrival_module="${NAVDP_ARRIVAL_MODULE:-operator}"
+source "$SCRIPT_DIR/common.sh"
+navdp_require_config_arg "$@"
+navdp_load_config "$NAVDP_RUN_CONFIG"
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --backend) backend="$2"; shift 2 ;;
-    --mode) mode="$2"; shift 2 ;;
-    --with-go2) with_go2=true; shift ;;
-    --with-rviz) with_rviz=true; shift ;;
-    --no-camera) with_camera=false; shift ;;
-    --arrival) arrival_module="$2"; shift 2 ;;
-    *) echo "Usage: $0 [--backend x|base] [--mode startgoal|pointgoal|imagegoal|nogoal] [--arrival operator|external-topic|rgb-homography] [--with-go2] [--with-rviz] [--no-camera]" >&2; exit 2 ;;
-  esac
-done
-
-case "$mode" in
-  startgoal|pointgoal|imagegoal|nogoal) ;;
-  *) echo "Unknown mode: $mode" >&2; exit 2 ;;
-esac
-
-case "$backend" in
-  x) backend="x_navdp"; server_script="$SCRIPT_DIR/run_x_navdp_server.sh" ;;
-  base) backend="navdp"; server_script="$SCRIPT_DIR/run_base_navdp_server.sh" ;;
-  *) echo "Unknown backend: $backend" >&2; exit 2 ;;
-esac
-if [[ "$backend" == "x_navdp" && ( "$mode" == "nogoal" || "$mode" == "imagegoal" ) ]]; then
-  echo "X-NavDP exposes PointGoal only; use --backend base for $mode." >&2
+[[ "$CFG_PROFILE" == native-navdp-rgbd ]] || {
+  echo "run_stack.sh requires profile=native-navdp-rgbd" >&2
   exit 2
-fi
-image_goal_path="${NAVDP_IMAGE_GOAL_PATH:-$SCRIPT_DIR/../goals/image_goal.png}"
-arrival_goal_path="${NAVDP_ARRIVAL_GOAL_PATH:-$image_goal_path}"
-arrival_allowed_phases="${NAVDP_ARRIVAL_ALLOWED_PHASES:-revisit_query}"
-if [[ "$mode" == "imagegoal" && ! -f "$image_goal_path" ]]; then
-  echo "Image goal missing: $image_goal_path" >&2
-  echo "Capture it first with: $SCRIPT_DIR/capture_image_goal.sh" >&2
-  exit 1
-fi
-if [[ "$arrival_module" != operator && "$mode" != imagegoal ]]; then
-  echo "Arrival modules are currently supported only in imagegoal mode." >&2
+}
+[[ "$CFG_NAV_BACKEND" == navdp && "$CFG_NAV_MODE" == imagegoal ]] || {
+  echo "native stack requires backend=navdp mode=imagegoal" >&2
   exit 2
-fi
-read -r _profile_name arrival_module < <(
-  python3 "$SCRIPT_DIR/../stack_profiles.py" validate \
-    native-navdp-rgbd "$arrival_module"
-)
-if [[ "$arrival_module" == rgb-homography && ! -f "$arrival_goal_path" ]]; then
-  echo "Arrival reference missing: $arrival_goal_path" >&2
+}
+[[ -f "$CFG_IMAGE_GOAL" ]] || {
+  echo "ImageGoal missing: $CFG_IMAGE_GOAL" >&2
   exit 1
-fi
-if ! command -v tmux >/dev/null 2>&1; then
-  echo "tmux is required for run_stack.sh; individual run_*.sh scripts work without it." >&2
-  exit 1
-fi
+}
+command -v tmux >/dev/null || { echo "tmux is required" >&2; exit 1; }
+command -v timeout >/dev/null || { echo "timeout is required" >&2; exit 1; }
+SESSION="$CFG_NATIVE_SESSION"
 if tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "tmux session already exists: $SESSION" >&2
   exit 1
 fi
+bash "$SCRIPT_DIR/preflight.sh" --config "$NAVDP_RUN_CONFIG"
+LOG_ROOT="$CFG_JETSON_RUNTIME_ROOT/logs"
+mkdir -p "$LOG_ROOT"
+policy_log="$LOG_ROOT/native_navdp.log"
+camera_log="$LOG_ROOT/realsense.log"
+adapter_log="$LOG_ROOT/adapter.log"
+: >"$policy_log"
 
-tmux new-session -d -s "$SESSION" -n policy "exec '$server_script'"
-if [[ "$with_camera" == true ]]; then
-  tmux new-window -t "$SESSION" -n rgbd "exec '$SCRIPT_DIR/run_realsense.sh'"
+tmux new-session -d -s "$SESSION" -n policy \
+  "exec '$SCRIPT_DIR/run_base_navdp_server.sh' --config '$NAVDP_RUN_CONFIG' >'$policy_log' 2>&1"
+if [[ "$CFG_WITH_CAMERA" == true ]]; then
+  : >"$camera_log"
+  tmux new-window -t "$SESSION" -n rgbd \
+    "exec '$SCRIPT_DIR/run_realsense.sh' --config '$NAVDP_RUN_CONFIG' >'$camera_log' 2>&1"
 fi
+
+start_complete=false
+rollback_partial_start() {
+  local status=$?
+  if [[ "$start_complete" != true ]]; then
+    tmux kill-session -t "$SESSION" 2>/dev/null || true
+  fi
+  return "$status"
+}
+trap rollback_partial_start EXIT
+
+policy_ready=false
+for _ in $(seq 1 "$CFG_NATIVE_READY_TIMEOUT_S"); do
+  if curl -fsS --max-time 1 \
+      "http://$CFG_NATIVE_HOST:$CFG_NATIVE_PORT/healthz" >/dev/null 2>&1; then
+    policy_ready=true
+    break
+  fi
+  sleep 1
+done
+if [[ "$policy_ready" != true ]]; then
+  echo "Native NavDP policy did not become healthy." >&2
+  tail -n 100 "$policy_log" >&2 || true
+  exit 1
+fi
+
+if [[ "$CFG_WITH_CAMERA" == true ]]; then
+  navdp_source_ros
+  camera_ready=false
+  camera_deadline=$((SECONDS + CFG_CAMERA_READY_TIMEOUT_S))
+  while (( SECONDS < camera_deadline )); do
+    if timeout 3 ros2 topic echo --once "$CFG_CAMERA_INFO_TOPIC" >/dev/null 2>&1; then
+      camera_ready=true
+      break
+    fi
+    sleep 0.25
+  done
+  if [[ "$camera_ready" != true ]]; then
+    echo "D435i did not publish CameraInfo." >&2
+    tail -n 100 "$camera_log" >&2 || true
+    exit 1
+  fi
+fi
+
+: >"$adapter_log"
 tmux new-window -t "$SESSION" -n adapter \
-  "export NAVDP_BACKEND='$backend' NAVDP_MODE='$mode' NAVDP_IMAGE_GOAL_PATH='$image_goal_path'; exec '$SCRIPT_DIR/run_adapter.sh'"
-if [[ "$arrival_module" == rgb-homography ]]; then
+  "exec '$SCRIPT_DIR/run_adapter.sh' --config '$NAVDP_RUN_CONFIG' >'$adapter_log' 2>&1"
+navdp_source_ros
+adapter_ready=false
+for _ in $(seq 1 "$CFG_ADAPTER_READY_TIMEOUT_S"); do
+  if timeout 3 ros2 topic echo --once /navdp/status >/dev/null 2>&1; then
+    adapter_ready=true
+    break
+  fi
+  sleep 0.25
+done
+if [[ "$adapter_ready" != true ]]; then
+  echo "NavDP adapter did not publish status." >&2
+  tail -n 100 "$adapter_log" >&2 || true
+  exit 1
+fi
+if [[ "$CFG_ARRIVAL_MODULE" == rgb-homography ]]; then
   tmux new-window -t "$SESSION" -n arrival \
-    "export NAVDP_ARRIVAL_MODULE='$arrival_module' NAVDP_ARRIVAL_GOAL_PATH='$arrival_goal_path' NAVDP_ARRIVAL_ALLOWED_PHASES='$arrival_allowed_phases'; exec '$SCRIPT_DIR/run_arrival_module.sh'"
+    "exec '$SCRIPT_DIR/run_arrival_module.sh' --config '$NAVDP_RUN_CONFIG'"
 fi
-if [[ "$with_go2" == true ]]; then
-  tmux new-window -t "$SESSION" -n go2 "exec '$SCRIPT_DIR/run_go2_bridge.sh'"
+if [[ "$CFG_WITH_GO2" == true ]]; then
+  tmux new-window -t "$SESSION" -n go2 \
+    "exec '$SCRIPT_DIR/run_go2_bridge.sh' --config '$NAVDP_RUN_CONFIG'"
 fi
-if [[ "$with_rviz" == true ]]; then
-  tmux new-window -t "$SESSION" -n rviz "exec '$SCRIPT_DIR/run_debug_ui.sh'"
+if [[ "$CFG_WITH_RVIZ" == true ]]; then
+  tmux new-window -t "$SESSION" -n rviz \
+    "exec '$SCRIPT_DIR/run_debug_ui.sh' --config '$NAVDP_RUN_CONFIG'"
 fi
-tmux set-environment -t "$SESSION" NAVDP_STACK_PROFILE native-navdp-rgbd
-tmux set-environment -t "$SESSION" NAVDP_ARRIVAL_MODULE "$arrival_module"
-tmux set-environment -t "$SESSION" NAVDP_NAVIGATION_GOAL_PATH "$image_goal_path"
-tmux set-environment -t "$SESSION" NAVDP_ARRIVAL_GOAL_PATH "$arrival_goal_path"
-tmux set-environment -t "$SESSION" NAVDP_ARRIVAL_ALLOWED_PHASES "$arrival_allowed_phases"
+tmux set-environment -t "$SESSION" MEMNAV_RUN_CONFIG "$NAVDP_RUN_CONFIG"
+tmux set-environment -t "$SESSION" MEMNAV_CONFIG_ID "$CFG_CONFIG_ID"
+start_complete=true
+trap - EXIT
 
-echo "NavDP stack started in tmux session $SESSION"
-echo "  backend=$backend mode=$mode camera=$with_camera go2_bridge=$with_go2 rviz=$with_rviz"
-echo "  arrival=$arrival_module arrival_goal=${arrival_goal_path:-n/a}"
-echo "  inspect: tmux attach -t $SESSION"
-echo "Motion remains disabled until:"
-echo "  ros2 service call /navdp_go2_adapter/set_enabled std_srvs/srv/SetBool '{data: true}'"
+echo "Native NavDP ImageGoal stack started: session=$SESSION"
+echo "  config=$NAVDP_RUN_CONFIG"
+echo "  config_id=$CFG_CONFIG_ID"
+echo "  ImageGoal=$CFG_IMAGE_GOAL"
+echo "  ImageGoal_sha256=$CFG_IMAGE_GOAL_SHA256"
+echo "  camera=$CFG_WITH_CAMERA go2_bridge=$CFG_WITH_GO2 rviz=$CFG_WITH_RVIZ"
+echo "  arrival=$CFG_ARRIVAL_MODULE"
+echo "Motion remains disabled until the explicit ROS SetBool call."

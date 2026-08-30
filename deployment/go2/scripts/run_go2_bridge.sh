@@ -3,23 +3,25 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
+navdp_require_config_arg "$@"
+navdp_load_config "$NAVDP_RUN_CONFIG"
 navdp_source_ros
 
-UNITREE_NET_IF="${UNITREE_NET_IF:-eth0}"
-UNITREE_SDK2PY_PATH="${UNITREE_SDK2PY_PATH:-/home/nvidia/unitree_ws/src/unitree_sdk2_python}"
-CYCLONEDDS_HOME="${CYCLONEDDS_HOME:-/home/nvidia/twork/cyclonedds/install}"
-GO2_PYTHON="${GO2_PYTHON:-/home/nvidia/twork/tinynav/.venv/bin/python}"
-GO2_CMD_TOPIC="${GO2_CMD_TOPIC:-/navdp/cmd_vel}"
-GO2_TIMEOUT_SEC="${GO2_TIMEOUT_SEC:-0.35}"
-GO2_MAX_VX="${GO2_MAX_VX:-0.30}"
-GO2_MAX_VY="${GO2_MAX_VY:-0.0}"
-GO2_MAX_WZ="${GO2_MAX_WZ:-0.60}"
-GO2_MIN_CMD_V="${GO2_MIN_CMD_V:-0.10}"
-GO2_MIN_CMD_W="${GO2_MIN_CMD_W:-0.20}"
+UNITREE_NET_IF="$CFG_UNITREE_NET_IF"
+UNITREE_SDK2PY_PATH="$CFG_UNITREE_SDK_PATH"
+CYCLONEDDS_HOME="$CFG_CYCLONEDDS_HOME"
+GO2_PYTHON="$CFG_GO2_PYTHON"
+GO2_CMD_TOPIC="$CFG_GO2_CMD_TOPIC"
+GO2_TIMEOUT_SEC="$CFG_GO2_TIMEOUT_S"
+GO2_MAX_VX="$CFG_GO2_MAX_VX"
+GO2_MAX_VY="$CFG_GO2_MAX_VY"
+GO2_MAX_WZ="$CFG_GO2_MAX_WZ"
+GO2_MIN_CMD_V="$CFG_GO2_MIN_CMD_V"
+GO2_MIN_CMD_W="$CFG_GO2_MIN_CMD_W"
 
 if [[ ! -x "$GO2_PYTHON" ]]; then
   echo "Working Unitree Python environment not found: $GO2_PYTHON" >&2
-  echo "Set GO2_PYTHON to an environment containing cyclonedds and unitree_sdk2py." >&2
+  echo "Fix sites.jetson.unitree.python in deployment/config/system.json." >&2
   exit 1
 fi
 if [[ ! -d "$CYCLONEDDS_HOME/lib" ]]; then

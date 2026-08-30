@@ -27,13 +27,11 @@ bash deployment/go2/nav_stack.sh describe fullmono-lingbot-cec
 bash deployment/go2/nav_stack.sh status
 ~~~
 
-The profile facade delegates native runs to `scripts/run_stack.sh` and
-Full-Mono runs to `offboard/fullmono.sh`. The latter remains a supported direct
-two-machine lifecycle command and is also used by the formal
-`offboard/revisit_experiment.sh` workflow. Only
-`offboard/run_offboard_stack.sh` is a Jetson-local implementation detail.
-Arrival defaults safely to `operator`, though experiment commands should spell
-it out.
+The facade accepts one tracked experiment JSON. It resolves that file together
+with `deployment/config/system.json` into one hash-verified runtime contract;
+native and Full-Mono launchers receive only that file. Full-Mono copies the
+same bytes to the RTX and verifies both `config_id` and Git revision. There is
+no GPU `.env` or environment-variable override layer.
 
 ## Reference Platform
 
@@ -195,109 +193,66 @@ python3 -m pytest -q deployment/gpu/tests
 
 These tests do not connect to the robot or issue motion commands.
 
-### 2. Start the RTX 4090 Policy Stack
+### 2. Configure Both Machines
 
-The MemNav research source and all checkpoints remain external. Copy the
-environment template and point it to licensed local artifacts:
+Edit the tracked `deployment/config/system.json` for Jetson/RTX paths, model
+artifacts, ports, camera and safety values. Edit or copy an experiment under
+`deployment/config/experiments/` for the profile, ImageGoal, arrival module and
+optional processes. Do not create a `.env` or export `NAVDP_*`/`CEC_*` values.
 
-~~~bash
-cp deployment/gpu/env.example deployment/gpu/.env
-nano deployment/gpu/.env
-
-# This mount was physically measured at 0.42 m; remeasure after mount changes.
-export CEC_CAMERA_HEIGHT_M=0.42
-bash deployment/gpu/scripts/preflight.sh
-bash deployment/gpu/scripts/run_policy_stack.sh
-curl -fsS http://127.0.0.1:18889/healthz
-~~~
-
-All three GPU services bind to loopback by default:
-
-| Service | Port |
-| --- | ---: |
-| Frozen NavDP | <code>8888</code> |
-| MemNav / certificate service | <code>18888</code> |
-| Unified CEC hub | <code>18889</code> |
+The configured RTX SSH alias is `work-pc`. Full-Mono startup uses it to sync
+both source and the exact resolved configuration contract.
 
 ### 3. Prepare the Jetson
 
 ~~~bash
 bash deployment/go2/scripts/download_weights.sh all
 bash deployment/go2/scripts/setup_jetson.sh
-bash deployment/go2/scripts/preflight.sh --backend base
 ~~~
 
-Set the workstation SSH alias or export it explicitly:
+### 4. Capture and Select an Image Goal
+
+With the camera publishing and navigation stopped, move the robot to the goal
+with the hand controller and capture RGB explicitly:
 
 ~~~bash
-export CEC_HUB_SSH_HOST=user@gpu-workstation
+bash deployment/go2/scripts/capture_image_goal.sh \
+  --output deployment/go2/goals/image_goal.png
 ~~~
 
-The Full-Mono profile launcher owns the SSH tunnel and its contract preflight.
-`offboard/run_policy_tunnel.sh` remains available only for transport diagnosis.
+Set that path in `experiment.navigation.image_goal`. Goal files stay in the
+ignored `deployment/go2/goals/` runtime directory; the resolver records image
+dimensions and SHA-256 so a later file replacement cannot be silent.
 
-### 4. Capture an Image Goal
-
-With navigation stopped, move the Go2 to the goal pose using the hand
-controller, keep it stationary and capture the goal reference:
+### 5. Resolve and Dry-Run
 
 ~~~bash
-bash deployment/go2/scripts/run_realsense.sh
-bash deployment/go2/scripts/capture_image_goal.sh
-~~~
-
-Goal files stay under the ignored <code>deployment/go2/goals/</code> runtime
-directory.
-
-### 5. Dry-Run Before Motion
-
-~~~bash
-export CEC_HUB_SSH_HOST=user@gpu-workstation
-export CEC_CAMERA_HEIGHT_M=0.42
-export NAVDP_GOAL=/absolute/path/to/image_goal.png
-
 bash deployment/go2/nav_stack.sh start \
-  --profile fullmono-lingbot-cec \
-  --goal "$NAVDP_GOAL" \
-  --arrival operator \
-  --camera-height "$CEC_CAMERA_HEIGHT_M" \
-  --with-rviz
-tmux attach -t navdp-go2-offboard
+  --config deployment/config/experiments/fullmono_imagegoal.json \
+  --dry-run
 ~~~
 
-Confirm live RGB, local safety depth, mono-depth receipts, candidate paths,
-selected path, inference latency and zero <code>/navdp/cmd_vel</code> while the
-adapter remains disabled.
+The output names the final ImageGoal, content hash, source revision and
+`config_id`. No process is started in dry-run mode.
 
-### 6. Supervised Go2 Run
+### 6. Supervised Run
 
-Only after the dry-run and bearing-sign calibration pass:
+Set `launch.go2_bridge` and `launch.rviz` in the experiment JSON as required,
+then start with the same one-argument contract:
 
 ~~~bash
-bash deployment/go2/nav_stack.sh stop
 bash deployment/go2/nav_stack.sh start \
-  --profile fullmono-lingbot-cec \
-  --goal "$NAVDP_GOAL" \
-  --arrival operator \
-  --camera-height "$CEC_CAMERA_HEIGHT_M" \
-  --with-go2 --with-rviz
+  --config deployment/config/experiments/fullmono_imagegoal.json
 
 source /opt/ros/humble/setup.bash
 ros2 service call /navdp_go2_adapter/set_enabled \
   std_srvs/srv/SetBool "{data: true}"
 ~~~
 
-For a formal trial, start the evidence-only recorder before arming:
-
-~~~bash
-bash deployment/go2/offboard/experiment_capture.sh preflight
-bash deployment/go2/offboard/experiment_capture.sh start RUN_ID \
-  --dataset DATASET_ID --trial-kind revisit --profile audit \
-  --gt-source none
-~~~
-
-The exact stop, third-view import and manifest-finalization workflow is in
-[EXPERIMENT_DATA_COLLECTION.md](EXPERIMENT_DATA_COLLECTION.md).
+Startup remains disabled and estopped; the service call is a separate onsite
+operator decision. For formal Survey/Revisit, use
+`deployment/go2/offboard/revisit_experiment.sh`, which derives immutable
+survey/formal configs from the same base file.
 
 Immediate stop:
 

@@ -5,30 +5,45 @@ set -euo pipefail
 #
 # Pass 1 records an immutable, exact-JPEG survey while the robot is driven by
 # the hand controller.  Pass 2 restarts the stack, replays only that frozen
-# long-term memory, installs a memory-excluded goal candidate and leaves the
-# robot at disabled+estop.  The formal arm is explicit and hash-bound.  This
-# script never grants motor authority.
+# long-term memory, installs an exact preregistered goal and leaves the robot
+# at disabled+estop. The formal arm is explicit and hash-bound. This script
+# never grants motor authority.
 
 OFFBOARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GO2_DIR="$(cd "$OFFBOARD_DIR/.." && pwd)"
 source "$GO2_DIR/scripts/common.sh"
 
 FULLMONO="$OFFBOARD_DIR/fullmono.sh"
-LOCAL_PORT="${CEC_LOCAL_PORT:-18889}"
-SESSION="${NAVDP_TMUX_SESSION:-navdp-go2-offboard}"
-RUNTIME_ROOT="${NAVDP_REVISIT_EXPERIMENT_ROOT:-$NAVDP_ROOT/runtime/go2/two_pass_revisit}"
+CONFIG_TOOL="$NAVDP_ROOT/deployment/runtime_config.py"
+BASE_EXPERIMENT="$NAVDP_ROOT/deployment/config/experiments/fullmono_imagegoal.json"
+if [[ "${1:-}" == --config ]]; then
+  [[ $# -ge 2 ]] || { echo "revisit-experiment: --config requires a value" >&2; exit 2; }
+  BASE_EXPERIMENT="$2"
+  shift 2
+fi
+BASE_RESOLVED="$(python3 "$CONFIG_TOOL" resolve --config "$BASE_EXPERIMENT")"
+python3 "$CONFIG_TOOL" verify --config "$BASE_RESOLVED" --site jetson >/dev/null
+BASE_CONFIG_EXPORTS="$(python3 "$CONFIG_TOOL" shell --config "$BASE_RESOLVED" --site jetson)"
+eval "$BASE_CONFIG_EXPORTS"
+[[ "$CFG_PROFILE" == fullmono-lingbot-cec ]] || {
+  echo "revisit-experiment: config must select fullmono-lingbot-cec" >&2
+  exit 2
+}
+LOCAL_PORT="$CFG_TUNNEL_LOCAL_PORT"
+SESSION="$CFG_FULLMONO_SESSION"
+RUNTIME_ROOT="$CFG_JETSON_RUNTIME_ROOT/two_pass_revisit"
 
 usage() {
   cat <<'EOF'
 Usage (run on Jetson):
-  revisit_experiment.sh survey-start DATASET_ID [--with-rviz]
+  revisit_experiment.sh [--config EXPERIMENT.json] survey-start DATASET_ID
   revisit_experiment.sh survey-status
   revisit_experiment.sh survey-return DATASET_ID
   revisit_experiment.sh survey-seal DATASET_ID
-  revisit_experiment.sh formal-start DATASET_ID --scene-id SCENE_ID --run-id RUN_ID
+  revisit_experiment.sh [--config EXPERIMENT.json] formal-start DATASET_ID
+      --scene-id SCENE_ID --run-id RUN_ID
       --arm mono_native|mono_cec --goal FROZEN_GOAL_JPEG
       --expected-goal-sha256 SHA256 --expected-dataset-sha256 SHA256
-      [--with-rviz]
   revisit_experiment.sh formal-status
   revisit_experiment.sh stop
 
@@ -50,11 +65,9 @@ survey-return:
 formal-start:
   Safely restarts both machines, loads and verifies the sealed survey, uses
   the current camera view to initialize only NavDP's short FIFO, installs the
-  exact preregistered external goal and starts the Go2 bridge.  Goal and
-  dataset SHA-256 plus the required authority arm are verified from RTX
-  health.  No Novel/Revisit label is passed to runtime.  Motion remains
-  LOCKED; a field operator must verify the selected arrival module and
-  explicitly arm.
+  exact preregistered external goal and starts the Go2 bridge. Goal and dataset
+  SHA-256 plus the required authority arm are verified from RTX health.
+  No Novel/Revisit label is passed to runtime. Motion remains LOCKED.
 EOF
 }
 
@@ -139,6 +152,19 @@ force_motion_lock() {
     '{data: true}' >/dev/null 2>&1 || true
 }
 
+active_config() {
+  local candidate=""
+  if tmux has-session -t "$SESSION" 2>/dev/null; then
+    candidate="$(tmux show-environment -t "$SESSION" MEMNAV_RUN_CONFIG 2>/dev/null \
+      | sed -n 's/^MEMNAV_RUN_CONFIG=//p')"
+  fi
+  if [[ -n "$candidate" && -f "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+  else
+    printf '%s\n' "$BASE_RESOLVED"
+  fi
+}
+
 write_receipt() {
   local path="$1"
   local payload="$2"
@@ -160,38 +186,15 @@ survey_start() {
   local dataset_id="$1"
   shift
   validate_id "$dataset_id"
-  local with_rviz=false
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --with-rviz) with_rviz=true ;;
-      *) die "unknown survey-start option: $1" ;;
-    esac
-    shift
-  done
+  [[ $# -eq 0 ]] || die "survey-start accepts only DATASET_ID; RViz belongs in config"
   ! tmux has-session -t "$SESSION" 2>/dev/null \
     || die "stack is already running; seal or stop it first"
-  local metadata
-  metadata="$(python3 - "$dataset_id" <<'PY'
-import json, socket, sys
-print(json.dumps({
-    "dataset_id": sys.argv[1],
-    "collection_mode": "manual_long_out_and_back",
-    "robot": "unitree_go2",
-    "collector_host": socket.gethostname(),
-    "motion_authority": "unitree_hand_controller_only",
-    "adapter_enabled": False,
-    "candidate_contract": "memory_excluded_with_post_guard",
-}))
-PY
-)"
-  local args=(start)
-  [[ "$with_rviz" == false ]] || args+=(--with-rviz)
-  CEC_EPISODIC_DATASET_ID="$dataset_id" \
-    CEC_EPISODIC_DATASET_METADATA_JSON="$metadata" \
-    NAVDP_NAVIGATE_DURING_MEMORY_RECORDING=false \
-    NAVDP_AUTO_GOAL_CANDIDATE_CAPTURE_ENABLED=false \
-    NAVDP_AUTO_SELECT_GOAL_CANDIDATE=true \
-    bash "$FULLMONO" "${args[@]}"
+  local config_path="$RUNTIME_ROOT/$dataset_id/survey_config.json"
+  mkdir -p "$(dirname "$config_path")"
+  python3 "$CONFIG_TOOL" derive-survey \
+    --config "$BASE_RESOLVED" --dataset-id "$dataset_id" \
+    --output "$config_path" >/dev/null
+  bash "$FULLMONO" start --config "$config_path"
   wait_survey_dataset "$dataset_id"
   local receipt
   receipt="$(hub_get /dataset/status)"
@@ -234,7 +237,7 @@ PY
 }
 
 survey_status() {
-  bash "$FULLMONO" status || true
+  bash "$FULLMONO" status --config "$(active_config)" || true
   echo
   hub_get /dataset/status | python3 -m json.tool
 }
@@ -266,49 +269,24 @@ formal_start() {
   local dataset_id="$1"
   shift
   validate_id "$dataset_id"
-  local with_rviz=false
-  local arm=""
-  local scene_id=""
-  local run_id=""
-  local frozen_goal=""
-  local expected_goal_sha256=""
-  local expected_dataset_sha256=""
+  local arm="" scene_id="" run_id="" frozen_goal=""
+  local expected_goal_sha256="" expected_dataset_sha256=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --with-rviz) with_rviz=true ;;
-      --arm)
-        [[ $# -ge 2 ]] || die "--arm requires mono_native or mono_cec"
-        arm="$2"
-        shift
+      --arm|--scene-id|--run-id|--goal|--expected-goal-sha256|--expected-dataset-sha256)
+        [[ $# -ge 2 ]] || die "$1 requires a value"
+        case "$1" in
+          --arm) arm="$2" ;;
+          --scene-id) scene_id="$2" ;;
+          --run-id) run_id="$2" ;;
+          --goal) frozen_goal="$2" ;;
+          --expected-goal-sha256) expected_goal_sha256="$2" ;;
+          --expected-dataset-sha256) expected_dataset_sha256="$2" ;;
+        esac
+        shift 2
         ;;
-      --scene-id)
-        [[ $# -ge 2 ]] || die "--scene-id requires a value"
-        scene_id="$2"
-        shift
-        ;;
-      --run-id)
-        [[ $# -ge 2 ]] || die "--run-id requires a value"
-        run_id="$2"
-        shift
-        ;;
-      --goal)
-        [[ $# -ge 2 ]] || die "--goal requires a frozen JPEG path"
-        frozen_goal="$2"
-        shift
-        ;;
-      --expected-goal-sha256)
-        [[ $# -ge 2 ]] || die "--expected-goal-sha256 requires a value"
-        expected_goal_sha256="$2"
-        shift
-        ;;
-      --expected-dataset-sha256)
-        [[ $# -ge 2 ]] || die "--expected-dataset-sha256 requires a value"
-        expected_dataset_sha256="$2"
-        shift
-        ;;
-      *) die "unknown formal-start option: $1" ;;
+      *) die "unknown formal-start option: $1; RViz belongs in config" ;;
     esac
-    shift
   done
   local authority_mode
   case "$arm" in
@@ -320,10 +298,8 @@ formal_start() {
   [[ -n "$scene_id" ]] || die "formal-start requires --scene-id"
   [[ -n "$run_id" ]] || die "formal-start requires --run-id"
   [[ -n "$frozen_goal" ]] || die "formal-start requires --goal"
-  [[ -n "$expected_goal_sha256" ]] \
-    || die "formal-start requires --expected-goal-sha256"
-  [[ -n "$expected_dataset_sha256" ]] \
-    || die "formal-start requires --expected-dataset-sha256"
+  [[ -n "$expected_goal_sha256" ]] || die "formal-start requires --expected-goal-sha256"
+  [[ -n "$expected_dataset_sha256" ]] || die "formal-start requires --expected-dataset-sha256"
   validate_id "$scene_id"
   validate_id "$run_id"
   validate_sha256 "$expected_goal_sha256"
@@ -334,8 +310,7 @@ formal_start() {
   actual_goal_sha256="$(sha256sum "$frozen_goal" | awk '{print $1}')"
   [[ "$actual_goal_sha256" == "$expected_goal_sha256" ]] \
     || die "frozen goal SHA mismatch: expected $expected_goal_sha256, got $actual_goal_sha256"
-  local run_root
-  run_root="$RUNTIME_ROOT/$dataset_id/$run_id"
+  local run_root="$RUNTIME_ROOT/$dataset_id/$run_id"
   [[ ! -e "$run_root" ]] || die "formal run root already exists: $run_root"
 
   if tmux has-session -t "$SESSION" 2>/dev/null; then
@@ -343,18 +318,19 @@ formal_start() {
   fi
   # A sealed dataset is persistent.  Always rebuild both process trees so the
   # formal pass proves load/replay instead of accidentally reusing survey RAM.
-  bash "$FULLMONO" stop
+  bash "$FULLMONO" stop --config "$(active_config)"
   mkdir -p "$run_root"
-  local args=(start --with-go2)
-  [[ "$with_rviz" == false ]] || args+=(--with-rviz)
-  NAVDP_SELECTED_GOAL_IMAGE_PATH="$run_root/selected_goal.jpg" \
-    NAVDP_SELECTED_GOAL_DEPTH_PATH="$run_root/selected_goal_depth.png" \
-    NAVDP_REVISIT_IMAGE_GOAL_PATH="$frozen_goal" \
-    NAVDP_NAVIGATE_DURING_MEMORY_RECORDING=false \
-    NAVDP_PAUSE_MEMORY_RECORDING=true \
-    NAVDP_AUTO_SELECT_GOAL_CANDIDATE=false \
-    CEC_AUTHORITY_MODE="$authority_mode" \
-    bash "$FULLMONO" "${args[@]}"
+  local config_path="$run_root/formal_config.json"
+  python3 "$CONFIG_TOOL" derive-formal \
+    --config "$BASE_RESOLVED" --dataset-id "$dataset_id" \
+    --run-root "$run_root" --scene-id "$scene_id" --run-id "$run_id" \
+    --authority-mode "$authority_mode" --frozen-goal "$frozen_goal" \
+    --expected-goal-sha256 "$expected_goal_sha256" \
+    --expected-dataset-sha256 "$expected_dataset_sha256" \
+    --output "$config_path" >/dev/null
+  local formal_config_id
+  formal_config_id="$(python3 "$CONFIG_TOOL" get --config "$config_path" config_id)"
+  bash "$FULLMONO" start --config "$config_path"
   wait_empty_recording_hub
   force_motion_lock
 
@@ -404,30 +380,23 @@ PY
   local formal_ready
   formal_ready="$(python3 - "$scene_id" "$run_id" "$dataset_id" "$arm" \
       "$authority_mode" "$frozen_goal" "$expected_goal_sha256" \
-      "$expected_dataset_sha256" "$health" <<'PY'
+      "$expected_dataset_sha256" "$health" "$formal_config_id" <<'PY'
 from datetime import datetime, timezone
-import json
-import sys
-
+import json, sys
 health = json.loads(sys.argv[9])
 print(json.dumps({
     "schema": "memnav_realworld_formal_ready_v1_20260830",
     "created_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-    "scene_id": sys.argv[1],
-    "run_id": sys.argv[2],
-    "dataset_id": sys.argv[3],
-    "arm": sys.argv[4],
-    "cec_authority_mode": sys.argv[5],
-    "runtime_role_visibility": "none",
-    "frozen_goal_path": sys.argv[6],
-    "goal_sha256": sys.argv[7],
-    "dataset_manifest_sha256": sys.argv[8],
+    "scene_id": sys.argv[1], "run_id": sys.argv[2], "dataset_id": sys.argv[3],
+    "arm": sys.argv[4], "cec_authority_mode": sys.argv[5],
+    "runtime_role_visibility": "none", "frozen_goal_path": sys.argv[6],
+    "goal_sha256": sys.argv[7], "dataset_manifest_sha256": sys.argv[8],
     "goal_selection_contract": "operator_frozen_external_v1",
-    "motion_enabled": False,
-    "estop_required": True,
+    "motion_enabled": False, "estop_required": True,
     "active_goal_sha256": health["active_goal_sha256"],
     "loaded_dataset_id": health["episodic_dataset"]["loaded_dataset_id"],
     "loaded_dataset_manifest_sha256": health["episodic_dataset"]["loaded_dataset_manifest_sha256"],
+    "resolved_config_id": sys.argv[10],
 }, sort_keys=True))
 PY
 )"
@@ -453,7 +422,7 @@ PY
 }
 
 formal_status() {
-  bash "$FULLMONO" status || true
+  bash "$FULLMONO" status --config "$(active_config)" || true
   echo
   hub_get /healthz | python3 -m json.tool
 }
@@ -462,7 +431,7 @@ stop_all() {
   if tmux has-session -t "$SESSION" 2>/dev/null; then
     force_motion_lock
   fi
-  bash "$FULLMONO" stop
+  bash "$FULLMONO" stop --config "$(active_config)"
 }
 
 action="${1:-}"

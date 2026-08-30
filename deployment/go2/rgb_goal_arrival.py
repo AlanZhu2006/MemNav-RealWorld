@@ -14,7 +14,6 @@ import argparse
 from dataclasses import asdict, dataclass
 import json
 import math
-import os
 import time
 from typing import Optional
 
@@ -537,18 +536,12 @@ class RgbGoalArrivalNode:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="RGB-only NavDP arrival gate")
-    parser.add_argument(
-        "--goal",
-        default=os.environ.get("NAVDP_IMAGE_GOAL_PATH", ""),
-        required=not bool(os.environ.get("NAVDP_IMAGE_GOAL_PATH")),
-    )
+    parser.add_argument("--goal", required=True)
     parser.add_argument("--rgb-topic", default="/camera/camera/color/image_raw")
     parser.add_argument("--navdp-status-topic", default="/navdp/status")
     parser.add_argument(
         "--allowed-phases",
-        default=os.environ.get(
-            "NAVDP_ARRIVAL_ALLOWED_PHASES", "memory_recording"
-        ),
+        default="memory_recording",
         help="comma-separated adapter phases in which matching is armed",
     )
     parser.add_argument("--arrival-topic", default="/navdp/arrival")

@@ -3,9 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
-NAVDP_CKPT="${NAVDP_CKPT:-$REPO_ROOT/baselines/navdp/checkpoints/navdp_pretrain.ckpt}"
-DEPENDENCY_ROOT="${DEPENDENCY_ROOT:?Set DEPENDENCY_ROOT in deployment/gpu/.env}"
-INTERNNAV_ROOT="${INTERNNAV_ROOT:?Set INTERNNAV_ROOT in deployment/gpu/.env}"
+gpu_require_config "$@"
+NAVDP_CKPT="$CFG_NAVDP_CKPT"
+DEPENDENCY_ROOT="$CFG_DEPENDENCY_ROOT"
+INTERNNAV_ROOT="$CFG_INTERNNAV_ROOT"
 require_executable "$MEMNAV_PY"
 require_file "$NAVDP_CKPT"
 require_dir "$DEPENDENCY_ROOT"

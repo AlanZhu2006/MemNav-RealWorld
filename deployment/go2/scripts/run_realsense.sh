@@ -3,9 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
+navdp_require_config_arg "$@"
+navdp_load_config "$NAVDP_RUN_CONFIG"
 navdp_source_ros
 
-MIN_FW_VERSION="${REALSENSE_MIN_FW_VERSION:-5.17}"
+MIN_FW_VERSION="$CFG_CAMERA_MIN_FW"
 if ! command -v rs-enumerate-devices >/dev/null 2>&1; then
   echo "rs-enumerate-devices is unavailable." >&2
   exit 1
@@ -38,5 +40,5 @@ exec ros2 launch realsense2_camera rs_launch.py \
   enable_sync:=true \
   align_depth.enable:=true \
   pointcloud.enable:=false \
-  depth_module.depth_profile:=848x480x30 \
-  rgb_camera.color_profile:=848x480x30
+  depth_module.depth_profile:="$CFG_CAMERA_DEPTH_PROFILE" \
+  rgb_camera.color_profile:="$CFG_CAMERA_COLOR_PROFILE"

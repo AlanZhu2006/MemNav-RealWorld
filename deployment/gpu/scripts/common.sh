@@ -3,19 +3,33 @@ set -euo pipefail
 
 GPU_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "$GPU_DIR/../.." && pwd)"
-ENV_FILE="${CEC_ENV_FILE:-$GPU_DIR/.env}"
+RUNTIME_CONFIG_TOOL="$REPO_ROOT/deployment/runtime_config.py"
 
-if [[ -f "$ENV_FILE" ]]; then
-  set -a
-  source "$ENV_FILE"
-  set +a
-fi
+gpu_require_config() {
+  if [[ $# -ne 2 || "$1" != --config || -z "$2" ]]; then
+    echo "Usage: ${0##*/} --config RESOLVED_CONFIG.json" >&2
+    exit 2
+  fi
+  RUN_CONFIG="$(readlink -f "$2")"
+  python3 "$RUNTIME_CONFIG_TOOL" verify \
+    --config "$RUN_CONFIG" --site gpu >/dev/null
+  gpu_read_config "$RUN_CONFIG"
+}
 
-MEMNAV_PY="${MEMNAV_PY:-python3}"
-MEMNAV_PORT="${MEMNAV_PORT:-18888}"
-NAVDP_PORT="${NAVDP_PORT:-8888}"
-CEC_HUB_PORT="${CEC_HUB_PORT:-18889}"
-CEC_OUT_ROOT="${CEC_OUT_ROOT:-$REPO_ROOT/runtime/gpu}"
+gpu_read_config() {
+  local config="$1"
+  # CFG_* is generated atomically from the immutable resolved JSON; .env and
+  # caller-provided model/path overrides are deliberately unsupported.
+  local config_exports
+  config_exports="$(python3 "$RUNTIME_CONFIG_TOOL" shell \
+    --config "$RUN_CONFIG" --site gpu)"
+  eval "$config_exports"
+  MEMNAV_PY="$CFG_GPU_PYTHON"
+  MEMNAV_PORT="$CFG_MEMNAV_PORT"
+  NAVDP_PORT="$CFG_NAVDP_PORT"
+  CEC_HUB_PORT="$CFG_HUB_PORT"
+  CEC_OUT_ROOT="$CFG_GPU_RUNTIME_ROOT"
+}
 
 require_file() {
   [[ -f "$1" ]] || { echo "Missing file: $1" >&2; exit 1; }

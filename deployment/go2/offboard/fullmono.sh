@@ -1,27 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Jetson-side entry point for the two-machine Full-Mono stack.  Starting the
-# stack never grants motion authority: the Go2 bridge is opt-in and the ROS
-# adapter remains disabled until an operator explicitly enables it.
+# Jetson-side transactional entry point for the two-machine Full-Mono stack.
+# One immutable resolved JSON is copied byte-for-byte to the RTX. Startup never
+# grants motion authority.
 
 OFFBOARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GO2_DIR="$(cd "$OFFBOARD_DIR/.." && pwd)"
+source "$GO2_DIR/scripts/common.sh"
 source "$OFFBOARD_DIR/runtime_contract.sh"
 
-GPU_HOST="${CEC_HUB_SSH_HOST:-work-pc}"
-# Relative paths are resolved by the remote login shell from the RTX user's
-# home directory. Sites with a different layout can set CEC_GPU_REPO.
-GPU_REPO="${CEC_GPU_REPO:-Research/MemNav-RealWorld}"
-GPU_SESSION="${CEC_TMUX_SESSION:-cec-realworld}"
-LOCAL_SESSION="${NAVDP_TMUX_SESSION:-navdp-go2-offboard}"
-LOCAL_PORT="${CEC_LOCAL_PORT:-18889}"
-REMOTE_PORT="${CEC_REMOTE_PORT:-18889}"
-CEC_AUTHORITY_MODE="${CEC_AUTHORITY_MODE:-cec}"
-case "$CEC_AUTHORITY_MODE" in
-  cec|native) ;;
-  *) echo "fullmono: CEC_AUTHORITY_MODE must be cec or native" >&2; exit 2 ;;
-esac
 SSH_OPTIONS=(
   -o BatchMode=yes
   -o ConnectTimeout=8
@@ -32,121 +20,86 @@ SSH_OPTIONS=(
 usage() {
   cat <<'EOF'
 Usage:
-  fullmono.sh start [--with-rviz] [--with-go2]
-  fullmono.sh status
-  fullmono.sh stop
+  fullmono.sh start  --config RESOLVED_CONFIG.json
+  fullmono.sh status --config RESOLVED_CONFIG.json
+  fullmono.sh stop   --config RESOLVED_CONFIG.json
 
-The command is run on the Jetson.  `start` first starts/reuses the RTX policy
-stack through passwordless SSH, then starts the local tunnel, D435i and locked
-ROS adapter.  `--with-go2` only starts the watchdog bridge; it does not enable
-the adapter or authorize motion.
-
-One-time RTX configuration:
-  ~/Research/MemNav-RealWorld/deployment/gpu/.env
-
-Optional overrides:
-  CEC_HUB_SSH_HOST, CEC_GPU_REPO, CEC_TMUX_SESSION,
-  NAVDP_TMUX_SESSION, CEC_LOCAL_PORT, CEC_REMOTE_PORT,
-  CEC_AUTHORITY_MODE=cec|native.
+This is an internal launcher. Normally use nav_stack.sh with a tracked
+experiment JSON. No environment-variable configuration is accepted.
 EOF
 }
 
-die() {
-  echo "fullmono: $*" >&2
-  exit 1
-}
+die() { echo "fullmono: $*" >&2; exit 1; }
+shell_quote() { printf '%q' "$1"; }
+remote_exec() { ssh "${SSH_OPTIONS[@]}" "$CFG_GPU_HOST" "$1"; }
 
-require_command() {
-  command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
-}
-
-shell_quote() {
-  printf '%q' "$1"
-}
-
-remote_exec() {
-  ssh "${SSH_OPTIONS[@]}" "$GPU_HOST" "$1"
+load_config() {
+  navdp_require_config_arg "$@"
+  navdp_load_config "$NAVDP_RUN_CONFIG"
+  [[ "$CFG_PROFILE" == fullmono-lingbot-cec ]] \
+    || die "resolved config is not the Full-Mono profile"
+  GPU_CONFIG="$CFG_GPU_REPO/runtime/config/$CFG_CONFIG_ID.json"
 }
 
 remote_session_exists() {
-  local quoted_session
-  quoted_session="$(shell_quote "$GPU_SESSION")"
-  remote_exec "tmux has-session -t ${quoted_session} 2>/dev/null"
+  remote_exec "tmux has-session -t $(shell_quote "$CFG_GPU_SESSION") 2>/dev/null"
 }
 
 remote_health() {
-  remote_exec \
-    "curl -fsS --max-time 3 http://127.0.0.1:${REMOTE_PORT}/healthz"
+  remote_exec "curl -fsS --max-time 3 http://127.0.0.1:${CFG_HUB_PORT}/healthz"
 }
 
 validate_health() {
   local payload="$1"
-  local expected_authority_mode="${2-$CEC_AUTHORITY_MODE}"
-  cec_validate_health_contract \
-    "$payload" "$GO2_DIR" "$expected_authority_mode"
-  python3 - "$payload" <<'PY'
-import json
-import math
-import sys
-
+  cec_validate_health_contract "$payload" "$GO2_DIR" "$CFG_AUTHORITY_MODE"
+  python3 - "$payload" "$CFG_CAMERA_HEIGHT_M" <<'PY'
+import json, math, sys
 p = json.loads(sys.argv[1])
-height = float(p["camera_height_m"])
-assert math.isfinite(height) and 0.1 <= height <= 2.0
-print(
-    "health=fullmono-v3-bearing-v2 "
-    f"authority_mode={p['cec_authority_mode']} "
-    f"camera_height_m={height:.3f}"
-)
+actual = float(p["camera_height_m"])
+expected = float(sys.argv[2])
+assert math.isfinite(actual) and abs(actual - expected) <= 1e-9
+print(f"health=fullmono-v3-bearing-v2 camera_height_m={actual:.3f}")
 PY
 }
 
-start_stack() {
-  local with_rviz=false
-  local with_go2=false
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --with-rviz) with_rviz=true ;;
-      --with-go2) with_go2=true ;;
-      -h|--help) usage; return 0 ;;
-      *) die "unknown start option: $1" ;;
-    esac
-    shift
-  done
-
-  for cmd in ssh tmux curl python3; do
-    require_command "$cmd"
-  done
-
-  local goal_path="${NAVDP_IMAGE_GOAL_PATH:-$GO2_DIR/goals/image_goal.png}"
-  [[ -f "$goal_path" ]] || die "ImageGoal is missing: $goal_path"
-  [[ -x "$OFFBOARD_DIR/run_offboard_stack.sh" ]] \
-    || die "missing local offboard launcher"
-  [[ -x "$OFFBOARD_DIR/preflight_offboard.sh" ]] \
-    || die "missing local offboard preflight"
-  if tmux has-session -t "$LOCAL_SESSION" 2>/dev/null; then
-    die "Jetson session already exists: $LOCAL_SESSION (use: $0 status)"
-  fi
-
-  ssh "${SSH_OPTIONS[@]}" "$GPU_HOST" true \
-    || die "passwordless SSH to RTX host failed: $GPU_HOST"
-
-  local quoted_repo quoted_gpu_session
-  quoted_repo="$(shell_quote "$GPU_REPO")"
-  quoted_gpu_session="$(shell_quote "$GPU_SESSION")"
+sync_config_to_gpu() {
+  local remote_dir temporary
+  remote_dir="$(dirname "$GPU_CONFIG")"
+  temporary="$GPU_CONFIG.tmp.$$"
+  remote_exec "mkdir -p $(shell_quote "$remote_dir")"
+  scp -q "${SSH_OPTIONS[@]}" "$NAVDP_RUN_CONFIG" "$CFG_GPU_HOST:$temporary"
   remote_exec \
-    "test -x ${quoted_repo}/deployment/gpu/scripts/preflight.sh && test -x ${quoted_repo}/deployment/gpu/scripts/run_policy_stack.sh" \
-    || die "RTX Full-Mono release is missing under $GPU_REPO"
+    "mv $(shell_quote "$temporary") $(shell_quote "$GPU_CONFIG") && cd $(shell_quote "$CFG_GPU_REPO") && python3 deployment/runtime_config.py verify --config $(shell_quote "$GPU_CONFIG") --site gpu"
+}
 
-  local started_gpu=false
-  local start_complete=false
+assert_remote_session_config() {
+  local remote_id
+  remote_id="$(remote_exec "tmux show-environment -t $(shell_quote "$CFG_GPU_SESSION") MEMNAV_CONFIG_ID 2>/dev/null | sed -n 's/^MEMNAV_CONFIG_ID=//p'")"
+  [[ "$remote_id" == "$CFG_CONFIG_ID" ]] \
+    || die "RTX session uses config_id=${remote_id:-unknown}, requested $CFG_CONFIG_ID; stop it first"
+}
+
+start_stack() {
+  load_config "$@"
+  for cmd in ssh scp tmux curl python3; do command -v "$cmd" >/dev/null || die "missing command: $cmd"; done
+  [[ -f "$CFG_IMAGE_GOAL" ]] || die "ImageGoal is missing: $CFG_IMAGE_GOAL"
+  if tmux has-session -t "$CFG_FULLMONO_SESSION" 2>/dev/null; then
+    die "Jetson session already exists: $CFG_FULLMONO_SESSION"
+  fi
+  ssh "${SSH_OPTIONS[@]}" "$CFG_GPU_HOST" true \
+    || die "passwordless SSH failed: $CFG_GPU_HOST"
+  remote_exec \
+    "test -x $(shell_quote "$CFG_GPU_REPO/deployment/gpu/scripts/preflight.sh") && test -x $(shell_quote "$CFG_GPU_REPO/deployment/gpu/scripts/run_policy_stack.sh")" \
+    || die "RTX source is missing under $CFG_GPU_REPO"
+  sync_config_to_gpu
+
+  local started_gpu=false start_complete=false
   rollback_partial_start() {
     local status=$?
     if [[ "$start_complete" != true ]]; then
-      bash "$OFFBOARD_DIR/stop_offboard_stack.sh" >/dev/null 2>&1 || true
+      bash "$OFFBOARD_DIR/stop_offboard_stack.sh" --config "$NAVDP_RUN_CONFIG" >/dev/null 2>&1 || true
       if [[ "$started_gpu" == true ]]; then
-        remote_exec \
-          "cd ${quoted_repo} && CEC_TMUX_SESSION=${quoted_gpu_session} bash deployment/gpu/scripts/stop_policy_stack.sh" \
-          >/dev/null 2>&1 || true
+        remote_exec "cd $(shell_quote "$CFG_GPU_REPO") && bash deployment/gpu/scripts/stop_policy_stack.sh --config $(shell_quote "$GPU_CONFIG")" >/dev/null 2>&1 || true
       fi
     fi
     return "$status"
@@ -155,150 +108,83 @@ start_stack() {
 
   local health
   if remote_session_exists; then
-    health="$(remote_health)" \
-      || die "RTX tmux session exists but its hub is unhealthy; run '$0 stop'"
-    validate_health "$health" >/dev/null \
-      || die "existing RTX session advertises the wrong policy contract"
-    if [[ -n "${CEC_EPISODIC_DATASET_ID:-}" ]]; then
-      python3 - "$health" "$CEC_EPISODIC_DATASET_ID" <<'PY' >/dev/null \
-        || die "existing RTX session is not recording the requested dataset; run '$0 stop'"
-import json, sys
-p = json.loads(sys.argv[1])["episodic_dataset"]
-assert p["recording"] is True
-assert p["dataset_id"] == sys.argv[2]
-PY
-    fi
-    echo "Reusing healthy RTX policy session: $GPU_SESSION"
+    assert_remote_session_config
+    health="$(remote_health)" || die "RTX session exists but hub is unhealthy"
+    validate_health "$health" >/dev/null || die "RTX session advertises wrong policy contract"
+    echo "Reusing healthy RTX policy session: $CFG_GPU_SESSION"
   else
-    echo "Starting RTX policy stack through $GPU_HOST ..."
-    # Forward the measured camera height (and optional goal-candidate dir)
-    # from the Jetson environment: non-interactive SSH does not load the RTX
-    # user environment, and the RTX preflight hard-fails without the height.
-    # No default is supplied here on purpose -- the height is a safety gate.
-    local remote_env="CEC_TMUX_SESSION=${quoted_gpu_session}"
-    remote_env+=" CEC_AUTHORITY_MODE=$(shell_quote "$CEC_AUTHORITY_MODE")"
-    if [[ -n "${CEC_CAMERA_HEIGHT_M:-}" ]]; then
-      remote_env+=" CEC_CAMERA_HEIGHT_M=$(shell_quote "$CEC_CAMERA_HEIGHT_M")"
-    fi
-    if [[ -n "${CEC_GOAL_CANDIDATE_DIR:-}" ]]; then
-      remote_env+=" CEC_GOAL_CANDIDATE_DIR=$(shell_quote "$CEC_GOAL_CANDIDATE_DIR")"
-    fi
-    if [[ -n "${CEC_EPISODIC_DATASET_ID:-}" ]]; then
-      remote_env+=" CEC_EPISODIC_DATASET_ID=$(shell_quote "$CEC_EPISODIC_DATASET_ID")"
-      remote_env+=" CEC_EPISODIC_DATASET_METADATA_JSON=$(shell_quote "${CEC_EPISODIC_DATASET_METADATA_JSON:-{}}")"
-    fi
+    echo "Starting RTX policy stack through $CFG_GPU_HOST ..."
     remote_exec \
-      "cd ${quoted_repo} && ${remote_env} bash deployment/gpu/scripts/preflight.sh && ${remote_env} bash deployment/gpu/scripts/run_policy_stack.sh"
+      "cd $(shell_quote "$CFG_GPU_REPO") && bash deployment/gpu/scripts/preflight.sh --config $(shell_quote "$GPU_CONFIG") && bash deployment/gpu/scripts/run_policy_stack.sh --config $(shell_quote "$GPU_CONFIG")"
     started_gpu=true
-    health="$(remote_health)" \
-      || die "RTX policy stack started but health endpoint is unavailable"
+    health="$(remote_health)" || die "RTX policy stack started but health is unavailable"
     validate_health "$health"
   fi
 
-  local local_args=()
-  if [[ "$with_rviz" == true ]]; then
-    local_args+=(--with-rviz)
-  fi
-  if [[ "$with_go2" == true ]]; then
-    local_args+=(--with-go2)
-  fi
-  CEC_HUB_SSH_HOST="$GPU_HOST" \
-    NAVDP_TMUX_SESSION="$LOCAL_SESSION" \
-    CEC_LOCAL_PORT="$LOCAL_PORT" \
-    CEC_REMOTE_PORT="$REMOTE_PORT" \
-    NAVDP_IMAGE_GOAL_PATH="$goal_path" \
-    bash "$OFFBOARD_DIR/run_offboard_stack.sh" "${local_args[@]}"
-
-  CEC_HUB_SSH_HOST="$GPU_HOST" CEC_LOCAL_PORT="$LOCAL_PORT" \
-    bash "$OFFBOARD_DIR/preflight_offboard.sh"
-
+  bash "$OFFBOARD_DIR/run_offboard_stack.sh" --config "$NAVDP_RUN_CONFIG"
+  bash "$OFFBOARD_DIR/preflight_offboard.sh" --config "$NAVDP_RUN_CONFIG"
   start_complete=true
   trap - EXIT
   echo
-  echo "Full-Mono stack is ready from the Jetson entry point."
-  echo "  RTX session:    $GPU_HOST:$GPU_SESSION"
-  echo "  Jetson session: $LOCAL_SESSION"
-  echo "  Go2 bridge:     $with_go2"
-  echo "  Motion:         LOCKED (adapter starts disabled)"
-  echo "  Inspect:        tmux attach -t $LOCAL_SESSION"
-  if [[ "$with_go2" == true ]]; then
-    echo "  Enabling motion still requires the explicit ROS SetBool call."
-  fi
+  echo "Full-Mono stack is ready."
+  echo "  config_id:      $CFG_CONFIG_ID"
+  echo "  config Jetson:  $NAVDP_RUN_CONFIG"
+  echo "  config RTX:     $CFG_GPU_HOST:$GPU_CONFIG"
+  echo "  RTX session:    $CFG_GPU_SESSION"
+  echo "  Jetson session: $CFG_FULLMONO_SESSION"
+  echo "  ImageGoal:      $CFG_IMAGE_GOAL"
+  echo "  authority:      $CFG_AUTHORITY_MODE"
+  echo "  Go2 bridge:     $CFG_WITH_GO2"
+  echo "  Motion:         LOCKED"
 }
 
 status_stack() {
-  for cmd in ssh tmux curl python3; do
-    require_command "$cmd"
-  done
-
+  load_config "$@"
   local failures=0
-  if tmux has-session -t "$LOCAL_SESSION" 2>/dev/null; then
-    echo "Jetson session: RUNNING ($LOCAL_SESSION)"
-    tmux list-windows -t "$LOCAL_SESSION" -F '  window=#{window_name} active=#{window_active}'
+  if tmux has-session -t "$CFG_FULLMONO_SESSION" 2>/dev/null; then
+    echo "Jetson session: RUNNING ($CFG_FULLMONO_SESSION)"
+    tmux list-windows -t "$CFG_FULLMONO_SESSION" -F '  window=#{window_name} dead=#{pane_dead}'
   else
-    echo "Jetson session: STOPPED ($LOCAL_SESSION)"
+    echo "Jetson session: STOPPED ($CFG_FULLMONO_SESSION)"
     failures=$((failures + 1))
   fi
-
-  local local_health
-  if local_health="$(curl -fsS --max-time 3 "http://127.0.0.1:${LOCAL_PORT}/healthz" 2>/dev/null)"; then
-    echo -n "Jetson tunnel:  "
-    validate_health "$local_health" "" || failures=$((failures + 1))
-  else
-    echo "Jetson tunnel:  UNAVAILABLE"
-    failures=$((failures + 1))
-  fi
-
-  if ssh "${SSH_OPTIONS[@]}" "$GPU_HOST" true 2>/dev/null; then
-    if remote_session_exists; then
-      echo "RTX session:    RUNNING ($GPU_HOST:$GPU_SESSION)"
-      local gpu_health
-      if gpu_health="$(remote_health 2>/dev/null)"; then
-        echo -n "RTX hub:        "
-        validate_health "$gpu_health" "" || failures=$((failures + 1))
-      else
-        echo "RTX hub:        UNHEALTHY"
-        failures=$((failures + 1))
-      fi
+  if ssh "${SSH_OPTIONS[@]}" "$CFG_GPU_HOST" true 2>/dev/null && remote_session_exists; then
+    echo "RTX session: RUNNING ($CFG_GPU_HOST:$CFG_GPU_SESSION)"
+    assert_remote_session_config || failures=$((failures + 1))
+    local health
+    if health="$(remote_health 2>/dev/null)"; then
+      validate_health "$health" || failures=$((failures + 1))
     else
-      echo "RTX session:    STOPPED ($GPU_HOST:$GPU_SESSION)"
+      echo "RTX hub: UNHEALTHY"
       failures=$((failures + 1))
     fi
   else
-    echo "RTX SSH:        UNREACHABLE ($GPU_HOST)"
+    echo "RTX session: STOPPED or unreachable"
     failures=$((failures + 1))
   fi
-
-  echo "Motion state must be confirmed from /navdp/status; startup never enables it."
+  echo "Motion state must be confirmed from /navdp/status."
   return "$failures"
 }
 
 stop_stack() {
-  require_command ssh
-  bash "$OFFBOARD_DIR/stop_offboard_stack.sh"
-
-  local quoted_repo quoted_gpu_session
-  quoted_repo="$(shell_quote "$GPU_REPO")"
-  quoted_gpu_session="$(shell_quote "$GPU_SESSION")"
-  if ssh "${SSH_OPTIONS[@]}" "$GPU_HOST" true 2>/dev/null; then
-    remote_exec \
-      "cd ${quoted_repo} && CEC_TMUX_SESSION=${quoted_gpu_session} bash deployment/gpu/scripts/stop_policy_stack.sh"
+  navdp_require_config_arg "$@"
+  navdp_read_config "$NAVDP_RUN_CONFIG"
+  bash "$OFFBOARD_DIR/stop_offboard_stack.sh" --config "$NAVDP_RUN_CONFIG"
+  if ssh "${SSH_OPTIONS[@]}" "$CFG_GPU_HOST" true 2>/dev/null; then
+    remote_exec "tmux kill-session -t $(shell_quote "$CFG_GPU_SESSION") 2>/dev/null || true"
   else
-    echo "Warning: RTX host is unreachable; its policy-only session was not stopped." >&2
+    echo "Warning: RTX is unreachable; its policy session was not stopped." >&2
     return 1
   fi
   echo "Full-Mono Jetson and RTX sessions are stopped."
 }
 
 action="${1:-}"
-if [[ $# -gt 0 ]]; then
-  shift
-fi
+[[ $# -eq 0 ]] || shift
 case "$action" in
   start) start_stack "$@" ;;
-  status) [[ $# -eq 0 ]] || die "status takes no options"; status_stack ;;
-  stop) [[ $# -eq 0 ]] || die "stop takes no options"; stop_stack ;;
-  -h|--help|help) usage ;;
-  "") usage; exit 2 ;;
+  status) status_stack "$@" ;;
+  stop) stop_stack "$@" ;;
+  -h|--help|help|"") usage ;;
   *) die "unknown action: $action" ;;
 esac

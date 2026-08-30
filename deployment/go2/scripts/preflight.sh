@@ -3,16 +3,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
-
-backend="x"
-check_robot=false
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    --backend) backend="$2"; shift 2 ;;
-    --with-go2) check_robot=true; shift ;;
-    *) echo "Usage: $0 [--backend x|base] [--with-go2]" >&2; exit 2 ;;
-  esac
-done
+navdp_require_config_arg "$@"
+navdp_load_config "$NAVDP_RUN_CONFIG"
 
 failures=0
 warnings=0
@@ -46,20 +38,15 @@ else
   fail "Run setup_jetson.sh"
 fi
 
-if [[ "$backend" == "x" ]]; then
-  checkpoint="$NAVDP_ROOT/baselines/x-navdp/checkpoints/x-navdp_posttrain.ckpt"
-  expected="267089a81bbbe7a913debda6603f3f1b66a79520370ce953b2d888d793b89f24"
-else
-  checkpoint="$NAVDP_ROOT/baselines/navdp/checkpoints/navdp_pretrain.ckpt"
-  expected="3bb3ad4ab241e857bb57a4021cc6aab76d5263e81fbf80298d579053ef011947"
-fi
+checkpoint="$CFG_NATIVE_CHECKPOINT"
+expected="$CFG_NATIVE_CHECKPOINT_SHA256"
 if [[ -f "$checkpoint" ]] && echo "$expected  $checkpoint" | sha256sum --check --status; then
   pass "Verified $(basename "$checkpoint")"
 else
   fail "Checkpoint missing or invalid: $checkpoint"
 fi
 
-if curl -fsS --max-time 1 http://127.0.0.1:8888/healthz >/dev/null 2>&1; then
+if curl -fsS --max-time 1 "http://$CFG_NATIVE_HOST:$CFG_NATIVE_PORT/healthz" >/dev/null 2>&1; then
   pass "Policy server health endpoint"
 else
   warn "Policy server is not running yet"
@@ -67,12 +54,12 @@ fi
 
 if command -v ros2 >/dev/null 2>&1; then
   topics="$(timeout 3 ros2 topic list 2>/dev/null || true)"
-  grep -qx '/camera/camera/color/image_raw' <<<"$topics" && pass "RGB topic active" || warn "RGB topic not active"
-  grep -qx '/camera/camera/aligned_depth_to_color/image_raw' <<<"$topics" && pass "Aligned depth topic active" || warn "Aligned depth topic not active"
+  grep -qx "$CFG_RGB_TOPIC" <<<"$topics" && pass "RGB topic active" || warn "RGB topic not active"
+  grep -qx "$CFG_DEPTH_TOPIC" <<<"$topics" && pass "Aligned depth topic active" || warn "Aligned depth topic not active"
 fi
 
-if [[ "$check_robot" == true ]]; then
-  net_if="${UNITREE_NET_IF:-eth0}"
+if [[ "$CFG_WITH_GO2" == true ]]; then
+  net_if="$CFG_UNITREE_NET_IF"
   if ip -o -4 addr show dev "$net_if" | grep -q '192\.168\.123\.'; then
     pass "$net_if has Go2 subnet address"
   else

@@ -3,9 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
+navdp_require_config_arg "$@"
+navdp_load_config "$NAVDP_RUN_CONFIG"
 navdp_source_ros
 
-RVIZ_CONFIG="${NAVDP_RVIZ_CONFIG:-$NAVDP_GO2_DIR/config/navdp_debug.rviz}"
+RVIZ_CONFIG="$CFG_RVIZ_CONFIG"
 if [[ ! -f "$RVIZ_CONFIG" ]]; then
   echo "RViz config not found: $RVIZ_CONFIG" >&2
   exit 1
@@ -17,9 +19,6 @@ if [[ -z "${XAUTHORITY:-}" ]]; then
   elif [[ -r "/run/user/$(id -u)/gdm/Xauthority" ]]; then
     export XAUTHORITY="/run/user/$(id -u)/gdm/Xauthority"
   fi
-fi
-if [[ -z "${DISPLAY:-}" && -n "${NAVDP_DISPLAY:-}" ]]; then
-  export DISPLAY="$NAVDP_DISPLAY"
 fi
 if [[ -z "${DISPLAY:-}" ]]; then
   best_display=""
@@ -52,7 +51,8 @@ echo "Starting NavDP RViz debug UI"
 echo "  display: $DISPLAY"
 echo "  config:  $RVIZ_CONFIG"
 
-TF_LOG="${NAVDP_DEBUG_TF_LOG:-/tmp/navdp_debug_tf.log}"
+TF_LOG="$CFG_JETSON_RUNTIME_ROOT/logs/debug_tf.log"
+mkdir -p "$(dirname "$TF_LOG")"
 ros2 run tf2_ros static_transform_publisher \
   --frame-id navdp_local --child-frame-id base_link >"$TF_LOG" 2>&1 &
 TF_PID=$!

@@ -73,7 +73,7 @@ deployment/go2/offboard/revisit_experiment.sh
 ```bash
 cd /home/nvidia/twork/MemNav-RealWorld
 bash deployment/go2/offboard/revisit_experiment.sh \
-  survey-start office_loop_01 --with-rviz
+  survey-start office_loop_01
 ```
 
 该命令从 Jetson 拉起 RTX policy stack、SSH tunnel、D435i 和 adapter。Dataset id 在 RTX
@@ -117,7 +117,7 @@ bash deployment/go2/offboard/revisit_experiment.sh \
   --scene-id scene01 --run-id scene01_pair01_cec \
   --arm mono_cec --goal /abs/path/scene01_goal.jpg \
   --expected-goal-sha256 "$GOAL_SHA256" \
-  --expected-dataset-sha256 "$DATASET_SHA256" --with-rviz
+  --expected-dataset-sha256 "$DATASET_SHA256"
 ```
 
 该命令会：

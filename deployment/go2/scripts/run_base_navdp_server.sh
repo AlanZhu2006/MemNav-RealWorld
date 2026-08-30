@@ -3,20 +3,22 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
+navdp_require_config_arg "$@"
+navdp_load_config "$NAVDP_RUN_CONFIG"
 navdp_source_ros
 navdp_activate_venv
 
-CHECKPOINT="${NAVDP_CHECKPOINT:-$NAVDP_ROOT/baselines/navdp/checkpoints/navdp_pretrain.ckpt}"
-EXPECTED_SHA256="3bb3ad4ab241e857bb57a4021cc6aab76d5263e81fbf80298d579053ef011947"
-HOST="${NAVDP_SERVER_HOST:-127.0.0.1}"
-PORT="${NAVDP_SERVER_PORT:-8888}"
-DEVICE="${NAVDP_DEVICE:-cuda:0}"
+CHECKPOINT="$CFG_NATIVE_CHECKPOINT"
+EXPECTED_SHA256="$CFG_NATIVE_CHECKPOINT_SHA256"
+HOST="$CFG_NATIVE_HOST"
+PORT="$CFG_NATIVE_PORT"
+DEVICE="$CFG_NATIVE_DEVICE"
 
 if [[ ! -f "$CHECKPOINT" ]]; then
   echo "NavDP checkpoint missing. Run: $SCRIPT_DIR/download_weights.sh base" >&2
   exit 1
 fi
-if [[ "$CHECKPOINT" == "$NAVDP_ROOT/baselines/navdp/checkpoints/navdp_pretrain.ckpt" ]]; then
+if [[ -n "$EXPECTED_SHA256" ]]; then
   echo "$EXPECTED_SHA256  $CHECKPOINT" | sha256sum --check --status || {
     echo "NavDP checkpoint checksum failed." >&2
     exit 1

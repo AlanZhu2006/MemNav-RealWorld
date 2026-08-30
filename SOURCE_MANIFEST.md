@@ -51,8 +51,8 @@ auditable overlay instead of an anonymous source dump.
 
 The MemNav model service remains an external research dependency because its
 licensed checkpoints, LingBot weights, LightGlue dependency tree and research
-workspace are not redistributed. `deployment/gpu/.env` points to that source
-and is ignored by Git.
+workspace are not redistributed. Their local paths are tracked in
+`deployment/config/system.json`; model bytes remain outside this repository.
 
 ## Selected release SHA-256
 

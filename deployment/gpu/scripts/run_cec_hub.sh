@@ -3,27 +3,17 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
+gpu_require_config "$@"
 require_executable "$MEMNAV_PY"
-CEC_CAMERA_HEIGHT_M="${CEC_CAMERA_HEIGHT_M:?Set measured D435i optical-center height in metres}"
-CEC_GOAL_CANDIDATE_DIR="${CEC_GOAL_CANDIDATE_DIR:-$CEC_OUT_ROOT/goal_candidates}"
-CEC_GOAL_SCORE_STRIDE="${CEC_GOAL_SCORE_STRIDE:-8}"
-CEC_GOAL_MIN_FRAME_GAP="${CEC_GOAL_MIN_FRAME_GAP:-16}"
-CEC_GOAL_MIN_INLIERS="${CEC_GOAL_MIN_INLIERS:-16}"
-CEC_GOAL_MAX_COS="${CEC_GOAL_MAX_COS:-0.90}"
-CEC_EPISODIC_DATASET_ROOT="${CEC_EPISODIC_DATASET_ROOT:-$CEC_OUT_ROOT/episodic_datasets}"
-CEC_EPISODIC_DATASET_MIN_FRAMES="${CEC_EPISODIC_DATASET_MIN_FRAMES:-160}"
-CEC_AUTHORITY_MODE="${CEC_AUTHORITY_MODE:-cec}"
-case "$CEC_AUTHORITY_MODE" in
-  cec|native) ;;
-  *) echo "CEC_AUTHORITY_MODE must be cec or native" >&2; exit 2 ;;
-esac
+CEC_GOAL_CANDIDATE_DIR="$CEC_OUT_ROOT/goal_candidates"
+CEC_EPISODIC_DATASET_ROOT="$CEC_OUT_ROOT/episodic_datasets"
 mkdir -p "$CEC_GOAL_CANDIDATE_DIR" "$CEC_EPISODIC_DATASET_ROOT"
 dataset_args=()
-if [[ -n "${CEC_EPISODIC_DATASET_ID:-}" ]]; then
-  dataset_args+=(--auto-dataset-id "$CEC_EPISODIC_DATASET_ID")
+if [[ "$CFG_DATASET_AUTO_OPEN" == true ]]; then
+  dataset_args+=(--auto-dataset-id "$CFG_DATASET_ID")
   dataset_args+=(
     --auto-dataset-metadata-json
-    "${CEC_EPISODIC_DATASET_METADATA_JSON:-{}}"
+    "$CFG_DATASET_METADATA"
   )
 fi
 
@@ -33,13 +23,13 @@ exec env PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
     --host 127.0.0.1 --port "$CEC_HUB_PORT" \
     --memnav-url "http://127.0.0.1:$MEMNAV_PORT" \
     --navdp-url "http://127.0.0.1:$NAVDP_PORT" \
-    --camera-height-m "$CEC_CAMERA_HEIGHT_M" \
-    --authority-mode "$CEC_AUTHORITY_MODE" \
+    --camera-height-m "$CFG_CAMERA_HEIGHT_M" \
+    --authority-mode "$CFG_AUTHORITY_MODE" \
     --goal-candidate-dir "$CEC_GOAL_CANDIDATE_DIR" \
-    --goal-score-stride "$CEC_GOAL_SCORE_STRIDE" \
-    --goal-min-frame-gap "$CEC_GOAL_MIN_FRAME_GAP" \
-    --goal-min-inliers "$CEC_GOAL_MIN_INLIERS" \
-    --goal-max-cos "$CEC_GOAL_MAX_COS" \
+    --goal-score-stride "$CFG_GOAL_SCORE_STRIDE" \
+    --goal-min-frame-gap "$CFG_GOAL_MIN_FRAME_GAP" \
+    --goal-min-inliers "$CFG_GOAL_MIN_INLIERS" \
+    --goal-max-cos "$CFG_GOAL_MAX_COS" \
     --episodic-dataset-root "$CEC_EPISODIC_DATASET_ROOT" \
-    --episodic-dataset-min-frames "$CEC_EPISODIC_DATASET_MIN_FRAMES" \
+    --episodic-dataset-min-frames "$CFG_DATASET_MIN_FRAMES" \
     "${dataset_args[@]}"

@@ -10,8 +10,8 @@ source "$GO2_DIR/scripts/common.sh"
 
 MANIFEST_TOOL="$GO2_DIR/experiment_capture_manifest.py"
 TOPIC_LOGGER="$GO2_DIR/experiment_topic_logger.py"
-CAPTURE_ROOT="${NAVDP_EXPERIMENT_CAPTURE_ROOT:-$NAVDP_ROOT/runtime/go2/experiment_capture}"
-CAPTURE_SESSION_PREFIX="${NAVDP_EXPERIMENT_CAPTURE_SESSION_PREFIX:-navdp-capture}"
+CAPTURE_ROOT="$CFG_CAPTURE_ROOT"
+CAPTURE_SESSION_PREFIX="$CFG_CAPTURE_SESSION_PREFIX"
 
 AUDIT_TOPICS=(
   /navdp/status

@@ -3,11 +3,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
+gpu_require_config "$@"
 GO2_DIR="$REPO_ROOT/deployment/go2"
 source "$GO2_DIR/offboard/runtime_contract.sh"
-SESSION="${CEC_TMUX_SESSION:-cec-realworld}"
-CEC_CAMERA_HEIGHT_M="${CEC_CAMERA_HEIGHT_M:?Set measured D435i optical-center height in metres}"
-export CEC_CAMERA_HEIGHT_M
+SESSION="$CFG_GPU_SESSION"
 require_executable tmux
 
 if tmux has-session -t "$SESSION" 2>/dev/null; then
@@ -23,14 +22,16 @@ done
 mkdir -p "$CEC_OUT_ROOT/logs" "$CEC_OUT_ROOT/buffer"
 
 tmux new-session -d -s "$SESSION" -n memnav \
-  "exec '$SCRIPT_DIR/run_memnav_server.sh' >'$CEC_OUT_ROOT/logs/memnav.log' 2>&1"
+  "exec '$SCRIPT_DIR/run_memnav_server.sh' --config '$RUN_CONFIG' >'$CEC_OUT_ROOT/logs/memnav.log' 2>&1"
 tmux new-window -t "$SESSION" -n navdp \
-  "exec '$SCRIPT_DIR/run_navdp_server.sh' >'$CEC_OUT_ROOT/logs/navdp.log' 2>&1"
+  "exec '$SCRIPT_DIR/run_navdp_server.sh' --config '$RUN_CONFIG' >'$CEC_OUT_ROOT/logs/navdp.log' 2>&1"
 tmux new-window -t "$SESSION" -n hub \
-  "exec '$SCRIPT_DIR/run_cec_hub.sh' >'$CEC_OUT_ROOT/logs/hub.log' 2>&1"
+  "exec '$SCRIPT_DIR/run_cec_hub.sh' --config '$RUN_CONFIG' >'$CEC_OUT_ROOT/logs/hub.log' 2>&1"
+tmux set-environment -t "$SESSION" MEMNAV_RUN_CONFIG "$RUN_CONFIG"
+tmux set-environment -t "$SESSION" MEMNAV_CONFIG_ID "$CFG_CONFIG_ID"
 
 ready=false
-for _ in $(seq 1 240); do
+for _ in $(seq 1 "$CFG_GPU_READY_TIMEOUT_S"); do
   health="$(curl -fsS --max-time 1 \
       "http://127.0.0.1:$CEC_HUB_PORT/healthz" 2>/dev/null || true)"
   if [[ -n "$health" ]] \
@@ -57,7 +58,9 @@ fi
 
 echo "CEC real-world policy stack ready"
 echo "  sensor: causal monocular RGB (client depth is local safety only)"
-echo "  camera optical-center height: ${CEC_CAMERA_HEIGHT_M} m"
+echo "  config: $RUN_CONFIG"
+echo "  config_id: $CFG_CONFIG_ID"
+echo "  camera optical-center height: ${CFG_CAMERA_HEIGHT_M} m"
 echo "  hub:    http://127.0.0.1:$CEC_HUB_PORT"
 echo "  memnav: http://127.0.0.1:$MEMNAV_PORT"
 echo "  navdp:  http://127.0.0.1:$NAVDP_PORT"

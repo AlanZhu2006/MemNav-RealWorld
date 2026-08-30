@@ -1,0 +1,111 @@
+{
+  "schema": "memnav-realworld-system-v1",
+  "sites": {
+    "jetson": {
+      "hostname": "nyush-jetson-dog",
+      "repository": "/home/nvidia/twork/MemNav-RealWorld",
+      "python": "/home/nvidia/twork/MemNav-RealWorld/.venv-navdp/bin/python",
+      "ros_setup": "/opt/ros/humble/setup.bash",
+      "realsense_setup": "/home/nvidia/twork/realsense_ws/install/setup.bash",
+      "message_filters_setup": "/home/nvidia/twork/message_filters_ws/install/local_setup.bash",
+      "runtime_root": "/home/nvidia/twork/MemNav-RealWorld/runtime/go2",
+      "sessions": {
+        "native": "navdp-go2",
+        "fullmono": "navdp-go2-offboard"
+      },
+      "camera": {
+        "minimum_firmware": "5.17",
+        "depth_profile": "848x480x30",
+        "color_profile": "848x480x30",
+        "ready_timeout_s": 60,
+        "rgb_topic": "/camera/camera/color/image_raw",
+        "depth_topic": "/camera/camera/aligned_depth_to_color/image_raw",
+        "camera_info_topic": "/camera/camera/color/camera_info"
+      },
+      "unitree": {
+        "network_interface": "eth0",
+        "sdk_python_path": "/home/nvidia/unitree_ws/src/unitree_sdk2_python",
+        "cyclonedds_home": "/home/nvidia/twork/cyclonedds/install",
+        "python": "/home/nvidia/twork/tinynav/.venv/bin/python",
+        "cmd_topic": "/navdp/cmd_vel",
+        "timeout_s": 0.35,
+        "max_vx": 0.3,
+        "max_vy": 0.0,
+        "max_wz": 0.6,
+        "min_cmd_v": 0.1,
+        "min_cmd_w": 0.2
+      },
+      "native_policy": {
+        "host": "127.0.0.1",
+        "port": 8888,
+        "device": "cuda:0",
+        "ready_timeout_s": 240,
+        "checkpoint": "baselines/navdp/checkpoints/navdp_pretrain.ckpt",
+        "checkpoint_sha256": "3bb3ad4ab241e857bb57a4021cc6aab76d5263e81fbf80298d579053ef011947"
+      }
+    },
+    "gpu": {
+      "hostname": "asus4090",
+      "ssh_host": "work-pc",
+      "repository": "/home/asus/Research/MemNav-RealWorld",
+      "python": "/home/asus/miniconda3/envs/memnav-realworld/bin/python",
+      "runtime_root": "/home/asus/Research/MemNav-RealWorld/runtime/gpu",
+      "ready_timeout_s": 240,
+      "session": "cec-realworld",
+      "ports": {
+        "memnav": 18888,
+        "navdp": 8888,
+        "hub": 18889,
+        "tunnel_local": 18889
+      },
+      "models": {
+        "memnav_source_root": "/home/asus/Research/Nav-graph-blind",
+        "memnav_checkpoint": "/home/asus/Research/Nav-axis-uturn/.diagnostics/unseen_scene_eval_20260803/checkpoints/gatecurr600.memnav.ckpt",
+        "internnav_root": "/home/asus/Research/Nav-graph-blind/InternNav",
+        "lingbot_repository": "/home/asus/Research/Nav/NavDP/baselines/memnav/lingbot-map",
+        "lingbot_weights": "/home/asus/Research/Nav/NavDP/baselines/memnav/lingbot-map/weights/lingbot-map-long.pt",
+        "lightglue_repository": "/home/asus/Research/Nav-graph-blind/.diagnostics/dependencies/LightGlue",
+        "dependency_root": "/home/asus/Research/Nav-graph-blind/.diagnostics/dependencies/python",
+        "navdp_checkpoint": "/home/asus/Research/Nav/NavDP/baselines/navdp/checkpoints/navdp_checkpoint.ckpt"
+      }
+    }
+  },
+  "stack": {
+    "adapter_params": "deployment/go2/config/navdp_go2.yaml",
+    "rviz_config": "deployment/go2/config/navdp_debug.rviz",
+    "camera_height_m": 0.42,
+    "adapter_ready_timeout_s": 30,
+    "tunnel_ready_timeout_s": 10,
+    "formal_limits": {
+      "max_linear_mps": 0.3,
+      "max_angular_rps": 0.55
+    },
+    "memory": {
+      "navigate_during_recording": false,
+      "pause_recording": false,
+      "auto_goal_candidate_interval_frames": 24,
+      "auto_goal_candidate_max": 6,
+      "auto_goal_candidate_post_guard_frames": 4,
+      "auto_goal_candidate_capture_enabled": true,
+      "auto_select_goal_candidate": true
+    },
+    "cec": {
+      "goal_score_stride": 8,
+      "goal_min_frame_gap": 16,
+      "goal_min_inliers": 16,
+      "goal_max_cos": 0.9,
+      "episodic_dataset_min_frames": 160,
+      "eager_depth_cache": false
+    },
+    "arrival": {
+      "rate_hz": 12.0,
+      "required_consecutive": 1,
+      "min_image_scale": 0.6,
+      "max_image_scale": 1.45
+    },
+    "evidence": {
+      "capture_root": "/home/nvidia/twork/MemNav-RealWorld/runtime/go2/experiment_capture",
+      "session_prefix": "navdp-capture"
+    }
+  }
+}

@@ -2,11 +2,14 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MODULE="${NAVDP_ARRIVAL_MODULE:-operator}"
+source "$SCRIPT_DIR/common.sh"
+navdp_require_config_arg "$@"
+navdp_load_config "$NAVDP_RUN_CONFIG"
+MODULE="$CFG_ARRIVAL_MODULE"
 
 case "$MODULE" in
   rgb-homography)
-    exec "$SCRIPT_DIR/run_rgb_goal_arrival.sh"
+    exec "$SCRIPT_DIR/run_rgb_goal_arrival.sh" --config "$NAVDP_RUN_CONFIG"
     ;;
   operator)
     echo "Arrival module '$MODULE' has no background process." >&2
@@ -19,7 +22,7 @@ case "$MODULE" in
     exit 2
     ;;
   *)
-    echo "Unknown NAVDP_ARRIVAL_MODULE: $MODULE" >&2
+    echo "Unknown arrival module in resolved config: $MODULE" >&2
     exit 2
     ;;
 esac

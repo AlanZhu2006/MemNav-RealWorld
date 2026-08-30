@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SESSION="${NAVDP_TMUX_SESSION:-navdp-go2}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+navdp_require_config_arg "$@"
+navdp_read_config "$NAVDP_RUN_CONFIG"
+SESSION="$CFG_NATIVE_SESSION"
 if ! command -v tmux >/dev/null 2>&1 || ! tmux has-session -t "$SESSION" 2>/dev/null; then
   echo "NavDP tmux session is not running: $SESSION"
   exit 0

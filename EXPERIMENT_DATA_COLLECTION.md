@@ -40,8 +40,8 @@ Start the formal stack with RViz first. Motion remains locked:
 
 ~~~bash
 cd /home/nvidia/twork/MemNav-RealWorld
-bash deployment/go2/offboard/revisit_experiment.sh formal-start DATASET_ID \
-  --with-rviz
+# Set launch.rviz=true in fullmono_imagegoal.json first.
+bash deployment/go2/offboard/revisit_experiment.sh formal-start DATASET_ID
 
 bash deployment/go2/offboard/experiment_capture.sh preflight
 ~~~

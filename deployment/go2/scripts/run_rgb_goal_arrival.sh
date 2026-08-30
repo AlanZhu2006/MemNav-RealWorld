@@ -3,10 +3,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
+navdp_require_config_arg "$@"
+navdp_load_config "$NAVDP_RUN_CONFIG"
 navdp_source_ros
 navdp_activate_venv
 
-GOAL="${NAVDP_ARRIVAL_GOAL_PATH:-${NAVDP_IMAGE_GOAL_PATH:-}}"
+GOAL="$CFG_ARRIVAL_GOAL"
 [[ -f "$GOAL" ]] || {
   echo "RGB arrival ImageGoal missing: $GOAL" >&2
   exit 1
@@ -14,8 +16,8 @@ GOAL="${NAVDP_ARRIVAL_GOAL_PATH:-${NAVDP_IMAGE_GOAL_PATH:-}}"
 
 exec python "$NAVDP_GO2_DIR/rgb_goal_arrival.py" \
   --goal "$GOAL" \
-  --allowed-phases "${NAVDP_ARRIVAL_ALLOWED_PHASES:-memory_recording}" \
-  --rate-hz "${NAVDP_RGB_ARRIVAL_RATE_HZ:-12.0}" \
-  --required-consecutive "${NAVDP_RGB_ARRIVAL_CONSECUTIVE:-1}" \
-  --min-image-scale "${NAVDP_RGB_ARRIVAL_MIN_SCALE:-0.60}" \
-  --max-image-scale "${NAVDP_RGB_ARRIVAL_MAX_SCALE:-1.45}"
+  --allowed-phases "$CFG_ARRIVAL_PHASES" \
+  --rate-hz "$CFG_ARRIVAL_RATE_HZ" \
+  --required-consecutive "$CFG_ARRIVAL_CONSECUTIVE" \
+  --min-image-scale "$CFG_ARRIVAL_MIN_SCALE" \
+  --max-image-scale "$CFG_ARRIVAL_MAX_SCALE"

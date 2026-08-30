@@ -1,292 +1,114 @@
 # Full-Mono Runtime Runbook
 
-> 两次独立运行的长程 Revisit 数据集与一键 formal-ready 流程见
-> `TWO_PASS_REVISIT_RUNBOOK.md`。新正式实验优先使用该流程；本文件后面的
-> 单次在线 recording -> revisit 命令只用于机制调试，不是第二套正式流程。
-> 每轮 ROS bag、CEC 收据、RViz dashboard 与第三人称视频采集见
-> `EXPERIMENT_DATA_COLLECTION.md`。
-
-This runbook is fail-closed. Completing a software deployment does not authorize
-camera startup, ROS motion, or Go2 movement.
-
-## 0. Jetson single-entry launcher
-
-After the one-time RTX configuration in Section 1, the direct Full-Mono
-lifecycle command is issued from the Jetson:
-
-~~~bash
-cd /home/nvidia/twork/MemNav-RealWorld
-export NAVDP_GOAL=/absolute/path/to/image_goal.png
-export CEC_CAMERA_HEIGHT_M=0.42
-export NAVDP_IMAGE_GOAL_PATH="$NAVDP_GOAL"
-
-bash deployment/go2/offboard/fullmono.sh start
-~~~
-
-This starts or reuses the RTX policy services, verifies the Full-Mono health
-contract, creates the SSH tunnel, and starts the D435i plus the disabled ROS
-adapter.  Startup succeeds only after the D435i publishes a real CameraInfo
-message; a missing or disconnected camera rolls back both machines instead of
-leaving a false-ready session.  It does not start the Go2 bridge and cannot
-move the robot.
+This runbook is fail-closed. Software readiness never authorizes Go2 motion.
+The onsite operator retains the Unitree hand controller throughout powered
+tests.
 
-Useful variants are:
+## 1. Configuration
 
-~~~bash
-# Camera, locked adapter and RViz; still no Go2 bridge.
-bash deployment/go2/offboard/fullmono.sh start --with-rviz
+There is one tracked configuration path:
 
-# Also start the watchdog Go2 bridge; the adapter still remains disabled.
-bash deployment/go2/offboard/fullmono.sh start --with-go2 --with-rviz
+- `deployment/config/system.json`: Jetson/RTX paths, models, ports, camera,
+  `0.42 m` measured optical-center height and safety limits;
+- `deployment/config/experiments/fullmono_imagegoal.json`: ImageGoal, arrival
+  module and optional camera/Go2/RViz processes.
 
-bash deployment/go2/offboard/fullmono.sh status
-bash deployment/go2/offboard/fullmono.sh stop
-~~~
-
-`--with-go2` is deliberately not an arming command.  Motion still requires the
-separate onsite `SetBool` call in Section 6.  The RTX host and repository default
-to `work-pc` and the home-relative `Research/MemNav-RealWorld`; override them with
-`CEC_HUB_SSH_HOST` and `CEC_GPU_REPO` if the site layout changes.
+Do not create `deployment/gpu/.env` or export `CEC_*`/`NAVDP_*` overrides. If a
+machine path changes, edit `system.json`, review the diff, commit it and pull
+the same revision on both machines.
 
-`nav_stack.sh --profile fullmono-lingbot-cec` is the equivalent profile-oriented
-facade: it validates explicit goal/arrival parameters and then calls
-`fullmono.sh`. `run_offboard_stack.sh` is the Jetson-local inner launcher and
-should not be called as a competing end-to-end workflow.
+## 2. Goal capture
 
-## 1. RTX 4090 workstation
+With navigation stopped and the camera publishing, use the hand controller to
+place the stationary robot at the goal:
 
-~~~bash
-cd MemNav-RealWorld
-cp deployment/gpu/env.example deployment/gpu/.env
-nano deployment/gpu/.env
-~~~
+```bash
+bash deployment/go2/scripts/capture_image_goal.sh \
+  --output deployment/go2/goals/image_goal.png
+```
 
-Set every external source/checkpoint path and the D435i optical-center
-height (operator-confirmed 0.42 m on 2026-08-21; the explicit export is a
-configuration gate, not an open measurement question):
+Set this path in both `experiment.navigation.image_goal` and, when intended,
+`experiment.arrival.image_goal`. The resolver records the final absolute path,
+dimensions and SHA-256.
 
-~~~bash
-export CEC_CAMERA_HEIGHT_M=0.42
-bash deployment/gpu/scripts/preflight.sh
-bash deployment/gpu/scripts/run_policy_stack.sh
-curl -fsS http://127.0.0.1:18889/healthz
-~~~
+## 3. Resolve without starting
 
-The health payload must contain:
+```bash
+bash deployment/go2/nav_stack.sh start \
+  --config deployment/config/experiments/fullmono_imagegoal.json \
+  --dry-run
+```
 
-~~~text
-navigation_sensor_contract=causal_monocular_rgb_v1
-navdp_depth_source=monocular_sidecar
-metric_depth_sensor_consumed_by_policy=false
-protocol_version=3
-~~~
+Verify the printed profile, ImageGoal SHA, arrival, launch flags, source
+revision and `config_id`.
 
-Inspect without exposing any service to the LAN:
+## 4. Start the dual-machine stack
 
-~~~bash
-tmux attach -t cec-realworld
-tail -f runtime/gpu/logs/{memnav,navdp,hub}.log
-~~~
+```bash
+bash deployment/go2/nav_stack.sh start \
+  --config deployment/config/experiments/fullmono_imagegoal.json
+```
 
-## 2. Jetson tunnel and preflight diagnostics
+The launcher performs these transactions:
 
-The canonical Full-Mono start above creates and verifies this tunnel
-automatically. Run the commands below only when diagnosing SSH transport while
-the navigation stack is stopped:
+1. resolve and verify one immutable JSON on Jetson;
+2. copy the same file to RTX `runtime/config/`;
+3. require the RTX Git revision and model paths to match;
+4. preflight/start loopback MemNav, NavDP and CEC services;
+5. create the SSH tunnel and require a valid health contract;
+6. start D435i and require real CameraInfo before adapter startup;
+7. start selected optional processes while retaining disabled + estop.
 
-~~~bash
-cd /home/nvidia/twork/MemNav-RealWorld
-export CEC_HUB_SSH_HOST=work-pc
-tmux new -s cec-tunnel 'exec deployment/go2/offboard/run_policy_tunnel.sh'
-~~~
+Any partial start is rolled back. GPU services never expose an actuator path.
 
-In another Jetson terminal:
+## 5. Survey and Formal Revisit
 
-~~~bash
-curl -fsS http://127.0.0.1:18889/healthz
-bash deployment/go2/offboard/preflight_offboard.sh
-~~~
+```bash
+bash deployment/go2/offboard/revisit_experiment.sh survey-start DATASET_ID
+# Drive outbound with the hand controller, then at the turnaround:
+bash deployment/go2/offboard/revisit_experiment.sh survey-return DATASET_ID
+# Finish the return and stop physically:
+bash deployment/go2/offboard/revisit_experiment.sh survey-seal DATASET_ID
+bash deployment/go2/offboard/revisit_experiment.sh formal-start DATASET_ID \
+  --scene-id SCENE_ID --run-id RUN_ID --arm mono_cec \
+  --goal /absolute/path/to/frozen_goal.jpg \
+  --expected-goal-sha256 "$GOAL_SHA256" \
+  --expected-dataset-sha256 "$DATASET_SHA256"
+```
 
-All five preflight checks must pass. The contract parser rejects an old RGB-D
-hub even if its port and `algo` field look healthy.
+The lifecycle derives separate hashed survey/formal configs from the base
+experiment. Dataset metadata, candidate capture, selected goal output and
+Go2-bridge selection are fields in those derived receipts—not environment
+variables.
 
-## 3. Goal capture
+## 6. Motion authorization
 
-Keep navigation disabled. Move the Go2 with the hand controller and capture the
-goal while stationary:
+Only after visual and safety checks:
 
-~~~bash
-bash deployment/go2/scripts/run_realsense.sh
-bash deployment/go2/scripts/capture_image_goal.sh
-~~~
-
-The capture tool also preserves aligned depth as optional offline evidence. It
-is neither a policy goal input nor part of the RGB arrival verifier.
-
-## 4. Camera-only static acceptance
-
-Do not start the Go2 bridge:
-
-~~~bash
-bash deployment/go2/offboard/fullmono.sh start --with-rviz
-tmux attach -t navdp-go2-offboard
-~~~
-
-Run for at least ten minutes and verify:
-
-- adapter state remains `enabled=false`;
-- `/navdp/cmd_vel` remains zero;
-- current RGB and local safety depth remain fresh;
-- frames 0--39 carry `bootstrap_zero_depth`;
-- the frame-40 transition freezes one scale receipt exactly once;
-- every trajectory says `metric_depth_sensor_consumed=false`;
-- the image SHA in the mono-depth receipt matches the current policy image;
-- left/right certified bearings have the expected robot-frame sign.
-
-## 5. Fault injection while motion is disabled
-
-Test both failures independently:
-
-1. stop the SSH tunnel;
-2. stop the MemNav/LingBot service.
-
-Each failure must expire the plan, output zero velocity and require a fresh
-reset. A causal stream failure must never activate metric-depth NavDP.
-
-## 6. First tethered motion
-
-Only after all static gates pass:
-
-~~~bash
-bash deployment/go2/offboard/fullmono.sh stop
-bash deployment/go2/offboard/fullmono.sh start --with-go2 --with-rviz
-~~~
-
-The adapter still starts disabled. With a clear area, tether, onsite operator
-holding the Unitree controller and a `0.5--1.0 m` route, explicitly enable:
-
-- the default `NAVDP_CONTROL_PROFILE=formal` rejects stale low-speed overrides;
-- formal motion uses controller `max_linear_mps=0.30`, `max_angular_rps=0.55`
-  and an `8 deg` heading-error deadband;
-- the Go2 bridge retains `min_cmd_v=0.10` and `min_cmd_w=0.20` after that
-  controller deadband;
-- a bounded commissioning smoke must opt in with
-  `NAVDP_CONTROL_PROFILE=acceptance`; it is not a formal episode.
-
-~~~bash
-source /opt/ros/humble/setup.bash
-ros2 service call /navdp_go2_adapter/set_enabled \
-  std_srvs/srv/SetBool "{data: true}"
-~~~
-
-## 7. Immediate stop
-
-~~~bash
-ros2 topic pub --once /navdp/estop std_msgs/msg/Bool "{data: true}"
-ros2 service call /navdp_go2_adapter/set_enabled \
-  std_srvs/srv/SetBool "{data: false}"
-bash deployment/go2/offboard/fullmono.sh stop
-~~~
-
-## 8. Protocol-v3 revisit mission flow
-
-The hub enforces a two-phase episode contract (protocol v3). The first goal
-query freezes the MemNav goal session and its candidate ceiling, so it must
-happen only at the revisit start point. Issuing the goal from frame 0 was the
-root cause of the 2026-08-21 `no_causal_candidate` field failure: the entire
-recorded walk was excluded from Revisit candidacy and the robot silently
-degraded to plain ImageGoal exploration.
-
-The offboard stack starts the adapter with `NAVDP_TWO_PHASE=true`, so after
-`reset` the adapter posts every frame to `/memory_step` (record-only, no goal)
-and the hub rejects any goal query with HTTP 400 until the phase switch.
-
-End-to-end mission:
-
-~~~bash
-# 1. Start the stack (adapter locked, recording phase after reset).
-bash deployment/go2/offboard/fullmono.sh start --with-rviz
-
-# 2. Recording walk: drive A -> B with the hand controller. The adapter
-#    streams /memory_step automatically; watch frames_recorded grow:
-ros2 topic echo --once /navdp/status   # "phase":"memory_recording"
-
-# 3. Candidate-only frames are sampled automatically every 24 recorded
-#    frames. The RTX read-only support query accepts only geometrically
-#    supported, non-near-duplicate views. Watch accepted/rejected receipts:
-ros2 topic echo /navdp/cec_receipt
-
-# Optional controlled override: explicitly capture an unfiltered candidate.
-ros2 service call /navdp_go2_adapter/capture_goal_candidate std_srvs/srv/Trigger
-
-# 4. Stop at B and invoke the ONE explicit task-boundary transition. This
-#    atomically scores all registered candidates, selects and installs the
-#    target, warms NavDP, verifies its FIFO, and switches phase:
-ros2 service call /navdp_go2_adapter/begin_revisit std_srvs/srv/Trigger
-# Retry the same call after an ambiguous network response: prepare_revisit is
-# idempotent and returns the already-committed goal without a second warm-up.
-
-# 5. Verify the persistent receipt and the runtime target before enabling:
-ros2 topic echo --once /navdp/status
-# Require phase=revisit_query, active_goal_sha256, selected_goal,
-# navdp_warmup_frames and navdp_queue_lengths. /navdp/image_goal now displays
-# the selected online target. Goal queries then run automatically; motion
-# still requires the explicit enable service.
-~~~
-
-Any out-of-order call fails fast: `/memory_step` after the switch or a goal
-query during recording returns HTTP 400. A repeated `/prepare_revisit` is the
-single exception: it is an idempotent recovery read for a possibly lost commit
-response. If no candidate passes the frozen support band, phase remains
-`memory_recording` and no NavDP warm-up or goal installation occurs.
-
-## 9. Revisit experiment boundary
-
-A formal real-world result requires frozen starts, unchanged goal assets,
-causal online history and separately reported goal-object, exact-view,
-policy-stop and auxiliary-pose outcomes. Do not report SR/SPL from deployment
-or transport smoke tests.
-
-The launcher allocates a new timestamped MemNav buffer namespace on every
-service start, so restarting the process cannot erase the preceding RGB trace.
-Set `CEC_BUFFER_ROOT` only when a formal run has already reserved an immutable,
-empty destination.
-
-## 10. Direct-bearing handoff gate
-
-Before any tethered Revisit run, keep motion disabled and wait for one complete
-terminal receipt:
-
-~~~bash
-ros2 topic echo --once /navdp/cec_receipt
-ros2 topic echo --once /navdp/status
-~~~
-
-Require `last_error=""`, a committed goal SHA, schema
-`cec_direct_bearing_handoff_v2_20260824`, and one of the audited bearing
-dispositions. A rearward direct proof should report `terminal_atomic_turn`,
-`terminal_proof_active=true`, `terminal_local_latched=false`,
-`terminal_metric_scale_control_authority=false`, and
-`terminal_stop_authorized=false`. While disabled, `cmd_vx=cmd_wz=0` and the
-shadow override must have zero translation. The first uncached CEC anchor may
-take about 20 seconds; never enable while `inference_busy=true` or before a
-fresh receipt.
-
-Adapter restart now asserts estop by default. Motion requires two explicit
-onsite operations, in this order:
-
-~~~bash
-# Only with clear floor, tether and controller operator present:
+```bash
 ros2 topic pub --once /navdp/estop std_msgs/msg/Bool "{data: false}"
 ros2 service call /navdp_go2_adapter/set_enabled \
   std_srvs/srv/SetBool "{data: true}"
-~~~
+```
 
-The direct-bearing path is not an arrival endpoint. `/local_pose_query` may
-include an MDTEC-scaled distance, but v2 uses only its certified direction;
-that distance may not authorize local metric control or STOP. GOAT keeps the
-separate `/arrival_query` strict-first-64 research contract. An opt-in RGB-only
-commissioning gate now has one powered near-goal latch, but it has not passed
-cross-scene calibration or repeated full-route acceptance. Formal runs still
-require the pre-registered independent termination contract and must not turn
-that commissioning result into a general autonomous ImageGoal claim.
+Immediate stop:
+
+```bash
+ros2 topic pub --once /navdp/estop std_msgs/msg/Bool "{data: true}"
+ros2 service call /navdp_go2_adapter/set_enabled \
+  std_srvs/srv/SetBool "{data: false}"
+bash deployment/go2/nav_stack.sh stop
+```
+
+## 7. Status and evidence
+
+```bash
+bash deployment/go2/nav_stack.sh status
+tmux attach -t navdp-go2-offboard
+bash deployment/go2/offboard/experiment_capture.sh preflight
+```
+
+The exact ROS bag, CEC receipt, dashboard, third-view and manifest workflow is
+in `EXPERIMENT_DATA_COLLECTION.md`. Formal scene registration and scoring are
+defined in `REALWORLD_EXPERIMENT_HANDBOOK_CN.md` and
+`REALWORLD_EVALUATION.md`.

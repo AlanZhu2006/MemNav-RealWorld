@@ -1,0 +1,26 @@
+{
+  "schema": "memnav-realworld-experiment-v1",
+  "system_config": "../system.json",
+  "experiment": {
+    "id": "native-imagegoal-default",
+    "profile": "native-navdp-rgbd",
+    "authority_mode": "native",
+    "navigation": {
+      "image_goal": "deployment/go2/goals/image_goal.png",
+      "revisit_image_goal": null
+    },
+    "arrival": {
+      "module": "rgb-homography",
+      "image_goal": "deployment/go2/goals/image_goal.png",
+      "allowed_phases": ["revisit_query"]
+    },
+    "launch": {
+      "camera": true,
+      "go2_bridge": false,
+      "rviz": false
+    },
+    "control": {
+      "profile": "formal"
+    }
+  }
+}

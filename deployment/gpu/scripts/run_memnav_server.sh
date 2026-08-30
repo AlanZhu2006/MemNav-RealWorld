@@ -3,25 +3,18 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
-
-: "${MEMNAV_SOURCE_ROOT:?Set MEMNAV_SOURCE_ROOT in deployment/gpu/.env}"
-: "${MEMNAV_CKPT:?Set MEMNAV_CKPT in deployment/gpu/.env}"
-: "${INTERNNAV_ROOT:?Set INTERNNAV_ROOT in deployment/gpu/.env}"
-: "${LINGBOT_REPO:?Set LINGBOT_REPO in deployment/gpu/.env}"
-: "${LINGBOT_WEIGHTS:?Set LINGBOT_WEIGHTS in deployment/gpu/.env}"
-: "${LIGHTGLUE_REPO:?Set LIGHTGLUE_REPO in deployment/gpu/.env}"
-: "${DEPENDENCY_ROOT:?Set DEPENDENCY_ROOT in deployment/gpu/.env}"
-
-MEMNAV_SERVER="${MEMNAV_SERVER:-$MEMNAV_SOURCE_ROOT/NavDP/baselines/memnav/memnav_server.py}"
-if [[ -n "${CEC_BUFFER_ROOT:-}" ]]; then
-  BUFFER_ROOT="$CEC_BUFFER_ROOT"
-else
-  # The in-process episode counter restarts at zero with each service process.
-  # A per-process namespace prevents a restart from erasing the preceding
-  # real-world ep_0000/ep_0001 trace.
-  RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)_$$"
-  BUFFER_ROOT="$CEC_OUT_ROOT/buffer/run_$RUN_STAMP"
-fi
+gpu_require_config "$@"
+MEMNAV_SOURCE_ROOT="$CFG_MEMNAV_SOURCE_ROOT"
+MEMNAV_CKPT="$CFG_MEMNAV_CKPT"
+INTERNNAV_ROOT="$CFG_INTERNNAV_ROOT"
+LINGBOT_REPO="$CFG_LINGBOT_REPO"
+LINGBOT_WEIGHTS="$CFG_LINGBOT_WEIGHTS"
+LIGHTGLUE_REPO="$CFG_LIGHTGLUE_REPO"
+DEPENDENCY_ROOT="$CFG_DEPENDENCY_ROOT"
+MEMNAV_SERVER="$MEMNAV_SOURCE_ROOT/NavDP/baselines/memnav/memnav_server.py"
+# A per-process namespace prevents a restart from erasing the preceding trace.
+RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)_$$"
+BUFFER_ROOT="$CEC_OUT_ROOT/buffer/run_$RUN_STAMP"
 require_executable "$MEMNAV_PY"
 require_file "$MEMNAV_SERVER"
 require_file "$MEMNAV_CKPT"
@@ -34,7 +27,7 @@ mkdir -p "$BUFFER_ROOT"
 echo "realworld_memnav_buffer_root=$BUFFER_ROOT"
 
 extra_args=()
-if [[ "${CEC_EAGER_DEPTH_CACHE:-0}" == "1" ]]; then
+if [[ "$CFG_EAGER_DEPTH_CACHE" == true ]]; then
   extra_args+=(--certified_eager_depth_cache)
 fi
 server_pythonpath="$MEMNAV_SOURCE_ROOT:$DEPENDENCY_ROOT:$LIGHTGLUE_REPO:$INTERNNAV_ROOT/src/diffusion-policy${PYTHONPATH:+:$PYTHONPATH}"
