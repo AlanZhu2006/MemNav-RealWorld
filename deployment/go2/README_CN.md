@@ -86,8 +86,9 @@ ImageGoal。
 `/navdp/status`渲染成720×272、2 Hz的只读操作状态卡。
 
 版本化布局左侧优先显示选中轨迹和宽幅arrival对比，右侧显示当前RGB、ImageGoal、深度及
-状态卡。`/navdp/debug/markers`仍保留候选路径和Q值供诊断，但默认关闭，避免与
-`/navdp/trajectory`中的绿色选中轨迹重复叠加。完整`/navdp/status`和
+状态卡。`/navdp/trajectory`明确按4 cm细折线显示，并用绿到青的渐变区分轨迹起终方向；
+`/navdp/debug/markers`仍保留候选路径和Q值供诊断，但默认关闭，避免与选中轨迹重复叠加。
+完整`/navdp/status`和
 `/navdp/rgb_arrival_status`仍可从Topics侧栏按需查看，不再占用默认dashboard。
 ImageGoal、最后一次arrival对比和状态卡使用transient-local显示QoS，因此Bridge或浏览器
 重连后仍能立即取得最近快照；arrival panel表示“最后一次评估”，不是锁定期间的新判断。

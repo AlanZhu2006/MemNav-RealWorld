@@ -2,7 +2,7 @@
   "configById": {
     "3D!navdp": {
       "cameraState": {
-        "distance": 7,
+        "distance": 5.2,
         "perspective": false,
         "phi": 0,
         "target": [0, 0, 0],
@@ -24,8 +24,12 @@
       "topics": {
         "/navdp/trajectory": {
           "visible": true,
-          "color": "#19ff46",
-          "lineWidth": 4
+          "type": "line",
+          "lineWidth": 0.04,
+          "gradient": [
+            "#19ff46ff",
+            "#00c8ffff"
+          ]
         },
         "/navdp/debug/markers": {
           "visible": false
@@ -54,8 +58,8 @@
           "label": "Local grid (0.5 m)",
           "instanceId": "navdp-grid",
           "layerId": "foxglove.Grid",
-          "size": 8,
-          "divisions": 16,
+          "size": 6,
+          "divisions": 12,
           "lineWidth": 1,
           "color": "#6e737d",
           "position": [0, 0, 0],
@@ -64,7 +68,7 @@
           "frameId": "navdp_local"
         }
       },
-      "foxglovePanelTitle": "Selected NavDP trajectory (debug markers off)"
+      "foxglovePanelTitle": "Selected NavDP trajectory (thin line, debug markers off)"
     },
     "Image!rgb": {
       "scene": {},

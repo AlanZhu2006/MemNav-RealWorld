@@ -6,12 +6,12 @@
     "profile": "native-navdp-rgbd",
     "authority_mode": "native",
     "navigation": {
-      "image_goal": "deployment/go2/goals/goal_d_novel_frame_125.jpg",
+      "image_goal": "deployment/go2/goals/image_goal_20260830_current.png",
       "revisit_image_goal": null
     },
     "arrival": {
       "module": "rgb-homography",
-      "image_goal": "deployment/go2/goals/goal_d_novel_frame_125.jpg",
+      "image_goal": "deployment/go2/goals/image_goal_20260830_current.png",
       "allowed_phases": ["revisit_query"]
     },
     "launch": {

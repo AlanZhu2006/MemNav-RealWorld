@@ -219,6 +219,10 @@ def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():
             "hoverEnabled": False,
         }
     assert panels["3D!navdp"]["topics"]["/navdp/trajectory"]["visible"]
+    trajectory = panels["3D!navdp"]["topics"]["/navdp/trajectory"]
+    assert trajectory["type"] == "line"
+    assert trajectory["lineWidth"] <= 0.05
+    assert len(trajectory["gradient"]) == 2
     assert not panels["3D!navdp"]["topics"]["/navdp/debug/markers"]["visible"]
 
 
