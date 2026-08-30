@@ -23,18 +23,20 @@ jobs:
     timeout-minutes: 5
     env:
       LAYOUT_FILE: deployment/go2/config/navdp_debug.foxglove-layout.json
+      LAYOUT_ID: lay_0eaA5tDP1ifAOz3F
       LAYOUT_NAME: MemNav Go2 Navigation
       LAYOUT_FOLDER: MemNav-RealWorld
       FOXGLOVE_API_KEY: ${{ secrets.FOXGLOVE_API_KEY }}
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Validate tracked layout
         run: |
           python3 deployment/go2/scripts/sync_foxglove_layout.py \
             --layout "$LAYOUT_FILE" \
+            --layout-id "$LAYOUT_ID" \
             --name "$LAYOUT_NAME" \
             --folder-name "$LAYOUT_FOLDER" \
             --permission ORG_WRITE \
@@ -51,6 +53,7 @@ jobs:
         run: |
           python3 deployment/go2/scripts/sync_foxglove_layout.py \
             --layout "$LAYOUT_FILE" \
+            --layout-id "$LAYOUT_ID" \
             --name "$LAYOUT_NAME" \
             --folder-name "$LAYOUT_FOLDER" \
             --permission ORG_WRITE \

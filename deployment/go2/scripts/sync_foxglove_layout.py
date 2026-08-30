@@ -191,6 +191,26 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     return args
 
 
+def compact_result(result: dict[str, Any], digest: str) -> dict[str, Any]:
+    layout = result["layout"]
+    visible_fields = (
+        "id",
+        "name",
+        "folderName",
+        "permission",
+        "createdAt",
+        "updatedAt",
+        "savedAt",
+    )
+    return {
+        "action": result["action"],
+        "layout": {
+            field: layout[field] for field in visible_fields if field in layout
+        },
+        "sha256": digest,
+    }
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
     try:
@@ -213,7 +233,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                     "FOXGLOVE_API_KEY is missing; configure it as a GitHub Actions secret"
                 )
             client = FoxgloveClient(api_key, api_base=args.api_base)
-            result = sync_layout(
+            raw_result = sync_layout(
                 client,
                 layout_id=args.layout_id,
                 name=args.name,
@@ -221,7 +241,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 permission=args.permission,
                 data=data,
             )
-            result["sha256"] = digest
+            result = compact_result(raw_result, digest)
         output = json.dumps(result, ensure_ascii=False, sort_keys=True)
         print(output)
         if args.result:
