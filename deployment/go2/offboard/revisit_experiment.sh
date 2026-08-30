@@ -347,11 +347,16 @@ formal_start() {
   validate_sha256 "$expected_dataset_sha256"
   [[ -f "$frozen_goal" ]] || die "frozen goal does not exist: $frozen_goal"
   frozen_goal="$(readlink -f "$frozen_goal")"
-  local actual_goal_sha256
+  local actual_goal_sha256 expected_committed_goal_sha256
   actual_goal_sha256="$(sha256sum "$frozen_goal" | awk '{print $1}')"
   [[ "$actual_goal_sha256" == "$expected_goal_sha256" ]] \
     || die "frozen goal SHA mismatch: expected $expected_goal_sha256, got $actual_goal_sha256"
   load_base_config
+  expected_committed_goal_sha256="$(
+    "$CFG_JETSON_PYTHON" "$GO2_DIR/goal_wire_identity.py" \
+      --sha256 "$frozen_goal"
+  )"
+  validate_sha256 "$expected_committed_goal_sha256"
   local run_root="$RUNTIME_ROOT/$dataset_id/$run_id"
   [[ ! -e "$run_root" ]] || die "formal run root already exists: $run_root"
 
@@ -397,48 +402,52 @@ PY
   local health
   health="$(hub_get /healthz)"
   python3 - "$health" "$dataset_id" "$authority_mode" \
-      "$expected_goal_sha256" "$expected_dataset_sha256" <<'PY'
+      "$expected_goal_sha256" "$expected_committed_goal_sha256" \
+      "$expected_dataset_sha256" <<'PY'
 import json, sys
 p = json.loads(sys.argv[1])
 assert p["phase"] == "revisit_query"
-assert p["active_goal_sha256"] == sys.argv[4]
+assert p["active_goal_sha256"] == sys.argv[5]
 assert p["cec_authority_mode"] == sys.argv[3]
 ds = p["episodic_dataset"]
 assert ds["loaded_dataset_id"] == sys.argv[2]
-assert ds["loaded_dataset_manifest_sha256"] == sys.argv[5]
+assert ds["loaded_dataset_manifest_sha256"] == sys.argv[6]
 prepare = p["last_prepare_receipt"]
 assert prepare["goal_selection_contract"] == "operator_frozen_external_v1"
 assert prepare["selected_goal"]["goal_source"] == "operator_frozen_external"
-assert prepare["selected_goal"]["sha256"] == sys.argv[4]
+assert prepare["selected_goal"]["sha256"] == sys.argv[5]
 PY
   [[ -s "$run_root/selected_goal.jpg" ]] \
     || die "selected goal JPEG was not installed on Jetson"
   local installed_goal_sha256
   installed_goal_sha256="$(sha256sum "$run_root/selected_goal.jpg" | awk '{print $1}')"
-  [[ "$installed_goal_sha256" == "$expected_goal_sha256" ]] \
-    || die "installed goal SHA differs from the frozen registry goal"
+  [[ "$installed_goal_sha256" == "$expected_committed_goal_sha256" ]] \
+    || die "installed goal SHA differs from the canonical frozen-goal wire bytes"
   force_motion_lock
   write_receipt "$run_root/ready_health.json" "$health"
   local formal_ready
   formal_ready="$(python3 - "$scene_id" "$run_id" "$dataset_id" "$arm" \
       "$authority_mode" "$frozen_goal" "$expected_goal_sha256" \
-      "$expected_dataset_sha256" "$health" "$formal_config_id" <<'PY'
+      "$expected_committed_goal_sha256" "$expected_dataset_sha256" \
+      "$health" "$formal_config_id" <<'PY'
 from datetime import datetime, timezone
 import json, sys
-health = json.loads(sys.argv[9])
+health = json.loads(sys.argv[10])
 print(json.dumps({
     "schema": "memnav_realworld_formal_ready_v1_20260830",
     "created_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     "scene_id": sys.argv[1], "run_id": sys.argv[2], "dataset_id": sys.argv[3],
     "arm": sys.argv[4], "cec_authority_mode": sys.argv[5],
     "runtime_role_visibility": "none", "frozen_goal_path": sys.argv[6],
-    "goal_sha256": sys.argv[7], "dataset_manifest_sha256": sys.argv[8],
+    "goal_sha256": sys.argv[7], "frozen_goal_source_sha256": sys.argv[7],
+    "committed_goal_sha256": sys.argv[8],
+    "dataset_manifest_sha256": sys.argv[9],
     "goal_selection_contract": "operator_frozen_external_v1",
     "motion_enabled": False, "estop_required": True,
     "active_goal_sha256": health["active_goal_sha256"],
     "loaded_dataset_id": health["episodic_dataset"]["loaded_dataset_id"],
     "loaded_dataset_manifest_sha256": health["episodic_dataset"]["loaded_dataset_manifest_sha256"],
-    "resolved_config_id": sys.argv[10],
+    "resolved_config_id": sys.argv[11],
 }, sort_keys=True))
 PY
 )"
@@ -452,6 +461,8 @@ PY
   echo "  scene:    $scene_id (role hidden from runtime)"
   echo "  arm:      $arm (authority_mode=$authority_mode)"
   echo "  goal:     $run_root/selected_goal.jpg"
+  echo "  goal source sha:    $expected_goal_sha256"
+  echo "  goal committed sha: $expected_committed_goal_sha256"
   if [[ -s "$run_root/selected_goal_depth.png" ]]; then
     echo "  offline depth: $run_root/selected_goal_depth.png (policy/arrival authority: none)"
   else

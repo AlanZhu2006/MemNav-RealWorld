@@ -226,6 +226,11 @@ match panel 顶部显示绿色 `MATCH` 或红色 `NO MATCH`，并发布 good mat
 scale 和拒绝原因。它没有 `/navdp/arrival`、enable、estop 或速度 publisher。完成
 `revisit-prepare` 后，标准 RGB arrival 模块恢复；最终有电授权仍必须由现场人员单独执行。
 
+冻结目标保留两个不可混淆的身份：`frozen_goal_source_sha256` 校验操作员指定的原始
+PNG/JPEG 文件，`committed_goal_sha256` 校验 `NavDPClient` 固定 quality-95 编码后真正
+安装到 CEC/策略线上的 JPEG 字节。`revisit-prepare` 同时验证两者，不能用视觉近似或
+任意重编码结果代替其中任何一个。
+
 ## 6. 状态、安全和停止
 
 ```bash
