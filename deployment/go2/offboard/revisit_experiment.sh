@@ -21,17 +21,26 @@ if [[ "${1:-}" == --config ]]; then
   BASE_EXPERIMENT="$2"
   shift 2
 fi
-BASE_RESOLVED="$(python3 "$CONFIG_TOOL" resolve --config "$BASE_EXPERIMENT")"
-python3 "$CONFIG_TOOL" verify --config "$BASE_RESOLVED" --site jetson >/dev/null
-BASE_CONFIG_EXPORTS="$(python3 "$CONFIG_TOOL" shell --config "$BASE_RESOLVED" --site jetson)"
-eval "$BASE_CONFIG_EXPORTS"
-[[ "$CFG_PROFILE" == fullmono-lingbot-cec ]] || {
-  echo "revisit-experiment: config must select fullmono-lingbot-cec" >&2
-  exit 2
+BASE_RESOLVED=""
+LOCAL_PORT=""
+SESSION=""
+RUNTIME_ROOT=""
+
+load_base_config() {
+  [[ -z "$BASE_RESOLVED" ]] || return 0
+  BASE_RESOLVED="$(python3 "$CONFIG_TOOL" resolve --config "$BASE_EXPERIMENT")"
+  python3 "$CONFIG_TOOL" verify --config "$BASE_RESOLVED" --site jetson >/dev/null
+  local config_exports
+  config_exports="$(python3 "$CONFIG_TOOL" shell --config "$BASE_RESOLVED" --site jetson)"
+  eval "$config_exports"
+  [[ "$CFG_PROFILE" == fullmono-lingbot-cec ]] || {
+    echo "revisit-experiment: config must select fullmono-lingbot-cec" >&2
+    exit 2
+  }
+  LOCAL_PORT="$CFG_TUNNEL_LOCAL_PORT"
+  SESSION="$CFG_FULLMONO_SESSION"
+  RUNTIME_ROOT="$CFG_JETSON_RUNTIME_ROOT/two_pass_revisit"
 }
-LOCAL_PORT="$CFG_TUNNEL_LOCAL_PORT"
-SESSION="$CFG_FULLMONO_SESSION"
-RUNTIME_ROOT="$CFG_JETSON_RUNTIME_ROOT/two_pass_revisit"
 
 usage() {
   cat <<'EOF'
@@ -187,6 +196,7 @@ survey_start() {
   shift
   validate_id "$dataset_id"
   [[ $# -eq 0 ]] || die "survey-start accepts only DATASET_ID; Foxglove belongs in config"
+  load_base_config
   ! tmux has-session -t "$SESSION" 2>/dev/null \
     || die "stack is already running; seal or stop it first"
   local config_path="$RUNTIME_ROOT/$dataset_id/survey_config.json"
@@ -213,6 +223,7 @@ survey_start() {
 survey_return() {
   local dataset_id="$1"
   validate_id "$dataset_id"
+  load_base_config
   local before
   before="$(hub_get /dataset/status)"
   python3 - "$before" "$dataset_id" <<'PY' >/dev/null
@@ -237,6 +248,7 @@ PY
 }
 
 survey_status() {
+  load_base_config
   bash "$FULLMONO" status --config "$(active_config)" || true
   echo
   hub_get /dataset/status | python3 -m json.tool
@@ -245,6 +257,7 @@ survey_status() {
 survey_seal() {
   local dataset_id="$1"
   validate_id "$dataset_id"
+  load_base_config
   force_motion_lock
   sleep 1
   local receipt
@@ -310,6 +323,7 @@ formal_start() {
   actual_goal_sha256="$(sha256sum "$frozen_goal" | awk '{print $1}')"
   [[ "$actual_goal_sha256" == "$expected_goal_sha256" ]] \
     || die "frozen goal SHA mismatch: expected $expected_goal_sha256, got $actual_goal_sha256"
+  load_base_config
   local run_root="$RUNTIME_ROOT/$dataset_id/$run_id"
   [[ ! -e "$run_root" ]] || die "formal run root already exists: $run_root"
 
@@ -422,12 +436,14 @@ PY
 }
 
 formal_status() {
+  load_base_config
   bash "$FULLMONO" status --config "$(active_config)" || true
   echo
   hub_get /healthz | python3 -m json.tool
 }
 
 stop_all() {
+  load_base_config
   if tmux has-session -t "$SESSION" 2>/dev/null; then
     force_motion_lock
   fi
