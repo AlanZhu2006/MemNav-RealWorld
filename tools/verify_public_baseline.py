@@ -68,6 +68,7 @@ REQUIRED_PATHS = (
     "deployment/gpu/env.example",
     "tools/transcode_demo_media.sh",
     "tools/build_demo_previews.py",
+    "tools/verify_realworld_paired_campaign.py",
 )
 
 FORBIDDEN_SUFFIXES = (".ckpt", ".pth", ".pt", ".pyc", ".download")
@@ -75,7 +76,7 @@ FORBIDDEN_PARTS = ("__pycache__", ".venv-navdp", ".cache", "runtime")
 ALLOWED_GOAL_FILE = "deployment/go2/goals/.gitkeep"
 EXPECTED_HASHES = {
     "deployment/gpu/realworld_cec_hub.py": (
-        "1964c64e171b1e9976dad666df8c82be364182ca23a90e87161b4a7dd1f60be6"
+        "58c3f23c568adb7d2997d05cb429cda507c50fd96bf103294ac31370eece62bb"
     ),
     "deployment/gpu/monocular_depth_runtime.py": (
         "9b88cbd091b83dbe15846ec0b47d329d715273f0557abffe319a463936c9c138"
@@ -96,7 +97,7 @@ EXPECTED_HASHES = {
         "ded9824071dd022a914260283972a8995d86d2feb59a3fb8384a69a9d3d88e6e"
     ),
     "deployment/go2/offboard/runtime_contract.sh": (
-        "bfa64b010a335e5bd1528c6033a636773d4631d443631da7f4c5e0d135858f97"
+        "423ff3b22cd94f192a0aa47e2c3cb2277b3b50c817f82546213eb9f052bbf0ef"
     ),
     "media/go2_showcase.jpg": (
         "a7b5a226e3e89d08aa04d932a4531dce7b2593e4a5d7e2693b5997f89652cd08"

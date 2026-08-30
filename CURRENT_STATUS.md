@@ -48,6 +48,15 @@ receipt.  The native arm still consumes the same causal-monocular depth stream
 but skips both long-range certificate and direct-local bearing authority.  No
 formal rollout has been executed under this new control.
 
+The paired result boundary is also executable rather than manual.  The
+outcome-blank preregistration remains immutable; the read-only
+`tools/verify_realworld_paired_campaign.py` binds the 40 registered run IDs to
+finalized capture manifests, rechecks Odin SPL receipts and explicit authority
+modes, and derives paired statistics only when every run passes.  Its current
+plan-only audit reports 40 structurally valid registered runs and, correctly,
+zero verified outcomes because the four-scene registry and arrival calibration
+are not yet frozen.
+
 The opt-in RGB-only arrival gate added on 2026-08-28 is a commissioning aid,
 not an established STOP contract.  Its first powered A -> D trial produced a
 false negative and is recorded below.  After controlled threshold tuning and

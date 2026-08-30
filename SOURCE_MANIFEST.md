@@ -43,6 +43,7 @@ auditable overlay instead of an anonymous source dump.
 | `tools/{transcode_demo_media.sh,build_demo_previews.py}` | Browser H.264, poster and inline-GIF publication helpers |
 | `REALWORLD_EXPERIMENT_HANDBOOK_CN.md` | Unified Chinese architecture, Survey/Formal, safety, evidence, metric and handoff manual |
 | `REALWORLD_EVALUATION.md` | Planned four-scene, five-paired-block SR/SPL and dual-view publication registry; contains no result claims |
+| `tools/verify_realworld_paired_campaign.py` | Read-only binding and independent SR/SPL/McNemar derivation for the immutable 20-pair preregistration |
 | `docs/archive/` | Superseded dated release and integration receipts retained only for audit history |
 | `manifests/realworld_evaluation_plan_v1.json` | Archived pre-meeting single-arm 20-run template; all metrics remain null |
 | `manifests/realworld_paired_evaluation_plan_v2.json` | Controlling machine-readable plan: 20 balanced native/CEC pairs, 40 physical rollouts, all metrics null until evidence is finalized |

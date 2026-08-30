@@ -216,6 +216,10 @@ SPL 和最终 yaw 的全自动绑定仍缺一层 candidate-id → pose receipt�
    标签，冻结 arrival 规则；
 2. 同时补 candidate-id → SportModeState pose receipt；
 3. 先完成一次 `survey-start -> survey-seal -> formal-start` 无运动验收；
-4. 再进行系绳、低风险、操作员终止的三臂 paired trial；
+4. 再进行系绳、低风险、操作员终止的两臂 paired trial：显式
+   `mono_native` 与 `mono_cec`；
 5. 当前 RGB commissioning gate 只用于显式 opt-in engineering run；跨场景 confirmation
    通过后，才允许把冻结 evaluator 合同用于正式 automatic STOP。
+
+正式收据完成后，不回填 preregistration JSON；使用
+`tools/verify_realworld_paired_campaign.py --require-complete` 从封存证据独立复算结果。

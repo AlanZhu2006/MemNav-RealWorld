@@ -17,6 +17,9 @@ The total remains 40 rollouts, but unlike the archived v1 plan, the arms are
 interleaved as 20 matched pairs rather than collected in separate campaigns.
 The controlling machine-readable plan is
 [`manifests/realworld_paired_evaluation_plan_v2.json`](manifests/realworld_paired_evaluation_plan_v2.json).
+This preregistration remains outcome-blank after data collection.  Formal
+numbers are derived into a separate report by the read-only verifier; no
+success, path, SPL, or evidence hash is written back into the plan.
 
 The executable arm boundary is explicit.  `formal-start --arm mono_native`
 keeps the same sealed Survey, goal image, current RGB, and causal-monocular
@@ -113,6 +116,28 @@ not a high-powered superiority study.
 Paired gain/loss, exact McNemar, Novel takeover count, Revisit accept/reject,
 manual interventions, collisions, and failure attribution remain blank until
 all evidence for a block is finalized.
+
+The registered shape and current freeze blockers can be audited without any
+robot or result access:
+
+```bash
+python tools/verify_realworld_paired_campaign.py
+```
+
+After all run directories have been independently finalized, derive the result
+without modifying the preregistration:
+
+```bash
+python tools/verify_realworld_paired_campaign.py \
+  --evidence-root /path/to/finalized_runs \
+  --require-complete \
+  --output /path/to/paired_campaign_verification.json
+```
+
+The verifier rechecks every capture seal and artifact inventory, the frozen
+scene/goal/dataset bindings, Odin `S_i/L_i/P_i/SPL_i`, the explicit
+`cec_authority_mode`, and native-arm non-takeover.  It reports no formal
+aggregate unless all 40 registered run IDs pass.
 
 ## Scene registry
 
