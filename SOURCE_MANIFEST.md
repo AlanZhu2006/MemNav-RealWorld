@@ -1,6 +1,6 @@
 # Source and Artifact Manifest
 
-Snapshot: **2026-08-29**
+Snapshot: **2026-08-30**
 
 ## Repository base
 
@@ -25,7 +25,8 @@ auditable overlay instead of an anonymous source dump.
 | `deployment/gpu/revisit_bearing_adapter.py` | Frozen scale-free bearing to 2.5 m PointGoal boundary |
 | `deployment/gpu/revisit_local_pose_adapter.py` | Direct current-to-goal proof authority: bearing/turn only, no metric STOP |
 | `deployment/gpu/audit_visual_convergence.py` | Read-only LightGlue near-view evidence collector; never grants runtime STOP |
-| `deployment/gpu/score_realworld_revisit_goal.py` | Weak-covisibility goal-candidate scorer (frozen server components only) |
+| `tools/archive/score_realworld_revisit_goal.py` | Historical protocol-v3 standalone weak-covisibility scorer; active scoring now lives in the CEC Hub |
+| `tools/archive/audit_turn_gate_bag.py` | Historical offline audit for the pre-current Go2 turn-gate tuning |
 | `deployment/gpu/scripts/` | Path-parameterized RTX 4090 launch and fail-closed preflight |
 | `baselines/navdp/{navdp_server,policy_agent,policy_network}.py` | Frozen NavDP with mono-sidecar and state-safe inference interfaces |
 | `deployment/go2/` | Jetson Orin NX, D435i and Unitree Go2 integration |
@@ -58,20 +59,20 @@ workspace are not redistributed. Their local paths are tracked in
 
 | File | SHA-256 |
 | --- | --- |
-| `deployment/gpu/realworld_cec_hub.py` | `1964c64e171b1e9976dad666df8c82be364182ca23a90e87161b4a7dd1f60be6` |
+| `deployment/gpu/realworld_cec_hub.py` | `58c3f23c568adb7d2997d05cb429cda507c50fd96bf103294ac31370eece62bb` |
 | `deployment/gpu/monocular_depth_runtime.py` | `9b88cbd091b83dbe15846ec0b47d329d715273f0557abffe319a463936c9c138` |
 | `deployment/gpu/revisit_bearing_adapter.py` | `46c10132db7b00711ca3c781f18fcb9e04c4061bab9b44b8017d99c0c09bc6fd` |
 | `deployment/gpu/revisit_local_pose_adapter.py` | `ab58913fff760182b1945d1a26c5dbb2bba58f040d38c28f030b19fc1bc569cd` |
 | `deployment/gpu/audit_visual_convergence.py` | `807ba6b1ba3a9395ce0a89fbe79b368276479efb92c56be18ac4332b6b0f4af7` |
-| `baselines/navdp/navdp_server.py` | `8f215345c9a1e9ed8fec3636e27d35c33949f4d14881209fadccc951a17f8057` |
+| `baselines/navdp/navdp_server.py` | `e72777458b481589b1157d3fe4df0c8501e1d73d02d2a81c930222feba56f71a` |
 | `deployment/go2/terminal_motion_override.py` | `1a0ea960c36e231d4424c1a3837d7b3cf88dce0ef7d4737068d371bfa888054e` |
-| `deployment/go2/navdp_client.py` | `ded9824071dd022a914260283972a8995d86d2feb59a3fb8384a69a9d3d88e6e` |
-| `deployment/go2/offboard/runtime_contract.sh` | `bfa64b010a335e5bd1528c6033a636773d4631d443631da7f4c5e0d135858f97` |
-| `deployment/go2/offboard/preflight_offboard.sh` | `da337f20bdc98c7ad8714ddb948c637a6451f32f394726a3bb07bc3aee2bbf45` |
-| `deployment/go2/offboard/run_offboard_stack.sh` | `5298ef53d5eeee2e53cf6d784df8743cad8a9c0a2372bed7cc24b13612ea5ba0` |
-| `deployment/go2/offboard/run_policy_tunnel.sh` | `eb65fb3c88c0976b17ddc87ee99e6481e6d4d0c718cc7121630446f76006c2c3` |
-| `deployment/go2/offboard/stop_offboard_stack.sh` | `e6b239f1cd2c51d59bd09c57348e037697a7bd4de47c0c9316860c608ed798c3` |
-| `deployment/go2/offboard/fullmono.sh` | `530dfcaf62cfa5395381470dd990ffa883d142ece5dcec0f5092cdb4efd6a1f8` |
+| `deployment/go2/navdp_client.py` | `40adca2154813031dd5d14969b933aff84269d2bcb89d7f4966e401682dfd609` |
+| `deployment/go2/offboard/runtime_contract.sh` | `423ff3b22cd94f192a0aa47e2c3cb2277b3b50c817f82546213eb9f052bbf0ef` |
+| `deployment/go2/offboard/preflight_offboard.sh` | `04cab5ab29eb030f952c08c4c31a322ba590ed4e8ce9ed4b19cf1264bab74071` |
+| `deployment/go2/offboard/run_offboard_stack.sh` | `dfb65272f8530fd0bab737e2d7c6fd9f175d90b149b8287422704bd94ddd7e24` |
+| `deployment/go2/offboard/run_policy_tunnel.sh` | `e2ce00e55ebaf761ac30133a1f7a8191fd9d97470a2b514888e7fdba989b9b83` |
+| `deployment/go2/offboard/stop_offboard_stack.sh` | `503f0e35929156b09859b7a86bc411c73bec60b4cc113b23f4743ff2eea811e5` |
+| `deployment/go2/offboard/fullmono.sh` | `65e9ead49e89d9f1fbb8c5fe9bd27fea387a70de5794db4d4a0bbbb068408807` |
 | `deployment/odin1_gt/vendor/odin_ros_driver_0.13.0_firmware_0.13.1_mode1.patch` | `2a73aa48d163e2a362670b7b9b778edf8328aba7323e1cc04dd6b8fb28ba5806` |
 | `deployment/odin1_gt/vendor/odin_ros_driver_runtime_config.patch` | `953bd96ad3cea5c336f11882f92a428ff090ba13abd28c742314f072cd637f86` |
 

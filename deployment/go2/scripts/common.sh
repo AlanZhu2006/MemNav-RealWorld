@@ -92,3 +92,64 @@ navdp_activate_venv() {
   export OMP_NUM_THREADS="${OMP_NUM_THREADS:-4}"
   mkdir -p "$MPLCONFIGDIR"
 }
+
+navdp_wait_for_camera_info() {
+  local session="$1"
+  local require_live_window="$2"
+  local camera_ready=false
+  local camera_deadline=$((SECONDS + CFG_CAMERA_READY_TIMEOUT_S))
+  while (( SECONDS < camera_deadline )); do
+    if [[ "$require_live_window" == true ]]; then
+      if ! tmux list-windows -t "$session" -F '#{window_name}' \
+          | grep -Fxq rgbd; then
+        break
+      fi
+    fi
+    if timeout 3 ros2 topic echo --once "$CFG_CAMERA_INFO_TOPIC" \
+        >/dev/null 2>&1; then
+      camera_ready=true
+      break
+    fi
+    sleep 0.25
+  done
+  [[ "$camera_ready" == true ]]
+}
+
+navdp_start_adapter_and_wait() {
+  local session="$1"
+  local adapter_log="$2"
+  : >"$adapter_log"
+  tmux new-window -t "$session" -n adapter \
+    "exec '$NAVDP_GO2_SCRIPT_DIR/run_adapter.sh' --config '$NAVDP_RUN_CONFIG' >'$adapter_log' 2>&1"
+  local adapter_ready=false
+  for _ in $(seq 1 "$CFG_ADAPTER_READY_TIMEOUT_S"); do
+    if timeout 3 ros2 topic echo --once /navdp/status >/dev/null 2>&1; then
+      adapter_ready=true
+      break
+    fi
+    sleep 0.25
+  done
+  [[ "$adapter_ready" == true ]]
+}
+
+navdp_start_optional_windows() {
+  local session="$1"
+  if [[ "$CFG_ARRIVAL_MODULE" == rgb-homography ]]; then
+    tmux new-window -t "$session" -n arrival \
+      "exec '$NAVDP_GO2_SCRIPT_DIR/run_arrival_module.sh' --config '$NAVDP_RUN_CONFIG'"
+  fi
+  if [[ "$CFG_WITH_GO2" == true ]]; then
+    tmux new-window -t "$session" -n go2 \
+      "exec '$NAVDP_GO2_SCRIPT_DIR/run_go2_bridge.sh' --config '$NAVDP_RUN_CONFIG'"
+  fi
+  if [[ "$CFG_WITH_RVIZ" == true ]]; then
+    tmux new-window -t "$session" -n rviz \
+      "exec '$NAVDP_GO2_SCRIPT_DIR/run_debug_ui.sh' --config '$NAVDP_RUN_CONFIG'"
+  fi
+}
+
+navdp_stamp_session_contract() {
+  local session="$1"
+  tmux set-environment -t "$session" MEMNAV_RUN_CONFIG "$NAVDP_RUN_CONFIG"
+  tmux set-environment -t "$session" MEMNAV_CONFIG_ID "$CFG_CONFIG_ID"
+}

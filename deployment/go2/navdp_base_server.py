@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 from functools import wraps
-import json
 import os
 from pathlib import Path
 import sys
@@ -117,26 +116,6 @@ def _response(result):
     })
 
 
-@app.route("/pointgoal_step", methods=["POST"])
-@synchronized
-def pointgoal_step():
-    rgb, depth = _decode_rgb_depth()
-    goal_data = json.loads(request.form.get("goal_data", "{}"))
-    goal_x = np.asarray(goal_data.get("goal_x"), dtype=np.float32)
-    goal_y = np.asarray(goal_data.get("goal_y"), dtype=np.float32)
-    if goal_x.shape != goal_y.shape or goal_x.size != int(navigator.batch_size):
-        raise ValueError("goal_x and goal_y must match the policy batch size")
-    goal = np.stack((goal_x, goal_y, np.zeros_like(goal_x)), axis=1)
-    return _response(navigator.step_pointgoal(goal, rgb, depth))
-
-
-@app.route("/nogoal_step", methods=["POST"])
-@synchronized
-def nogoal_step():
-    rgb, depth = _decode_rgb_depth()
-    return _response(navigator.step_nogoal(rgb, depth))
-
-
 @app.route("/imagegoal_step", methods=["POST"])
 @synchronized
 def imagegoal_step():
@@ -148,25 +127,6 @@ def imagegoal_step():
     batch_size = int(navigator.batch_size)
     goal = goal.reshape((batch_size, -1, goal.shape[1], 3))
     return _response(navigator.step_imagegoal(goal, rgb, depth))
-
-
-@app.route("/navdp_step_ip_mixgoal", methods=["POST"])
-@synchronized
-def mixed_image_pointgoal_step():
-    rgb, depth = _decode_rgb_depth()
-    if "image_goal" not in request.files:
-        raise ValueError("multipart request must contain image_goal")
-    goal_data = json.loads(request.form.get("goal_data", "{}"))
-    goal_x = np.asarray(goal_data.get("goal_x"), dtype=np.float32)
-    goal_y = np.asarray(goal_data.get("goal_y"), dtype=np.float32)
-    if goal_x.shape != goal_y.shape or goal_x.size != int(navigator.batch_size):
-        raise ValueError("goal_x and goal_y must match the policy batch size")
-    point_goal = np.stack((goal_x, goal_y, np.zeros_like(goal_x)), axis=1)
-    image_goal = Image.open(request.files["image_goal"].stream).convert("RGB")
-    image_goal = cv2.cvtColor(np.asarray(image_goal), cv2.COLOR_RGB2BGR)
-    batch_size = int(navigator.batch_size)
-    image_goal = image_goal.reshape((batch_size, -1, image_goal.shape[1], 3))
-    return _response(navigator.step_point_image_goal(point_goal, image_goal, rgb, depth))
 
 
 @app.route("/shutdown", methods=["POST"])

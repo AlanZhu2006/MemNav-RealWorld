@@ -140,7 +140,7 @@
   },
   "supersedes": "fullmono-cec-20260821-d656b9d9ae30de73",
   "goal_selection": {
-    "tool": "deployment/gpu/score_realworld_revisit_goal.py",
+    "tool": "tools/archive/score_realworld_revisit_goal.py",
     "proxy": "strided stateless DINO cosine sweep + LightGlue verification of the argmax history frame",
     "provisional_thresholds": {
       "min_inliers": 16,

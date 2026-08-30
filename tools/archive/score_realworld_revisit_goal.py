@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Score real-world revisit goal candidates against the recorded memory.
+"""Archived scorer for protocol-v3 real-world revisit goal candidates.
 
 The simulator's role-pair construction selects revisit goals whose
 ground-truth covisibility with the recorded history falls in a frozen band

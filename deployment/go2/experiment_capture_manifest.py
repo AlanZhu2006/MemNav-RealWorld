@@ -308,7 +308,6 @@ def completeness(
     *,
     gt_source: str = "none",
 ) -> dict[str, bool]:
-    root = run_root.resolve()
     paths = {row["path"] for row in inventory if int(row["bytes"]) > 0}
     rosbag_metadata = "rosbag/metadata.yaml" in paths
     rosbag_storage = any(

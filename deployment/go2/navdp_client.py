@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""HTTP client matching the NavDP and X-NavDP benchmark wire format."""
+"""HTTP client for the real-world NavDP ImageGoal and CEC wire formats."""
 
 from __future__ import annotations
 
 import base64
 import hashlib
-import io
-import json
 import math
 from typing import Any, Optional
 
@@ -381,64 +379,6 @@ class NavDPClient:
                     f"{receipt.get('terminal_handoff_schema')!r}"
                 )
         return algorithm
-
-    def pointgoal_step(
-        self,
-        goal_xy: np.ndarray,
-        rgb: np.ndarray,
-        depth_m: np.ndarray,
-        robot_position: Optional[np.ndarray] = None,
-        robot_quaternion_xyzw: Optional[np.ndarray] = None,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        goal = np.asarray(goal_xy, dtype=np.float32).reshape(2)
-        files = {
-            "image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg"),
-            "depth": ("depth.png", self._encode_depth(depth_m), "image/png"),
-        }
-        data = {
-            "goal_data": json.dumps({"goal_x": [float(goal[0])], "goal_y": [float(goal[1])]})
-        }
-        state = {}
-        if robot_position is not None:
-            state["robot_pos"] = [np.asarray(robot_position, dtype=float).reshape(3).tolist()]
-        if robot_quaternion_xyzw is not None:
-            state["robot_quat"] = [
-                np.asarray(robot_quaternion_xyzw, dtype=float).reshape(4).tolist()
-            ]
-        if state:
-            data["state_data"] = json.dumps(state)
-
-        response = self.session.post(
-            f"{self.server_url}/pointgoal_step",
-            files=files,
-            data=data,
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-        result = response.json()
-        return (
-            np.asarray(result["trajectory"], dtype=np.float32),
-            np.asarray(result["all_trajectory"], dtype=np.float32),
-            np.asarray(result["all_values"], dtype=np.float32),
-        )
-
-    def nogoal_step(
-        self, rgb: np.ndarray, depth_m: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        files = {
-            "image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg"),
-            "depth": ("depth.png", self._encode_depth(depth_m), "image/png"),
-        }
-        response = self.session.post(
-            f"{self.server_url}/nogoal_step", files=files, timeout=self.timeout
-        )
-        response.raise_for_status()
-        result = response.json()
-        return (
-            np.asarray(result["trajectory"], dtype=np.float32),
-            np.asarray(result["all_trajectory"], dtype=np.float32),
-            np.asarray(result["all_values"], dtype=np.float32),
-        )
 
     def imagegoal_step(
         self,

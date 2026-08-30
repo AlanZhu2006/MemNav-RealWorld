@@ -43,7 +43,7 @@ mirrors the simulator's two-phase boundary on the robot.
   during the walk that are never appended to memory, with
   `captured_after_frame` and SHA-256 receipts, mirroring the simulator rule
   that revisit goals come from the walk but are excluded from memory.
-- **Weak-covisibility scorer.** `deployment/gpu/score_realworld_revisit_goal.py`
+- **Weak-covisibility scorer.** `tools/archive/score_realworld_revisit_goal.py`
   scores candidates against the recorded frames using only frozen server
   components (stateless DINO cosine sweep + LightGlue verification of the
   argmax frame). Provisional bands: reject `inliers < 16` (unsupported) and

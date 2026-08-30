@@ -48,19 +48,7 @@ if [[ "$CFG_WITH_CAMERA" == true ]]; then
   tmux new-window -t "$SESSION" -n rgbd \
     "exec '$GO2_DIR/scripts/run_realsense.sh' --config '$NAVDP_RUN_CONFIG' >'$camera_log' 2>&1"
   navdp_source_ros
-  camera_ready=false
-  camera_deadline=$((SECONDS + CFG_CAMERA_READY_TIMEOUT_S))
-  while (( SECONDS < camera_deadline )); do
-    if ! tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -Fxq rgbd; then
-      break
-    fi
-    if timeout 3 ros2 topic echo --once "$CFG_CAMERA_INFO_TOPIC" >/dev/null 2>&1; then
-      camera_ready=true
-      break
-    fi
-    sleep 0.25
-  done
-  if [[ "$camera_ready" != true ]]; then
+  if ! navdp_wait_for_camera_info "$SESSION" true; then
     echo "D435i did not publish CameraInfo; refusing to start the adapter." >&2
     [[ ! -s "$camera_log" ]] || tail -n 80 "$camera_log" >&2 || true
     tmux kill-session -t "$SESSION" 2>/dev/null || true
@@ -68,37 +56,16 @@ if [[ "$CFG_WITH_CAMERA" == true ]]; then
   fi
 fi
 
-tmux new-window -t "$SESSION" -n adapter \
-  "exec '$GO2_DIR/scripts/run_adapter.sh' --config '$NAVDP_RUN_CONFIG' >'$LOG_ROOT/adapter.log' 2>&1"
 navdp_source_ros
-adapter_ready=false
-for _ in $(seq 1 "$CFG_ADAPTER_READY_TIMEOUT_S"); do
-  if timeout 3 ros2 topic echo --once /navdp/status >/dev/null 2>&1; then
-    adapter_ready=true
-    break
-  fi
-  sleep 0.25
-done
-if [[ "$adapter_ready" != true ]]; then
+adapter_log="$LOG_ROOT/adapter.log"
+if ! navdp_start_adapter_and_wait "$SESSION" "$adapter_log"; then
   echo "NavDP adapter did not publish status; rolling back local stack." >&2
-  tail -n 100 "$LOG_ROOT/adapter.log" >&2 || true
+  tail -n 100 "$adapter_log" >&2 || true
   tmux kill-session -t "$SESSION" 2>/dev/null || true
   exit 1
 fi
-if [[ "$CFG_ARRIVAL_MODULE" == rgb-homography ]]; then
-  tmux new-window -t "$SESSION" -n arrival \
-    "exec '$GO2_DIR/scripts/run_arrival_module.sh' --config '$NAVDP_RUN_CONFIG'"
-fi
-if [[ "$CFG_WITH_GO2" == true ]]; then
-  tmux new-window -t "$SESSION" -n go2 \
-    "exec '$GO2_DIR/scripts/run_go2_bridge.sh' --config '$NAVDP_RUN_CONFIG'"
-fi
-if [[ "$CFG_WITH_RVIZ" == true ]]; then
-  tmux new-window -t "$SESSION" -n rviz \
-    "exec '$GO2_DIR/scripts/run_debug_ui.sh' --config '$NAVDP_RUN_CONFIG'"
-fi
-tmux set-environment -t "$SESSION" MEMNAV_RUN_CONFIG "$NAVDP_RUN_CONFIG"
-tmux set-environment -t "$SESSION" MEMNAV_CONFIG_ID "$CFG_CONFIG_ID"
+navdp_start_optional_windows "$SESSION"
+navdp_stamp_session_contract "$SESSION"
 
 echo "Offboard CEC/NavDP stack started: session=$SESSION"
 echo "  config=$NAVDP_RUN_CONFIG"

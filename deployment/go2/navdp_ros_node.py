@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from pathlib import Path
+from pathlib import Path as FilePath
 import threading
 import time
 from typing import Optional
@@ -16,8 +16,8 @@ import numpy as np
 
 import rclpy
 from cv_bridge import CvBridge, CvBridgeError
-from geometry_msgs.msg import Point, PointStamped, PoseStamped, Twist
-from nav_msgs.msg import Path
+from geometry_msgs.msg import Point, PoseStamped, Twist
+from nav_msgs.msg import Path as NavPath
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
@@ -60,16 +60,14 @@ class NavDPGo2Adapter(Node):
         self._intrinsic: Optional[np.ndarray] = None
         self._rgbd_monotonic = 0.0
         self._rgb_depth_skew_s: Optional[float] = None
-        self._goal_xy: Optional[np.ndarray] = None
-        self._goal_monotonic = 0.0
-        self._image_goal: Optional[np.ndarray] = None
+        self._image_goal: Optional[np.ndarray] = load_rgb_image(
+            self.image_goal_path
+        )
         self._revisit_image_goal: Optional[np.ndarray] = None
-        if self.mode == "imagegoal":
-            self._image_goal = load_rgb_image(self.image_goal_path)
-            if self.revisit_image_goal_path:
-                self._revisit_image_goal = load_rgb_image(
-                    self.revisit_image_goal_path
-                )
+        if self.revisit_image_goal_path:
+            self._revisit_image_goal = load_rgb_image(
+                self.revisit_image_goal_path
+            )
         self._startup_image_goal = (
             None if self._image_goal is None else self._image_goal.copy()
         )
@@ -119,7 +117,7 @@ class NavDPGo2Adapter(Node):
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
         )
         self._cmd_pub = self.create_publisher(Twist, self.cmd_vel_topic, command_qos)
-        self._path_pub = self.create_publisher(Path, self.path_topic, state_qos)
+        self._path_pub = self.create_publisher(NavPath, self.path_topic, state_qos)
         self._status_pub = self.create_publisher(String, self.status_topic, state_qos)
         self._receipt_pub = self.create_publisher(
             String, self.cec_receipt_topic, state_qos
@@ -130,10 +128,9 @@ class NavDPGo2Adapter(Node):
             self._debug_markers_pub = self.create_publisher(
                 MarkerArray, self.debug_markers_topic, state_qos
             )
-        if self.mode == "imagegoal":
-            self._image_goal_pub = self.create_publisher(
-                Image, self.image_goal_debug_topic, state_qos
-            )
+        self._image_goal_pub = self.create_publisher(
+            Image, self.image_goal_debug_topic, state_qos
+        )
 
         self._rgb_sub = message_filters.Subscriber(
             self, Image, self.rgb_topic, qos_profile_sensor_data
@@ -150,10 +147,6 @@ class NavDPGo2Adapter(Node):
         self.create_subscription(
             CameraInfo, self.camera_info_topic, self._on_camera_info, qos_profile_sensor_data
         )
-        if self.mode in {"pointgoal", "startgoal"}:
-            self.create_subscription(
-                PointStamped, self.goal_topic, self._on_goal, command_qos
-            )
         self.create_subscription(Bool, self.enable_topic, self._on_enable, command_qos)
         self.create_subscription(Bool, self.estop_topic, self._on_estop, command_qos)
         self.create_subscription(Bool, self.arrival_topic, self._on_arrival, command_qos)
@@ -192,30 +185,19 @@ class NavDPGo2Adapter(Node):
             f"rgbd_sync=approximate(queue={self.rgbd_sync_queue_size}, "
             f"slop={self.max_rgb_depth_skew_s:.3f}s)"
         )
-        if self.mode == "pointgoal":
-            self.get_logger().warning(
-                f"pointgoal requires a CURRENT {self.base_frame} goal on {self.goal_topic}; "
-                "publish it continuously because no VIO/odometry is used"
-            )
-        elif self.mode == "startgoal":
-            self.get_logger().info(
-                f"startgoal latches one initial {self.base_frame} goal; no VIO/odometry is used"
-            )
-        elif self.mode == "imagegoal":
-            self.get_logger().warning(
-                f"imagegoal loaded {self.image_goal_path}; policy has no internal arrival signal, "
-                "use an explicit arrival module or operator termination"
-            )
+        self.get_logger().warning(
+            f"imagegoal loaded {self.image_goal_path}; policy has no internal arrival signal, "
+            "use an explicit arrival module or operator termination"
+        )
 
     def _declare_parameters(self) -> None:
         defaults = {
-            "backend": "x_navdp",
-            "mode": "startgoal",
+            "backend": "navdp",
+            "mode": "imagegoal",
             "server_url": "http://127.0.0.1:8888",
             "rgb_topic": "/camera/camera/color/image_raw",
             "depth_topic": "/camera/camera/aligned_depth_to_color/image_raw",
             "camera_info_topic": "/camera/camera/color/camera_info",
-            "goal_topic": "/navdp/relative_goal",
             "image_goal_path": "",
             "revisit_image_goal_path": "",
             "selected_goal_image_path": "",
@@ -248,12 +230,10 @@ class NavDPGo2Adapter(Node):
             "connect_timeout_s": 3.0,
             "request_timeout_s": 180.0,
             "sensor_timeout_s": 0.60,
-            "goal_timeout_s": 0.75,
             "trajectory_timeout_s": 1.25,
             "max_rgb_depth_skew_s": 0.10,
             "rgbd_sync_queue_size": 15,
             "depth_scale_m": 0.001,
-            "goal_arrival_m": 0.60,
             "lookahead_m": 0.60,
             "max_linear_mps": 0.30,
             "max_angular_rps": 0.60,
@@ -282,12 +262,11 @@ class NavDPGo2Adapter(Node):
     def _load_parameters(self) -> None:
         self.backend = str(self.get_parameter("backend").value).strip().lower()
         self.mode = str(self.get_parameter("mode").value).strip().lower()
-        if self.backend not in {"x_navdp", "navdp"}:
-            raise ValueError("backend must be 'x_navdp' or 'navdp'")
-        if self.mode not in {"pointgoal", "startgoal", "imagegoal", "nogoal"}:
-            raise ValueError("mode must be pointgoal, startgoal, imagegoal, or nogoal")
-        if self.backend == "x_navdp" and self.mode in {"imagegoal", "nogoal"}:
-            raise ValueError("X-NavDP server supports pointgoal/startgoal only")
+        if self.backend != "navdp" or self.mode != "imagegoal":
+            raise ValueError(
+                "the MemNav real-world adapter requires backend=navdp "
+                "and mode=imagegoal"
+            )
         self.two_phase_episode = bool(
             self.get_parameter("two_phase_episode").value
         )
@@ -320,10 +299,6 @@ class NavDPGo2Adapter(Node):
         self.auto_select_goal_candidate = bool(
             self.get_parameter("auto_select_goal_candidate").value
         )
-        if self.two_phase_episode and self.mode != "imagegoal":
-            raise ValueError(
-                "two_phase_episode (protocol-v3 hub) requires mode=imagegoal"
-            )
         if self.navigate_during_memory_recording and not self.two_phase_episode:
             raise ValueError(
                 "navigate_during_memory_recording requires two_phase_episode"
@@ -334,7 +309,6 @@ class NavDPGo2Adapter(Node):
             "rgb_topic",
             "depth_topic",
             "camera_info_topic",
-            "goal_topic",
             "image_goal_path",
             "revisit_image_goal_path",
             "selected_goal_image_path",
@@ -358,11 +332,9 @@ class NavDPGo2Adapter(Node):
             "connect_timeout_s",
             "request_timeout_s",
             "sensor_timeout_s",
-            "goal_timeout_s",
             "trajectory_timeout_s",
             "max_rgb_depth_skew_s",
             "depth_scale_m",
-            "goal_arrival_m",
             "max_linear_accel_mps2",
             "max_angular_accel_rps2",
         ):
@@ -483,35 +455,6 @@ class NavDPGo2Adapter(Node):
             if self._intrinsic is None or not np.allclose(self._intrinsic, intrinsic):
                 self._intrinsic = intrinsic
                 self._reset_requested = True
-
-    def _on_goal(self, msg: PointStamped) -> None:
-        if self.mode not in {"pointgoal", "startgoal"}:
-            return
-        if msg.header.frame_id and msg.header.frame_id != self.base_frame:
-            self._warn_throttled(
-                "goal_frame",
-                f"Rejected goal in {msg.header.frame_id!r}; expected {self.base_frame!r}",
-            )
-            return
-        goal = np.array([msg.point.x, msg.point.y], dtype=np.float32)
-        if not np.isfinite(goal).all():
-            self._warn_throttled("goal_value", "Rejected non-finite relative goal")
-            return
-        with self._lock:
-            had_goal = self._goal_xy is not None
-            self._goal_xy = goal
-            self._goal_monotonic = time.monotonic()
-            if self.mode == "startgoal" or not had_goal:
-                self._trajectory = None
-                self._plan_monotonic = 0.0
-            needs_immediate_plan = self._trajectory is None
-        if needs_immediate_plan:
-            self._inference_event.set()
-        if self.mode == "startgoal" or not had_goal:
-            self.get_logger().info(
-                f"Accepted {self.mode} goal in {self.base_frame}: "
-                f"x={goal[0]:.2f}, y={goal[1]:.2f}"
-            )
 
     def _on_enable(self, msg: Bool) -> None:
         self._set_enabled(bool(msg.data), "enable topic")
@@ -741,7 +684,7 @@ class NavDPGo2Adapter(Node):
         return response
 
     @staticmethod
-    def _atomic_write(path: Path, payload: bytes) -> None:
+    def _atomic_write(path: FilePath, payload: bytes) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(f".{path.name}.tmp")
         temporary.write_bytes(payload)
@@ -766,14 +709,14 @@ class NavDPGo2Adapter(Node):
             self, "selected_goal_depth_path", ""
         )
         if selected_goal_image_path and goal_jpeg:
-            goal_path = Path(selected_goal_image_path).expanduser()
+            goal_path = FilePath(selected_goal_image_path).expanduser()
             self._atomic_write(goal_path, goal_jpeg)
             receipt["jetson_selected_goal_image_path"] = str(goal_path)
             receipt["jetson_selected_goal_image_sha256"] = hashlib.sha256(
                 goal_jpeg
             ).hexdigest()
         if selected_goal_depth_path and depth_png:
-            depth_path = Path(selected_goal_depth_path).expanduser()
+            depth_path = FilePath(selected_goal_depth_path).expanduser()
             self._atomic_write(depth_path, depth_png)
             receipt["jetson_selected_goal_depth_path"] = str(depth_path)
             receipt["jetson_selected_goal_depth_sha256"] = hashlib.sha256(
@@ -808,25 +751,16 @@ class NavDPGo2Adapter(Node):
                 return None, "waiting_for_rgbd_or_camera_info"
             if now - self._rgbd_monotonic > self.sensor_timeout_s:
                 return None, "rgbd_stale"
-            if self.mode in {"pointgoal", "startgoal"}:
-                if self._goal_xy is None:
-                    return None, "waiting_for_goal"
-                if self.mode == "pointgoal" and now - self._goal_monotonic > self.goal_timeout_s:
-                    return None, "goal_stale"
-                goal_condition = self._goal_xy.copy()
-            elif self.mode == "imagegoal":
-                if (
-                    self.two_phase_episode
-                    and self._phase in (None, "memory_recording")
-                    and not self.navigate_during_memory_recording
-                ):
-                    goal_condition = None
-                elif self._image_goal is None:
-                    return None, "waiting_for_image_goal"
-                else:
-                    goal_condition = self._image_goal.copy()
-            else:
+            if (
+                self.two_phase_episode
+                and self._phase in (None, "memory_recording")
+                and not self.navigate_during_memory_recording
+            ):
                 goal_condition = None
+            elif self._image_goal is None:
+                return None, "waiting_for_image_goal"
+            else:
+                goal_condition = self._image_goal.copy()
             return (
                 self._rgb.copy(),
                 self._depth_m.copy(),
@@ -887,7 +821,6 @@ class NavDPGo2Adapter(Node):
                 with self._lock:
                     recording = (
                         self.two_phase_episode
-                        and self.mode == "imagegoal"
                         and self._phase == "memory_recording"
                     )
                 planned_in_recording = False
@@ -1016,14 +949,7 @@ class NavDPGo2Adapter(Node):
                             self._stop_reason = "memory_recording"
                         continue
 
-                if planned_in_recording:
-                    pass
-                elif self.mode == "nogoal":
-                    with self._client_lock:
-                        trajectory, all_trajectories, all_values = self._client.nogoal_step(
-                            rgb, depth_m
-                        )
-                elif self.mode == "imagegoal":
+                if not planned_in_recording:
                     with self._lock:
                         active_goal_sha256 = self._active_goal_sha256
                     with self._client_lock:
@@ -1034,18 +960,13 @@ class NavDPGo2Adapter(Node):
                             installed_goal_sha256=active_goal_sha256,
                         )
                         plan_receipt = dict(self._client.last_plan_receipt)
-                else:
-                    with self._client_lock:
-                        trajectory, all_trajectories, all_values = self._client.pointgoal_step(
-                            goal_condition, rgb, depth_m
-                        )
                 path = self._normalize_trajectory(trajectory)
                 candidates, candidate_values = ranked_candidates(
                     all_trajectories, all_values, self.debug_max_candidates
                 )
                 target = trajectory_to_command(path, self.controller_config)
                 terminal = terminal_motion_override(
-                    plan_receipt if self.mode == "imagegoal" else None,
+                    plan_receipt,
                     rotate_gain=self.controller_config.rotate_gain,
                     max_angular_rps=self.controller_config.max_angular_rps,
                 )
@@ -1062,19 +983,17 @@ class NavDPGo2Adapter(Node):
                     self._last_inference_s = finished - started
                     self._last_error = ""
                     self._stop_reason = "ready"
-                    if self.mode == "imagegoal":
-                        self._last_plan_receipt = plan_receipt
-                        self._terminal_motion_receipt = terminal.audit_dict()
+                    self._last_plan_receipt = plan_receipt
+                    self._terminal_motion_receipt = terminal.audit_dict()
                     if terminal.assert_estop:
                         self._estop = True
                         self._enabled = False
                         self._stop_reason = "certified_terminal_stop"
-                if self.mode == "imagegoal":
-                    self._publish_receipt(
-                        "novel_recording_plan"
-                        if planned_in_recording else "imagegoal_plan",
-                        plan_receipt,
-                    )
+                self._publish_receipt(
+                    "novel_recording_plan"
+                    if planned_in_recording else "imagegoal_plan",
+                    plan_receipt,
+                )
                 if not self._stop_event.is_set() and rclpy.ok():
                     self._publish_path(path)
                     self._publish_debug_markers()
@@ -1110,27 +1029,14 @@ class NavDPGo2Adapter(Node):
             return "waiting_for_rgbd_or_camera_info"
         if now - self._rgbd_monotonic > self.sensor_timeout_s:
             return "rgbd_stale"
-        if self.mode in {"pointgoal", "startgoal"} and self._goal_xy is None:
-            return "waiting_for_goal"
-        if self.mode == "imagegoal" and self._image_goal is None:
+        if self._image_goal is None:
             return "waiting_for_image_goal"
-        if (
-            self.mode == "pointgoal"
-            and now - self._goal_monotonic > self.goal_timeout_s
-        ):
-            return "goal_stale"
         if self._trajectory is None or self._plan_monotonic <= 0.0:
             return "waiting_for_plan"
         if now - self._plan_monotonic > self.trajectory_timeout_s:
             return "trajectory_stale"
         if self._last_error:
             return "inference_error"
-        if (
-            self.mode == "pointgoal"
-            and self._goal_xy is not None
-            and float(np.linalg.norm(self._goal_xy)) <= self.goal_arrival_m
-        ):
-            return "goal_reached"
         return None
 
     def _control_tick(self) -> None:
@@ -1177,7 +1083,7 @@ class NavDPGo2Adapter(Node):
 
     def _publish_path(self, trajectory: np.ndarray) -> None:
         stamp = self.get_clock().now().to_msg()
-        msg = Path()
+        msg = NavPath()
         msg.header.stamp = stamp
         msg.header.frame_id = self.base_frame
         xy = trajectory[:, :2]
@@ -1264,7 +1170,6 @@ class NavDPGo2Adapter(Node):
             trajectory = None if self._trajectory is None else self._trajectory.copy()
             candidates = self._candidate_trajectories.copy()
             values = self._candidate_values.copy()
-            goal = None if self._goal_xy is None else self._goal_xy.copy()
             target = self._target_command
             command = self._last_command
             enabled = self._enabled
@@ -1353,39 +1258,6 @@ class NavDPGo2Adapter(Node):
                 )
             )
 
-        if goal is not None:
-            goal_marker = Marker()
-            goal_marker.header = header
-            goal_marker.ns = "goal"
-            goal_marker.id = 0
-            goal_marker.type = Marker.SPHERE
-            goal_marker.action = Marker.ADD
-            goal_marker.pose.position.x = float(goal[0])
-            goal_marker.pose.position.y = float(goal[1])
-            goal_marker.pose.position.z = 0.10
-            goal_marker.pose.orientation.w = 1.0
-            goal_marker.scale.x = 0.20
-            goal_marker.scale.y = 0.20
-            goal_marker.scale.z = 0.20
-            goal_marker.color.r = 1.0
-            goal_marker.color.g = 0.1
-            goal_marker.color.b = 0.2
-            goal_marker.color.a = 0.95
-            markers.append(goal_marker)
-            markers.append(
-                self._text_marker(
-                    header,
-                    "goal_label",
-                    0,
-                    f"goal ({goal[0]:.1f}, {goal[1]:.1f})",
-                    float(goal[0]),
-                    float(goal[1]),
-                    0.28,
-                    0.11,
-                    (1.0, 0.35, 0.35, 1.0),
-                )
-            )
-
         lookahead = Marker()
         lookahead.header = header
         lookahead.ns = "lookahead"
@@ -1469,7 +1341,7 @@ class NavDPGo2Adapter(Node):
                     if self._rgb_depth_skew_s is None
                     else round(self._rgb_depth_skew_s, 4)
                 ),
-                "goal_age_s": self._age(now, self._goal_monotonic),
+                "goal_age_s": None,
                 "image_goal_loaded": self._image_goal is not None,
                 "revisit_image_goal_loaded": (
                     self._revisit_image_goal is not None

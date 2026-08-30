@@ -167,7 +167,7 @@ tethering for first motion, or the Unitree hand controller.
 | <code>deployment/odin1_gt/</code> | Independent Odin mapping, relocalization, arrival, path and A* SPL evidence lane |
 | <code>deployment/gpu/</code> | Auditable CEC router, fixed-bearing adapter, GPU launch scripts and tests |
 | <code>baselines/navdp/</code> | Frozen NavDP plus audited mono-sidecar and state-safe inference interfaces |
-| <code>baselines/x-navdp/</code> | Upstream X-NavDP baseline and Jetson compatibility fixes |
+| <code>baselines/x-navdp/</code> | Preserved upstream simulator source; not part of the real-world launcher |
 | <code>REALWORLD_EXPERIMENT_HANDBOOK_CN.md</code> | Complete Chinese experiment, safety, evidence, metric and handoff protocol |
 | <code>REALWORLD_EVALUATION.md</code> | Planned four-scene, five-paired-block native/CEC registry with empty result slots |
 | <code>docs/</code> | Documentation index and archived historical integration/release records |
@@ -187,8 +187,8 @@ cd MemNav-RealWorld
 python3 tools/verify_public_baseline.py --workspace .
 python3 -m pip install -r deployment/gpu/requirements.txt pytest
 python3 -m pytest -q deployment/gpu/tests
-# Run on the configured Jetson environment:
-.venv-navdp/bin/python -m unittest discover -v deployment/go2/tests
+# Run on the configured Jetson environment (includes pytest-style tests):
+.venv-navdp/bin/python -m pytest -q deployment/go2/tests
 ~~~
 
 These tests do not connect to the robot or issue motion commands.
@@ -206,7 +206,7 @@ both source and the exact resolved configuration contract.
 ### 3. Prepare the Jetson
 
 ~~~bash
-bash deployment/go2/scripts/download_weights.sh all
+bash deployment/go2/scripts/download_weights.sh navdp
 bash deployment/go2/scripts/setup_jetson.sh
 ~~~
 

@@ -126,3 +126,26 @@ def test_shell_contract_has_explicit_imagegoal_and_no_legacy_names(tmp_path):
     assert "CFG_IMAGE_GOAL_SHA256=" in exports
     assert "NAVDP_IMAGE_GOAL_PATH" not in exports
     assert "CEC_CAMERA_HEIGHT_M" not in exports
+
+
+def test_runtime_config_uses_the_public_profile_catalog():
+    assert set(rc.PROFILES) == {
+        "native-navdp-rgbd",
+        "fullmono-lingbot-cec",
+    }
+    assert set(rc.ARRIVAL_MODULES) == {
+        "operator",
+        "external-topic",
+        "rgb-homography",
+    }
+
+
+def test_gpu_shell_contract_exposes_only_gpu_and_shared_fields(tmp_path):
+    path = rc.resolve(make_source_config(tmp_path), tmp_path / "resolved.json")
+    exports = rc.shell_exports(rc.load_resolved(path), "gpu")
+    assert "CFG_GPU_PYTHON=" in exports
+    assert "CFG_MEMNAV_CKPT=" in exports
+    assert "CFG_AUTHORITY_MODE=" in exports
+    assert "CFG_JETSON_PYTHON=" not in exports
+    assert "CFG_UNITREE_NET_IF=" not in exports
+    assert "CFG_IMAGE_GOAL=" not in exports

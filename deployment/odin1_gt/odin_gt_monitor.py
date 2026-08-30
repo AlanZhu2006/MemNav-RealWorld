@@ -26,7 +26,6 @@ from odin_gt_core import (
     inverse_pose,
     quaternion_to_yaw,
     sha256_file,
-    wrap_angle,
 )
 
 
@@ -294,7 +293,6 @@ def seal_goal(args: argparse.Namespace) -> int:
 
 class FormalMonitor:
     def __init__(self, args: argparse.Namespace) -> None:
-        import rclpy
         from nav_msgs.msg import Odometry
         from rclpy.node import Node
         from rclpy.qos import (

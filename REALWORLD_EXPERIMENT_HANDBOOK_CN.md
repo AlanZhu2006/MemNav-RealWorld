@@ -1733,7 +1733,7 @@ bash deployment/gpu/scripts/stop_policy_stack.sh --config runtime/config/CONFIG_
 ```bash
 cd /home/nvidia/twork/MemNav-RealWorld
 
-bash deployment/go2/scripts/download_weights.sh all
+bash deployment/go2/scripts/download_weights.sh navdp
 bash deployment/go2/scripts/setup_jetson.sh
 bash deployment/go2/nav_stack.sh start \
   --config deployment/config/experiments/native_imagegoal.json --dry-run

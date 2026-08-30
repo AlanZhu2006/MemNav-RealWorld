@@ -35,6 +35,12 @@ class _BlockingClient:
         return {"phase": "revisit_query", "frames_recorded": 7}
 
 
+class _SelectedGoalClient:
+    last_goal_jpeg = b"exact-goal-jpeg"
+    last_goal_evaluation_depth_png = b"offline-depth-png"
+    last_goal_evaluation_depth_scale_m = 0.001
+
+
 def _adapter(client):
     adapter = object.__new__(NavDPGo2Adapter)
     adapter._lock = threading.RLock()
@@ -122,3 +128,17 @@ def test_return_boundary_arms_candidates_without_changing_motion_authority():
     assert adapter._last_auto_candidate_after_frame == -1
     assert adapter._auto_candidate_guard_remaining == 0
     assert '"motion_authority_changed": false' in response.message
+
+
+def test_selected_goal_artifacts_use_filesystem_paths(tmp_path):
+    adapter = object.__new__(NavDPGo2Adapter)
+    adapter._client = _SelectedGoalClient()
+    adapter.selected_goal_image_path = str(tmp_path / "selected" / "goal.jpg")
+    adapter.selected_goal_depth_path = str(tmp_path / "selected" / "depth.png")
+    receipt = {}
+
+    adapter._persist_selected_goal_artifacts(receipt)
+
+    assert (tmp_path / "selected" / "goal.jpg").read_bytes() == b"exact-goal-jpeg"
+    assert (tmp_path / "selected" / "depth.png").read_bytes() == b"offline-depth-png"
+    assert receipt["selected_goal_depth_policy_authority"] is False

@@ -99,4 +99,8 @@ exec python "$NAVDP_GO2_DIR/navdp_ros_node.py" \
   -p backend:="$BACKEND" \
   -p mode:="$MODE" \
   -p server_url:="$SERVER_URL" \
+  -p rgb_topic:="$CFG_RGB_TOPIC" \
+  -p depth_topic:="$CFG_DEPTH_TOPIC" \
+  -p camera_info_topic:="$CFG_CAMERA_INFO_TOPIC" \
+  -p cmd_vel_topic:="$CFG_GO2_CMD_TOPIC" \
   "${EXTRA_PARAMS[@]}"

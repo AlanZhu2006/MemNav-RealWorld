@@ -15,15 +15,14 @@ from pathlib import Path
 import shlex
 import struct
 import subprocess
-import sys
 from typing import Any, Mapping
+
+from go2.stack_profiles import ARRIVAL_MODULES, PROFILES, validate_combination
 
 
 SYSTEM_SCHEMA = "memnav-realworld-system-v1"
 EXPERIMENT_SCHEMA = "memnav-realworld-experiment-v1"
 RESOLVED_SCHEMA = "memnav-realworld-resolved-v1"
-PROFILES = {"native-navdp-rgbd", "fullmono-lingbot-cec"}
-ARRIVALS = {"operator", "external-topic", "rgb-homography"}
 PHASES = {"memory_recording", "revisit_query"}
 
 
@@ -112,12 +111,6 @@ def _repo_path(repo: Path, raw: Any, label: str) -> Path:
     if not candidate.is_absolute():
         candidate = repo / candidate
     return candidate.resolve()
-
-
-def _optional_repo_path(repo: Path, raw: Any, label: str) -> Path | None:
-    if raw is None:
-        return None
-    return _repo_path(repo, raw, label)
 
 
 def _image_size(path: Path) -> tuple[int, int]:
@@ -332,8 +325,12 @@ def _validate_experiment(experiment_file: Mapping[str, Any]) -> dict[str, Any]:
     arrival = _object(experiment["arrival"], "experiment.arrival")
     _exact_keys(arrival, {"module", "image_goal", "allowed_phases"}, "arrival")
     _required_keys(arrival, {"module", "image_goal", "allowed_phases"}, "arrival")
-    if arrival["module"] not in ARRIVALS:
+    if arrival["module"] not in ARRIVAL_MODULES:
         raise ConfigError(f"unknown arrival module: {arrival['module']!r}")
+    try:
+        validate_combination(experiment["profile"], arrival["module"])
+    except ValueError as exc:
+        raise ConfigError(str(exc)) from exc
     phases = arrival["allowed_phases"]
     if not isinstance(phases, list) or not phases or any(p not in PHASES for p in phases):
         raise ConfigError("arrival.allowed_phases must be a non-empty valid phase list")
@@ -677,7 +674,6 @@ def shell_exports(payload: Mapping[str, Any], site: str) -> str:
         "CFG_RVIZ_CONFIG": payload["stack"]["rviz_config"],
         "CFG_ADAPTER_READY_TIMEOUT_S": payload["stack"]["adapter_ready_timeout_s"],
         "CFG_TUNNEL_READY_TIMEOUT_S": payload["stack"]["tunnel_ready_timeout_s"],
-        "CFG_JETSON_REPO": j["repository"],
         "CFG_JETSON_PYTHON": j["python"],
         "CFG_JETSON_RUNTIME_ROOT": j["runtime_root"],
         "CFG_ROS_SETUP": j["ros_setup"],
@@ -734,6 +730,41 @@ def shell_exports(payload: Mapping[str, Any], site: str) -> str:
         "CFG_DATASET_MIN_FRAMES": payload["cec"]["episodic_dataset_min_frames"],
         "CFG_EAGER_DEPTH_CACHE": payload["cec"]["eager_depth_cache"],
     }
+    if site == "gpu":
+        gpu_keys = {
+            "CFG_CONFIG_ID",
+            "CFG_GIT_REVISION",
+            "CFG_EXPERIMENT_ID",
+            "CFG_EXPERIMENT_PHASE",
+            "CFG_PROFILE",
+            "CFG_AUTHORITY_MODE",
+            "CFG_DATASET_AUTO_OPEN",
+            "CFG_DATASET_ID",
+            "CFG_DATASET_METADATA",
+            "CFG_CAMERA_HEIGHT_M",
+            "CFG_GPU_PYTHON",
+            "CFG_GPU_RUNTIME_ROOT",
+            "CFG_GPU_READY_TIMEOUT_S",
+            "CFG_GPU_SESSION",
+            "CFG_MEMNAV_PORT",
+            "CFG_NAVDP_PORT",
+            "CFG_HUB_PORT",
+            "CFG_MEMNAV_SOURCE_ROOT",
+            "CFG_MEMNAV_CKPT",
+            "CFG_INTERNNAV_ROOT",
+            "CFG_LINGBOT_REPO",
+            "CFG_LINGBOT_WEIGHTS",
+            "CFG_LIGHTGLUE_REPO",
+            "CFG_DEPENDENCY_ROOT",
+            "CFG_NAVDP_CKPT",
+            "CFG_GOAL_SCORE_STRIDE",
+            "CFG_GOAL_MIN_FRAME_GAP",
+            "CFG_GOAL_MIN_INLIERS",
+            "CFG_GOAL_MAX_COS",
+            "CFG_DATASET_MIN_FRAMES",
+            "CFG_EAGER_DEPTH_CACHE",
+        }
+        fields = {key: value for key, value in fields.items() if key in gpu_keys}
     return "\n".join(
         f"{key}={shlex.quote(_shell_value(value))}" for key, value in fields.items()
     )

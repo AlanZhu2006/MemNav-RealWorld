@@ -69,6 +69,8 @@ REQUIRED_PATHS = (
     "deployment/config/experiments/native_imagegoal.json",
     "deployment/config/experiments/fullmono_imagegoal.json",
     "deployment/runtime_config.py",
+    "tools/archive/audit_turn_gate_bag.py",
+    "tools/archive/score_realworld_revisit_goal.py",
     "tools/transcode_demo_media.sh",
     "tools/build_demo_previews.py",
     "tools/verify_realworld_paired_campaign.py",
@@ -97,7 +99,7 @@ EXPECTED_HASHES = {
         "1a0ea960c36e231d4424c1a3837d7b3cf88dce0ef7d4737068d371bfa888054e"
     ),
     "deployment/go2/navdp_client.py": (
-        "ded9824071dd022a914260283972a8995d86d2feb59a3fb8384a69a9d3d88e6e"
+        "40adca2154813031dd5d14969b933aff84269d2bcb89d7f4966e401682dfd609"
     ),
     "deployment/go2/offboard/runtime_contract.sh": (
         "423ff3b22cd94f192a0aa47e2c3cb2277b3b50c817f82546213eb9f052bbf0ef"
@@ -272,22 +274,57 @@ def main() -> int:
     adapter_config = (
         root / "deployment/go2/config/navdp_go2.yaml"
     ).read_text()
+    adapter_script = (
+        root / "deployment/go2/scripts/run_adapter.sh"
+    ).read_text()
     bridge_script = (
         root / "deployment/go2/scripts/run_go2_bridge.sh"
+    ).read_text()
+    gpu_preflight = (
+        root / "deployment/gpu/scripts/preflight.sh"
     ).read_text()
     hub_source = (
         root / "deployment/gpu/realworld_cec_hub.py"
     ).read_text()
     check("enable_on_start: false" in adapter_config, "adapter lock", failures)
-    check("max_linear_mps: 0.30" in adapter_config, "adapter speed", failures)
     system_config = json.loads(
         (root / "deployment/config/system.json").read_text()
+    )
+    formal_limits = system_config["stack"]["formal_limits"]
+    check(
+        formal_limits.get("max_linear_mps") == 0.30
+        and formal_limits.get("max_angular_rps") == 0.55
+        and '-p max_linear_mps:="$MAX_LINEAR_MPS"' in adapter_script
+        and '-p max_angular_rps:="$MAX_ANGULAR_RPS"' in adapter_script,
+        "adapter speed comes from the atomic runtime config",
+        failures,
+    )
+    check(
+        '-p rgb_topic:="$CFG_RGB_TOPIC"' in adapter_script
+        and '-p depth_topic:="$CFG_DEPTH_TOPIC"' in adapter_script
+        and '-p camera_info_topic:="$CFG_CAMERA_INFO_TOPIC"' in adapter_script
+        and '-p cmd_vel_topic:="$CFG_GO2_CMD_TOPIC"' in adapter_script,
+        "adapter physical topics come from the atomic runtime config",
+        failures,
     )
     unitree_config = system_config["sites"]["jetson"]["unitree"]
     check(unitree_config.get("timeout_s") == 0.35,
           "bridge watchdog", failures)
     check(unitree_config.get("max_vx") == 0.30,
           "bridge speed", failures)
+    check(
+        '-p cmd_vel_topic:="$GO2_CMD_TOPIC"' in bridge_script
+        and '-p timeout_sec:="$GO2_TIMEOUT_SEC"' in bridge_script
+        and '-p max_vx:="$GO2_MAX_VX"' in bridge_script,
+        "bridge consumes the atomic runtime config",
+        failures,
+    )
+    check(
+        'cmp -s "$MEMNAV_DEPTH_RUNTIME" "$REPO_DEPTH_RUNTIME"'
+        in gpu_preflight,
+        "external monocular depth runtime must match tracked source",
+        failures,
+    )
     check(
         'args.host not in {"127.0.0.1", "::1", "localhost"}' in hub_source,
         "hub rejects non-loopback bind",

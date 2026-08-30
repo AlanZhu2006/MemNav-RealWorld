@@ -1,16 +1,9 @@
 navdp_go2_adapter:
   ros__parameters:
-    backend: x_navdp
-    mode: startgoal
-    server_url: http://127.0.0.1:8888
-
-    rgb_topic: /camera/camera/color/image_raw
-    depth_topic: /camera/camera/aligned_depth_to_color/image_raw
-    camera_info_topic: /camera/camera/color/camera_info
-    goal_topic: /navdp/relative_goal
-    image_goal_path: ""
+    # Machine/experiment-owned values (backend, mode, server, physical sensor
+    # topics, command topic, ImageGoal and speed limits) are injected from the
+    # immutable resolved runtime config by run_adapter.sh.
     image_goal_debug_topic: /navdp/image_goal
-    cmd_vel_topic: /navdp/cmd_vel
     path_topic: /navdp/trajectory
     status_topic: /navdp/status
     cec_receipt_topic: /navdp/cec_receipt
@@ -35,16 +28,11 @@ navdp_go2_adapter:
     connect_timeout_s: 3.0
     request_timeout_s: 180.0
     sensor_timeout_s: 0.60
-    goal_timeout_s: 0.75
     trajectory_timeout_s: 2.50
     max_rgb_depth_skew_s: 0.10
     rgbd_sync_queue_size: 15
     depth_scale_m: 0.001
-    goal_arrival_m: 0.60
-
     lookahead_m: 0.60
-    max_linear_mps: 0.30
-    max_angular_rps: 0.55
     heading_deadband_rad: 0.13962634015954636  # 8 deg; validated TinyNav anti-hunting gate
     rotate_in_place_angle_rad: 0.70
     rotate_gain: 1.50

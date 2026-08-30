@@ -12,13 +12,20 @@ import argparse
 import json
 import math
 from pathlib import Path
+import sys
 
 import numpy as np
 import rosbag2_py
 from rclpy.serialization import deserialize_message
 from rosidl_runtime_py.utilities import get_message
 
-from trajectory_control import ControllerConfig, trajectory_to_command
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT))
+
+from deployment.go2.trajectory_control import (
+    ControllerConfig,
+    trajectory_to_command,
+)
 
 
 def _sign_flips(values: list[float], epsilon: float = 1e-9) -> int:

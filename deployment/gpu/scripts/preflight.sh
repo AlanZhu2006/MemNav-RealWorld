@@ -13,10 +13,18 @@ fail() { printf '[FAIL] %s\n' "$*"; failures=$((failures + 1)); }
 [[ -f "$CFG_MEMNAV_CKPT" ]] && pass "MemNav checkpoint" || fail "MemNav checkpoint"
 [[ -f "$CFG_NAVDP_CKPT" ]] && pass "NavDP checkpoint" || fail "NavDP checkpoint"
 MEMNAV_SERVER="$CFG_MEMNAV_SOURCE_ROOT/NavDP/baselines/memnav/memnav_server.py"
+MEMNAV_DEPTH_RUNTIME="$CFG_MEMNAV_SOURCE_ROOT/MemNavData/monocular_depth_runtime.py"
+REPO_DEPTH_RUNTIME="$REPO_ROOT/deployment/gpu/monocular_depth_runtime.py"
 [[ -f "$MEMNAV_SERVER" ]] \
   && pass "MemNav server" || fail "MEMNAV_SERVER"
-[[ -f "$CFG_MEMNAV_SOURCE_ROOT/MemNavData/monocular_depth_runtime.py" ]] \
+[[ -f "$MEMNAV_DEPTH_RUNTIME" ]] \
   && pass "monocular depth runtime" || fail "MEMNAV_SOURCE_ROOT/monocular_depth_runtime.py"
+if [[ -f "$MEMNAV_DEPTH_RUNTIME" && -f "$REPO_DEPTH_RUNTIME" ]] \
+    && cmp -s "$MEMNAV_DEPTH_RUNTIME" "$REPO_DEPTH_RUNTIME"; then
+  pass "monocular depth runtime matches the tracked source"
+else
+  fail "external monocular depth runtime differs from the tracked source"
+fi
 grep -q 'monocular_depth_query' \
   "$MEMNAV_SERVER" \
   2>/dev/null \
