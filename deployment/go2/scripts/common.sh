@@ -142,9 +142,9 @@ navdp_start_optional_windows() {
     tmux new-window -t "$session" -n go2 \
       "exec '$NAVDP_GO2_SCRIPT_DIR/run_go2_bridge.sh' --config '$NAVDP_RUN_CONFIG'"
   fi
-  if [[ "$CFG_WITH_RVIZ" == true ]]; then
-    tmux new-window -t "$session" -n rviz \
-      "exec '$NAVDP_GO2_SCRIPT_DIR/run_debug_ui.sh' --config '$NAVDP_RUN_CONFIG'"
+  if [[ "$CFG_WITH_FOXGLOVE" == true ]]; then
+    tmux new-window -t "$session" -n foxglove \
+      "exec '$NAVDP_GO2_SCRIPT_DIR/run_foxglove_bridge.sh' --config '$NAVDP_RUN_CONFIG'"
   fi
 }
 

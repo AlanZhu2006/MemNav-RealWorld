@@ -46,6 +46,9 @@ REQUIRED_PATHS = (
     "deployment/go2/offboard/experiment_capture.sh",
     "deployment/go2/experiment_capture_manifest.py",
     "deployment/go2/experiment_topic_logger.py",
+    "deployment/go2/config/foxglove_bridge.yaml",
+    "deployment/go2/config/navdp_debug.foxglove-layout.json",
+    "deployment/go2/scripts/run_foxglove_bridge.sh",
     "deployment/odin1_gt/README_CN.md",
     "deployment/odin1_gt/odin_gt_core.py",
     "deployment/odin1_gt/odin_gt_monitor.py",
@@ -54,7 +57,7 @@ REQUIRED_PATHS = (
     "deployment/odin1_gt/make_driver_config.py",
     "deployment/odin1_gt/make_scene_contract.py",
     "deployment/odin1_gt/config/go2_odin_mount_receipt.template.json",
-    "deployment/odin1_gt/config/odin_gt.rviz",
+    "deployment/odin1_gt/config/odin_gt.foxglove-layout.json",
     "deployment/odin1_gt/scripts/odin_gt.sh",
     "deployment/odin1_gt/scripts/setup_driver.sh",
     "deployment/odin1_gt/scripts/preflight.sh",
@@ -196,8 +199,10 @@ def main() -> int:
 
     scripts = tuple(
         path
-        for path in tracked
-        if path.startswith("deployment/") and path.endswith(".sh")
+        for path in set(tracked).union(REQUIRED_PATHS)
+        if path.startswith("deployment/")
+        and path.endswith(".sh")
+        and (root / path).is_file()
     )
     non_executable = [
         path
@@ -384,9 +389,10 @@ def main() -> int:
     check(
         "/navdp/cec_receipt" in capture_source
         and "ros2 bag record" in capture_source
-        and "gst-launch-1.0" in capture_source
+        and "-s mcap" in capture_source
+        and "attach-dashboard" in capture_source
         and "attach-third-view" in capture_source,
-        "dual-view experiment capture is declared",
+        "headless Foxglove dual-view capture is declared",
         failures,
     )
     check(

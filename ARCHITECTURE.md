@@ -128,7 +128,7 @@ runtime ImageGoal and acknowledges the installed SHA on every query; the hub
 uses its committed goal bytes rather than trusting a stale client upload.
 `/healthz` reports the active goal and last prepare receipt.  ROS mirrors the
 same state on `/navdp/status`, publishes full event receipts on
-`/navdp/cec_receipt`, and shows phase/goal/CEC state in the RViz marker.
+`/navdp/cec_receipt`, and shows phase/goal/CEC state in the Foxglove marker.
 
 ### Reset
 

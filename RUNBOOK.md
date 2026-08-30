@@ -11,7 +11,7 @@ There is one tracked configuration path:
 - `deployment/config/system.json`: Jetson/RTX paths, models, ports, camera,
   `0.42 m` measured optical-center height and safety limits;
 - `deployment/config/experiments/fullmono_imagegoal.json`: ImageGoal, arrival
-  module and optional camera/Go2/RViz processes.
+  module and optional camera/Go2/Foxglove processes.
 
 Do not create `deployment/gpu/.env` or export `CEC_*`/`NAVDP_*` overrides. If a
 machine path changes, edit `system.json`, review the diff, commit it and pull
@@ -108,7 +108,9 @@ tmux attach -t navdp-go2-offboard
 bash deployment/go2/offboard/experiment_capture.sh preflight
 ```
 
-The exact ROS bag, CEC receipt, dashboard, third-view and manifest workflow is
+Connect Foxglove on the operator workstation to `ws://JETSON_IP:8765` and
+import `deployment/go2/config/navdp_debug.foxglove-layout.json`. The exact
+MCAP, CEC receipt, dashboard, third-view and manifest workflow is
 in `EXPERIMENT_DATA_COLLECTION.md`. Formal scene registration and scoring are
 defined in `REALWORLD_EXPERIMENT_HANDBOOK_CN.md` and
 `REALWORLD_EVALUATION.md`.

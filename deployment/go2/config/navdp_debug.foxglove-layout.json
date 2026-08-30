@@ -1,0 +1,194 @@
+{
+  "configById": {
+    "3D!navdp": {
+      "cameraState": {
+        "distance": 7,
+        "perspective": false,
+        "phi": 0,
+        "target": [0, 0, 0],
+        "targetOffset": [1, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "thetaOffset": 0,
+        "fovy": 45,
+        "near": 0.01,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "followTf": "navdp_local",
+      "fixedFrame": "navdp_local",
+      "scene": {
+        "backgroundColor": "#1e2024",
+        "labelScaleFactor": 0.7
+      },
+      "transforms": {},
+      "topics": {
+        "/navdp/trajectory": {
+          "visible": true,
+          "color": "#19ff46",
+          "lineWidth": 4
+        },
+        "/navdp/debug/markers": {
+          "visible": true
+        },
+        "/odin1/cloud_slam": {
+          "visible": false,
+          "colorMode": "colormap",
+          "colorField": "z",
+          "colorMap": "turbo",
+          "pointSize": 2,
+          "decayTime": 8
+        },
+        "/odin1/odometry": {
+          "visible": false
+        },
+        "/odin1/path": {
+          "visible": false,
+          "color": "#ffbe1e",
+          "lineWidth": 3
+        }
+      },
+      "layers": {
+        "navdp-grid": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Local grid (0.5 m)",
+          "instanceId": "navdp-grid",
+          "layerId": "foxglove.Grid",
+          "size": 8,
+          "divisions": 16,
+          "lineWidth": 1,
+          "color": "#6e737d",
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "order": 1,
+          "frameId": "navdp_local"
+        }
+      },
+      "foxglovePanelTitle": "NavDP trajectory / markers"
+    },
+    "Image!rgb": {
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "synchronize": false,
+      "imageMode": {
+        "imageTopic": "/camera/camera/color/image_raw",
+        "calibrationTopic": "/camera/camera/color/camera_info",
+        "rotation": 0,
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rectifyImage": false,
+        "publish": {"clickEnabled": false, "hoverEnabled": false}
+      },
+      "foxglovePanelTitle": "RealSense RGB"
+    },
+    "Image!depth": {
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "synchronize": false,
+      "imageMode": {
+        "imageTopic": "/camera/camera/aligned_depth_to_color/image_raw",
+        "calibrationTopic": "/camera/camera/aligned_depth_to_color/camera_info",
+        "colorMode": "colormap",
+        "colorMap": "turbo",
+        "minValue": 200,
+        "maxValue": 4000,
+        "rotation": 0,
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rectifyImage": false,
+        "publish": {"clickEnabled": false, "hoverEnabled": false}
+      },
+      "foxglovePanelTitle": "Aligned safety depth"
+    },
+    "Image!goal": {
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "synchronize": false,
+      "imageMode": {
+        "imageTopic": "/navdp/image_goal",
+        "rotation": 0,
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rectifyImage": false,
+        "publish": {"clickEnabled": false, "hoverEnabled": false}
+      },
+      "foxglovePanelTitle": "ImageGoal"
+    },
+    "Image!arrival": {
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "synchronize": false,
+      "imageMode": {
+        "imageTopic": "/navdp/rgb_arrival_debug",
+        "rotation": 0,
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rectifyImage": false,
+        "publish": {"clickEnabled": false, "hoverEnabled": false}
+      },
+      "foxglovePanelTitle": "RGB arrival match"
+    },
+    "RawMessages!status": {
+      "topicPath": "/navdp/status",
+      "diffTopicPath": "",
+      "diffMethod": "custom",
+      "diffEnabled": false,
+      "showFullMessageForDiff": false,
+      "foxglovePanelTitle": "NavDP status (read-only)"
+    },
+    "RawMessages!arrival": {
+      "topicPath": "/navdp/rgb_arrival_status",
+      "diffTopicPath": "",
+      "diffMethod": "custom",
+      "diffEnabled": false,
+      "showFullMessageForDiff": false,
+      "foxglovePanelTitle": "Arrival status (read-only)"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "linkedGlobalVariables": [],
+  "playbackConfig": {
+    "speed": 1,
+    "messageOrder": "receiveTime"
+  },
+  "layout": {
+    "direction": "row",
+    "first": "3D!navdp",
+    "second": {
+      "direction": "column",
+      "first": {
+        "direction": "row",
+        "first": "Image!rgb",
+        "second": "Image!depth",
+        "splitPercentage": 50
+      },
+      "second": {
+        "direction": "column",
+        "first": {
+          "direction": "row",
+          "first": "Image!goal",
+          "second": "Image!arrival",
+          "splitPercentage": 50
+        },
+        "second": {
+          "direction": "row",
+          "first": "RawMessages!status",
+          "second": "RawMessages!arrival",
+          "splitPercentage": 50
+        },
+        "splitPercentage": 58
+      },
+      "splitPercentage": 42
+    },
+    "splitPercentage": 42
+  }
+}

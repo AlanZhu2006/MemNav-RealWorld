@@ -43,7 +43,7 @@ Odin1 mode 2 ──> stable map->odom ──> map pose / local odom increments �
                                       |
 D435i RGB arrival gate ──────────────┴──> S_i / arrival receipt ──> SPL
 
-第三人称视频 + RViz/dashboard + NavDP receipts + Odin receipts ──> hash manifest
+第三人称视频 + Foxglove/dashboard + NavDP receipts + Odin receipts ──> hash manifest
 ```
 
 不可违反的隔离条件：
@@ -354,7 +354,7 @@ bash deployment/go2/offboard/experiment_capture.sh start scene01_formal_01 \
 ```
 
 此时ROS bag同时记录NavDP、CEC、D435 RGB arrival、Odin odom/cloud/TF和
-`/navdp/gt/status`，桌面继续录RViz dashboard；第三人称相机同步开录。
+`/navdp/gt/status`，桌面继续录Foxglove dashboard；第三人称相机同步开录。
 
 ### 8.3 再启动NavDP正式episode
 
@@ -395,6 +395,9 @@ bash deployment/odin1_gt/scripts/odin_gt.sh score scene01_formal_01 \
 把第三人称视频、GT结果和SPL收据附到同一证据包：
 
 ```bash
+bash deployment/go2/offboard/experiment_capture.sh attach-dashboard \
+  scene01_formal_01 /path/to/foxglove_dashboard.mp4
+
 bash deployment/go2/offboard/experiment_capture.sh attach-third-view \
   scene01_formal_01 /path/to/third_view.mp4
 
@@ -412,14 +415,13 @@ bash deployment/go2/offboard/experiment_capture.sh verify scene01_formal_01
 当`--gt-source odin1`时，缺少`odin_gt_status.jsonl`、GT result或SPL receipt都会拒绝
 正式finalize；不能用手填SPL绕过。
 
-## 9. RViz与现场观察
+## 9. Foxglove与现场观察
 
-现有NavDP RViz继续负责D435i画面、局部轨迹、CEC和控制状态。Odin调试建议另开窗口：
+现有NavDP Foxglove布局负责D435i画面、局部轨迹、CEC和控制状态。Odin调试在
+Foxglove中导入独立布局：
 
 ```bash
-source /opt/ros/humble/setup.bash
-source /home/nvidia/twork/odin_ws/install/setup.bash
-rviz2 -d deployment/odin1_gt/config/odin_gt.rviz
+deployment/odin1_gt/config/odin_gt.foxglove-layout.json
 ```
 
 Formal时Fixed Frame使用`map`，检查：
@@ -429,8 +431,8 @@ Formal时Fixed Frame使用`map`，检查：
 - TF树存在`map -> odom -> odin1_base_link`；
 - NavDP局部轨迹仍在机器人局部坐标，不与Odin A*路线混作控制输出。
 
-桌面录制会捕获整个VNC display；若并排展示两个RViz窗口，应在正式campaign前冻结布局，
-20次run不要临时改窗口尺寸或topic配置。
+Foxglove dashboard在操作电脑录制并通过`attach-dashboard`导入；正式campaign前应冻结
+布局、窗口尺寸和topic配置，20次run中不要临时修改。
 
 ## 10. 正式campaign前的P0验证
 

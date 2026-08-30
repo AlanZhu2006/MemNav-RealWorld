@@ -1,0 +1,96 @@
+{
+  "configById": {
+    "3D!odin": {
+      "cameraState": {
+        "distance": 12,
+        "perspective": false,
+        "phi": 0,
+        "target": [0, 0, 0],
+        "targetOffset": [0, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "thetaOffset": 0,
+        "fovy": 45,
+        "near": 0.01,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "followTf": "odom",
+      "fixedFrame": "odom",
+      "scene": {
+        "backgroundColor": "#1e2024",
+        "labelScaleFactor": 0.7
+      },
+      "transforms": {},
+      "topics": {
+        "/odin1/cloud_slam": {
+          "visible": true,
+          "colorMode": "colormap",
+          "colorField": "z",
+          "colorMap": "turbo",
+          "pointSize": 2,
+          "decayTime": 8
+        },
+        "/odin1/odometry": {
+          "visible": true
+        },
+        "/odin1/path": {
+          "visible": true,
+          "color": "#ffbe1e",
+          "lineWidth": 3
+        }
+      },
+      "layers": {
+        "odin-grid": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Metric grid",
+          "instanceId": "odin-grid",
+          "layerId": "foxglove.Grid",
+          "size": 20,
+          "divisions": 40,
+          "lineWidth": 1,
+          "color": "#6e737d",
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "order": 1,
+          "frameId": "odom"
+        }
+      },
+      "foxglovePanelTitle": "Odin reference trajectory / SLAM"
+    },
+    "RawMessages!gt": {
+      "topicPath": "/navdp/gt/status",
+      "diffTopicPath": "",
+      "diffMethod": "custom",
+      "diffEnabled": false,
+      "showFullMessageForDiff": false,
+      "foxglovePanelTitle": "Odin GT status"
+    },
+    "RawMessages!odom": {
+      "topicPath": "/odin1/odometry",
+      "diffTopicPath": "",
+      "diffMethod": "custom",
+      "diffEnabled": false,
+      "showFullMessageForDiff": false,
+      "foxglovePanelTitle": "Odin odometry"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "linkedGlobalVariables": [],
+  "playbackConfig": {
+    "speed": 1,
+    "messageOrder": "receiveTime"
+  },
+  "layout": {
+    "direction": "row",
+    "first": "3D!odin",
+    "second": {
+      "direction": "column",
+      "first": "RawMessages!gt",
+      "second": "RawMessages!odom",
+      "splitPercentage": 50
+    },
+    "splitPercentage": 72
+  }
+}

@@ -33,7 +33,9 @@ auditable overlay instead of an anonymous source dump.
 | `deployment/go2/nav_stack.sh` + `stack_profiles.py` | Canonical composition boundary for two navigation profiles and three independent arrival authorities |
 | `deployment/go2/offboard/` | SSH-forward and protocol-v3 offboard launcher with an executor-schema compatibility gate |
 | `deployment/go2/terminal_motion_override.py` | The sole typed boundary for bounded direct-bearing atomic turns |
-| `deployment/go2/offboard/experiment_capture.sh` | Evidence-only ROS bag, receipt and RViz/dashboard recorder; no motion calls |
+| `deployment/go2/scripts/run_foxglove_bridge.sh` | Headless read-only ROS 2 WebSocket bridge and visualization-only static TF |
+| `deployment/go2/config/navdp_debug.foxglove-layout.json` | Versioned NavDP camera/depth/goal/arrival/trajectory layout |
+| `deployment/go2/offboard/experiment_capture.sh` | Evidence-only MCAP and receipt recorder plus external Foxglove-dashboard import; no motion calls |
 | `deployment/go2/experiment_capture_manifest.py` | Run identity, third-view import, artifact SHA-256 and finalization contract |
 | `deployment/go2/experiment_topic_logger.py` | Human-readable JSONL mirror of status, CEC and evaluator receipts |
 | `deployment/odin1_gt/` | Independent Odin1 native-0.14/legacy-0.13 driver profiles, mapping/relocalization monitor, 2-D occupancy, arrival and A* SPL evidence lane |
@@ -94,7 +96,7 @@ evidence only and are not treated as a formal run.
 - Conda/venv environments and compiled dependencies;
 - MemNav causal buffers and service logs;
 - captured goal RGB/depth, Go2 reference poses and raw result JSON;
-- raw ROS bags, receipt logs, third-view masters and RViz recordings under
+- raw ROS bags, receipt logs, third-view masters and Foxglove recordings under
   `runtime/` (only reviewed publication derivatives are committed);
 - robot/network credentials and SSH private keys;
 - simulator datasets and unrelated diagnostics.

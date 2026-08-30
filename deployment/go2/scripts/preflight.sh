@@ -16,6 +16,16 @@ fail() { printf '[FAIL] %s\n' "$*"; failures=$((failures + 1)); }
 [[ -r /etc/nv_tegra_release ]] && pass "L4T $(head -n1 /etc/nv_tegra_release)" || warn "L4T release file missing"
 [[ -f "$NAVDP_ROS_SETUP" ]] && pass "ROS 2 Humble setup" || fail "ROS setup missing"
 [[ -f "$NAVDP_REALSENSE_SETUP" ]] && pass "RealSense ROS workspace" || fail "RealSense workspace missing"
+if [[ "$CFG_WITH_FOXGLOVE" == true ]]; then
+  if command -v ros2 >/dev/null 2>&1 && navdp_source_ros >/dev/null 2>&1 \
+      && ros2 pkg prefix foxglove_bridge >/dev/null 2>&1; then
+    pass "Foxglove Bridge package"
+  else
+    fail "Foxglove Bridge package missing (install ros-humble-foxglove-bridge)"
+  fi
+  [[ -f "$CFG_FOXGLOVE_LAYOUT" ]] \
+    && pass "Foxglove layout" || fail "Foxglove layout missing: $CFG_FOXGLOVE_LAYOUT"
+fi
 
 realsense_devices=""
 if command -v rs-enumerate-devices >/dev/null 2>&1; then

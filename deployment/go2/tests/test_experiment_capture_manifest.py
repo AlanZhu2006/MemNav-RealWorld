@@ -39,8 +39,10 @@ def create_capture(tmp_path: Path) -> Path:
 def populate_required_artifacts(root: Path, third_source: Path) -> None:
     (root / "rosbag").mkdir()
     (root / "rosbag" / "metadata.yaml").write_text("rosbag2_bagfile_information: {}\n")
-    (root / "rosbag" / "capture_0.db3").write_bytes(b"sqlite evidence")
-    (root / "media" / "dashboard.mp4").write_bytes(b"dashboard h264")
+    (root / "rosbag" / "capture_0.mcap").write_bytes(b"mcap evidence")
+    dashboard_source = root.parent / "foxglove-dashboard.mp4"
+    dashboard_source.write_bytes(b"foxglove dashboard h264")
+    attach_video(root, role="foxglove_dashboard", source=dashboard_source)
     (root / "logs" / "status.jsonl").write_text('{"state":"ready"}\n')
     (root / "logs" / "cec_receipt.jsonl").write_text('{"takeover":true}\n')
     attach_video(root, role="third_view", source=third_source)
@@ -121,6 +123,16 @@ class ExperimentCaptureManifestTests(unittest.TestCase):
 
         self.assertEqual((root / receipt["path"]).read_bytes(), source.read_bytes())
         self.assertEqual(receipt["bytes"], len(source.read_bytes()))
+
+    def test_foxglove_dashboard_is_attachable(self):
+        root = create_capture(self.tmp_path)
+        source = self.tmp_path / "foxglove.mkv"
+        source.write_bytes(b"foxglove dashboard master bytes")
+
+        receipt = attach_video(root, role="foxglove_dashboard", source=source)
+
+        self.assertEqual(receipt["path"], "media/dashboard.mkv")
+        self.assertEqual((root / receipt["path"]).read_bytes(), source.read_bytes())
 
     def test_receipt_logger_parses_json_and_preserves_non_json(self):
         writer = ReceiptLogWriter(self.tmp_path)

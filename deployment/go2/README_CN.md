@@ -17,7 +17,7 @@ bash deployment/go2/nav_stack.sh start \
 配置分两层：
 
 - `deployment/config/system.json`：两机路径、模型、端口、相机高度 `0.42 m`、速度和安全参数；
-- `deployment/config/experiments/*.json`：profile、ImageGoal、arrival 和是否启动相机/Go2/RViz。
+- `deployment/config/experiments/*.json`：profile、ImageGoal、arrival 和是否启动相机/Go2/Foxglove。
 
 入口先生成 `runtime/config/<config_id>.json`。这个文件包含最终绝对路径、Git
 revision、ImageGoal 尺寸和 SHA-256。所有 tmux 进程只收到这一份文件；Full-Mono
@@ -56,7 +56,7 @@ Full-Mono 的 D435 depth 只留在 Jetson 本地安全层。
 
 ## 3. 启动原生 baseline
 
-按需修改 `native_imagegoal.json` 的 `launch.go2_bridge`、`launch.rviz` 和 arrival，
+按需修改 `native_imagegoal.json` 的 `launch.go2_bridge`、`launch.foxglove` 和 arrival，
 然后：
 
 ```bash
@@ -67,6 +67,22 @@ bash deployment/go2/nav_stack.sh start \
 原生 profile 不访问 4090，不启动 CEC/MemNav/LingBot。它调用原版
 `NavDP_Agent.step_imagegoal()`，当前 RGB-D 进入策略，配置中的目标 RGB 作为
 ImageGoal。
+
+`launch.foxglove=true`只在Jetson启动无界面、只读Bridge。操作电脑打开Foxglove，
+连接`ws://JETSON_IP:8765`并导入
+`deployment/go2/config/navdp_debug.foxglove-layout.json`。不需要VNC；Bridge不允许
+浏览器发布topic、调用service或修改参数。
+
+默认Bridge监听所有网卡且不启用TLS。虽然它没有控制权限，但会暴露相机与状态数据，
+所以只应在可信实验局域网或Tailscale内使用；跨公网时必须另加防火墙或加密代理。
+
+数据链路是`ROS publisher -> Foxglove Bridge广告白名单topic -> 可见panel按需订阅`。
+Bridge不会把所有高带宽图像无条件推给浏览器；如果Topics侧栏能看到topic但panel没有画面，
+应先重新导入版本化布局并确认该panel已选择对应topic，而不是重启导航。
+
+首次部署由`setup_jetson.sh`安装`ros-humble-foxglove-bridge`和
+`ros-humble-rosbag2-storage-mcap`。Foxglove Desktop/Web运行在操作电脑，不需要安装在
+Jetson。
 
 ## 4. 启动 Full-Mono
 

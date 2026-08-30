@@ -166,7 +166,7 @@ Each of the 20 paired blocks must bind both arm run IDs to:
 1. the same frozen scene, Survey, goal, start, and budget receipts;
 2. Jetson and RTX Git commits and method configuration hashes;
 3. independent success, `L`, `P`, and SPL receipts;
-4. ROS bag, CEC/status JSONL, RViz dashboard, and third-person video;
+4. ROS bag, CEC/status JSONL, Foxglove dashboard, and third-person video;
 5. CEC accept/reject, selected anchor, certificate fields, and fallback audit;
 6. reset tolerance and arm-order compliance;
 7. collision, intervention, network, hardware, and policy failure attribution.

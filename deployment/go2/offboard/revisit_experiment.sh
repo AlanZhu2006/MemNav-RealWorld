@@ -186,7 +186,7 @@ survey_start() {
   local dataset_id="$1"
   shift
   validate_id "$dataset_id"
-  [[ $# -eq 0 ]] || die "survey-start accepts only DATASET_ID; RViz belongs in config"
+  [[ $# -eq 0 ]] || die "survey-start accepts only DATASET_ID; Foxglove belongs in config"
   ! tmux has-session -t "$SESSION" 2>/dev/null \
     || die "stack is already running; seal or stop it first"
   local config_path="$RUNTIME_ROOT/$dataset_id/survey_config.json"
@@ -285,7 +285,7 @@ formal_start() {
         esac
         shift 2
         ;;
-      *) die "unknown formal-start option: $1; RViz belongs in config" ;;
+      *) die "unknown formal-start option: $1; Foxglove belongs in config" ;;
     esac
   done
   local authority_mode

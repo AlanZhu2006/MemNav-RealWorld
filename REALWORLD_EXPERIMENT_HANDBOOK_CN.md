@@ -6,7 +6,7 @@ Snapshot: **2026-08-29**
 评测计划：**4 scenes × 5 paired native/CEC blocks = 20 pairs / 40 runs**
 
 本文是本仓库真机实验、现场交接和结果整理的统一入口。它把系统架构、双机路径、
-Survey/Formal 两阶段协议、目标图来源、在线决策、Go2 控制、安全门、RViz、双视角采集、
+Survey/Formal 两阶段协议、目标图来源、在线决策、Go2 控制、安全门、Foxglove、双视角采集、
 SR/SPL、故障处理和当前缺口集中在一个文档中。其他文档继续保留为实现细节、历史发布
 记录和独立审计依据；现场执行应优先遵循本文和 `CURRENT_STATUS.md` 的最新边界。
 
@@ -42,7 +42,7 @@ SR/SPL、故障处理和当前缺口集中在一个文档中。其他文档继�
 - Jetson tracker 已以 `0.30 m/s` 正向驱动 Go2，修复了早期低速门控导致的左右 hunting；
 - 独立 RGB-only commissioning arrival gate 已完成一次近 D 点有电锁存、disable、estop
   和零速度闭环，证明 detector-to-adapter 停车传输可工作；
-- 每轮可以绑定 ROS bag、CEC/status JSONL、RViz dashboard、第三人称视频和 Git revision。
+- 每轮可以绑定 ROS bag、CEC/status JSONL、Foxglove dashboard、第三人称视频和 Git revision。
 
 ### 1.3 当前仍没有建立什么
 
@@ -212,7 +212,7 @@ Jetson 与 4090 同步到同一 commit；不再使用环境变量覆盖机器差
 │   └── Unitree SportClient.Move() -> motors                   │
 │                                                              │
 │ Observation-only sidecars                                    │
-│   ├── RViz dashboard                                         │
+│   ├── Foxglove dashboard                                         │
 │   ├── RGB arrival / audit                                    │
 │   ├── ROS bag + JSONL collector                              │
 │   └── external third-person camera                           │
@@ -323,7 +323,7 @@ phase = revisit_query
 `goal_start_frame` 和 candidate ceiling；若从 frame 0 发目标，随后整段 survey history 都会被
 排除在合法 Revisit candidate 之外。Protocol-v3 把这个错误变成结构上不可能发生。
 
-Hub是 phase authority；Jetson只镜像 phase 用于本地 gating 和 RViz状态。
+Hub是 phase authority；Jetson只镜像 phase 用于本地 gating 和 Foxglove状态。
 
 ---
 
@@ -549,7 +549,7 @@ bash deployment/go2/offboard/revisit_experiment.sh \
 3. 全新启动 RTX MemNav、NavDP、Hub；
 4. 建立 SSH tunnel；
 5. 启动 D435i并等待 CameraInfo；
-6. 启动 adapter、Go2 watchdog bridge 和 RViz；
+6. 启动 adapter、Go2 watchdog bridge 和 Foxglove；
 7. 保持 `disabled + estop`；
 8. 逐文件验证 sealed dataset；
 9. 将 survey RGB 重放给 LingBot/CEC 长期 memory；
@@ -652,7 +652,7 @@ dataset SHA、scene ID与run ID，因而同一启动路径可执行Novel和Revis
 
 ### 10.1 Preflight
 
-Formal stack 和 RViz 已启动、运动仍锁止时：
+Formal stack 和无界面 Foxglove Bridge 已启动、运动仍锁止时：
 
 ```bash
 bash deployment/go2/offboard/experiment_capture.sh preflight
@@ -660,11 +660,9 @@ bash deployment/go2/offboard/experiment_capture.sh preflight
 
 Preflight 检查：
 
-- `ros2 bag record`；
+- ROS 2 MCAP storage；
 - `tmux`；
-- X11 display；
-- RViz进程；
-- GStreamer H.264 components；
+- `/foxglove_bridge` 节点；
 - 必需 ROS topics。
 
 它不发布速度、不 clear estop、不 enable adapter。
@@ -705,11 +703,11 @@ Collector 输出 `START` 后：
 
 1. 开始独立第三人称相机；
 2. 做一次画面清晰可见的同步拍手；
-3. 确认 RViz dashboard 正在录制；
+3. 在操作电脑确认 Foxglove dashboard 正在录屏；
 4. 再确认 RGB arrival 模块；
 5. 最后才执行运动授权。
 
-第三人称视频用于证明真实运动、足部接触、碰撞、操作员干预和物理终点；RViz用于解释
+第三人称视频用于证明真实运动、足部接触、碰撞、操作员干预和物理终点；Foxglove用于解释
 策略内部状态。两者不能互相替代。
 
 ---
@@ -943,11 +941,11 @@ plan_while_disabled=true
 - scene/run ID 正确；
 - formal-ready receipts 全部通过；
 - expected dataset SHA 和 goal SHA 一致；
-- current RGB、depth、goal、paths 和状态在 RViz可见；
+- current RGB、depth、goal、paths 和状态在 Foxglove可见；
 - inference不忙；
 - `/navdp/cmd_vel` 在 disabled 时为零；
 - arrival/termination procedure 已运行；
-- ROS bag、JSONL和dashboard已开始录制；
+- MCAP和JSONL已开始录制，操作电脑上的dashboard已开始录屏；
 - 第三人称相机已开始并完成同步拍手；
 - 测试区清空；
 - 遥控器操作者就位；
@@ -1010,14 +1008,30 @@ bash deployment/go2/offboard/revisit_experiment.sh stop
 
 ---
 
-## 16. RViz和实时调试
+## 16. Foxglove和实时调试
 
 ### 16.1 启动与连接
 
-实验配置使用 `launch.rviz=true` 后：
+实验配置使用 `launch.foxglove=true` 后，Jetson 只启动无界面、只读的 Bridge，
+不再需要VNC或本机图形桌面。操作电脑打开Foxglove，连接：
+
+```text
+ws://JETSON_IP:8765
+```
+
+然后导入仓库中的布局：
+
+```text
+deployment/go2/config/navdp_debug.foxglove-layout.json
+```
+
+Bridge禁止client publish、service call和参数修改，Foxglove只具有观察权限。
+默认配置监听所有网卡且没有TLS，因此只能放在可信实验局域网或Tailscale内；相机数据
+仍属于敏感遥测，不能把8765端口直接暴露到公网。查看Jetson端Bridge日志可执行：
 
 ```bash
-tmux attach -t navdp-go2-offboard
+tmux capture-pane -pt navdp-go2:foxglove -S -100
+# Full-Mono使用navdp-go2-offboard:foxglove
 ```
 
 也可以在其他终端观察：
@@ -1031,7 +1045,7 @@ ros2 topic hz /camera/camera/aligned_depth_to_color/image_raw
 
 ### 16.2 Dashboard内容
 
-| RViz display | Topic/含义 |
+| Foxglove display | Topic/含义 |
 | --- | --- |
 | RGB Camera | `/camera/camera/color/image_raw` |
 | Aligned Depth | `/camera/camera/aligned_depth_to_color/image_raw`，仅本地安全 |
@@ -1040,7 +1054,15 @@ ros2 topic hz /camera/camera/aligned_depth_to_color/image_raw
 | Candidate paths | `/navdp/debug/markers` |
 | Selected trajectory | `/navdp/trajectory` |
 | Goal/status markers | phase、CEC、clearance、vx/wz、error |
+| NavDP status | `/navdp/status`完整只读状态消息 |
+| Arrival status | `/navdp/rgb_arrival_status`匹配分数与停靠判断 |
 | Local grid | `navdp_local` robot-local frame |
+
+Bridge还允许Foxglove按需查看`/navdp/*`、`/tf`、`/tf_static`、Go2状态以及可选Odin
+参考topic；布局只把最常用内容固定成dashboard，其余允许topic仍可从Topics侧栏临时加入。
+链路为`ROS publisher -> Bridge广告白名单topic -> 可见panel按需订阅`，不是Jetson把所有
+高带宽流持续强推给浏览器。Topics侧栏存在而panel没画面时，应先重新导入布局并核对panel
+的topic选择。
 
 ### 16.3 `/navdp/status`重点字段
 
@@ -1075,7 +1097,7 @@ ros2 topic hz /camera/camera/aligned_depth_to_color/image_raw
 - 过期期间Jetson必须输出零速度；
 - 新receipt到达后才恢复控制。
 
-如果 RViz路径合理但长期不动，依次检查：
+如果 Foxglove路径合理但长期不动，依次检查：
 
 1. `enabled`；
 2. `estop`；
@@ -1173,9 +1195,12 @@ bash deployment/go2/offboard/experiment_capture.sh stop \
   scene01_formal_01
 ```
 
-### 18.3 导入第三人称原片
+### 18.3 导入Foxglove dashboard和第三人称原片
 
 ```bash
+bash deployment/go2/offboard/experiment_capture.sh attach-dashboard \
+  scene01_formal_01 /path/from/operator/foxglove_dashboard.mp4
+
 bash deployment/go2/offboard/experiment_capture.sh attach-third-view \
   scene01_formal_01 /path/from/camera/third_view.mp4
 ```
@@ -1196,8 +1221,8 @@ bash deployment/go2/offboard/experiment_capture.sh finalize \
 
 正式bundle必须包含：
 
-- closed rosbag和`metadata.yaml`；
-- 非空dashboard MP4；
+- closed MCAP rosbag和`metadata.yaml`；
+- byte-preserved非空Foxglove dashboard视频；
 - byte-preserved third-view视频；
 - 非空status JSONL；
 - 非空CEC receipt JSONL；
@@ -1287,7 +1312,7 @@ hold。它不进入NavDP控制，且仍需完成当前Go2安装/重定位/尺度
 - 每个run success、`L_i`、`P_i`、`SPL_i`；
 - capture manifest SHA；
 - third-view MP4/GIF；
-- RViz dashboard MP4/GIF；
+- Foxglove dashboard MP4/GIF；
 - 失败原因；
 - 场景aggregate SR和mean SPL。
 
@@ -1437,7 +1462,7 @@ tail -n 100 runtime/go2/logs/realsense.log
 如果是causal append、mono receipt或NavDP state ambiguous，不允许只重试当前step。保持
 运动锁止，执行完整reset或重新`formal-start`。
 
-### 22.5 RViz路径正常但Go2不动
+### 22.5 Foxglove路径正常但Go2不动
 
 依次检查：
 
@@ -1521,7 +1546,7 @@ bridge min_cmd_w=0.20
 [ ] active goal SHA匹配
 [ ] adapter disabled
 [ ] estop asserted
-[ ] current RGB / depth / goal / paths在RViz可见
+[ ] current RGB / depth / goal / paths在Foxglove可见
 [ ] last_error为空
 [ ] inference不忙且receipt新鲜
 [ ] capture preflight通过
@@ -1536,7 +1561,7 @@ bridge min_cmd_w=0.20
 ```text
 [ ] 先clear estop
 [ ] 再set_enabled=true
-[ ] 首个命令方向与RViz一致
+[ ] 首个命令方向与Foxglove一致
 [ ] vx/wz不超过formal limit
 [ ] 第三人称画面持续覆盖机器人
 ```
@@ -1544,7 +1569,7 @@ bridge min_cmd_w=0.20
 ### 24.3 Run中
 
 ```text
-[ ] 观察真实机器人，不只看RViz
+[ ] 观察真实机器人，不只看Foxglove
 [ ] 记录任何接管、碰撞、打滑、遮挡和动态干扰
 [ ] 观察status/receipt是否fresh
 [ ] 观察clearance和stop_reason
@@ -1640,6 +1665,9 @@ ros2 service call /navdp_go2_adapter/set_enabled \
 ```bash
 bash deployment/go2/offboard/experiment_capture.sh stop \
   scene01_formal_01
+
+bash deployment/go2/offboard/experiment_capture.sh attach-dashboard \
+  scene01_formal_01 /path/to/foxglove_dashboard.mp4
 
 bash deployment/go2/offboard/experiment_capture.sh attach-third-view \
   scene01_formal_01 /path/to/third_view.mp4
@@ -1754,7 +1782,7 @@ bash deployment/go2/nav_stack.sh start \
 - CycloneDDS安装存在；
 - Unitree SDK Python存在；
 - `eth0`或指定接口拥有`192.168.123.x`地址；
-- tmux、curl、GStreamer、RViz和rosbag可用；
+- tmux、curl、Foxglove Bridge和ROS 2 MCAP可用；
 - 磁盘空间满足capture profile。
 
 ### A.5 SSH和tunnel
@@ -1809,7 +1837,7 @@ bash deployment/go2/nav_stack.sh stop
 ### A.7 首次有电运动验收
 
 只在上述静态门全部通过后，以`0.5–1.0 m`短路线、系绳、宽阔平地和遥控器操作者进行。
-配置`launch.go2_bridge=true`和`launch.rviz=true`后adapter仍disabled，必须按第15节现场检查和两步授权。
+配置`launch.go2_bridge=true`和`launch.foxglove=true`后adapter仍disabled，必须按第15节现场检查和两步授权。
 
 Commissioning smoke如果必须使用不同控制参数，应显式设置
 在实验配置中设置`control.profile=acceptance`，并标记为engineering run；它不能进入正式SR/SPL。
@@ -1905,7 +1933,7 @@ bash deployment/go2/offboard/experiment_capture.sh attach-odin-gt \
 开始正式run。ready后TF大跳、odom跳变、D435i视觉过期、地图SHA变化或A*无合法路径均
 使run无效/失败，禁止人工补填指标。
 
-完整安装、建图、目标绑定、formal、RViz、失败语义和P0标定见
+完整安装、建图、目标绑定、formal、Foxglove、失败语义和P0标定见
 `deployment/odin1_gt/README_CN.md`；机器冻结清单见
 `manifests/odin1_gt_reference_v1.json`。截至2026-08-28，代码与离线测试已完成，但Odin
 当前未连接，serial/外参/高度带/重定位率/路径精度/到达阈值均未现场冻结，因此它还不是

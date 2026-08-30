@@ -45,13 +45,14 @@ ODIN_GT_TOPICS=(
 
 usage() {
   cat <<'EOF'
-Usage (run on Jetson while the NavDP stack and RViz are already running):
-  experiment_capture.sh preflight [--display DISPLAY]
+Usage (run on Jetson while the NavDP stack and Foxglove Bridge are running):
+  experiment_capture.sh preflight
   experiment_capture.sh start RUN_ID [--dataset DATASET_ID]
       [--trial-kind revisit|novel|calibration|debug]
-      [--profile audit|full] [--gt-source none|odin1] [--display DISPLAY]
+      [--profile audit|full] [--gt-source none|odin1]
   experiment_capture.sh status RUN_ID
   experiment_capture.sh stop RUN_ID
+  experiment_capture.sh attach-dashboard RUN_ID VIDEO
   experiment_capture.sh attach-third-view RUN_ID VIDEO
   experiment_capture.sh attach-odin-gt RUN_ID GT_RESULT SPL_RECEIPT
   experiment_capture.sh finalize RUN_ID OUTCOME [--notes TEXT]
@@ -59,8 +60,8 @@ Usage (run on Jetson while the NavDP stack and RViz are already running):
   experiment_capture.sh verify RUN_ID
 
 Profiles:
-  audit  Records policy state, CEC receipts, trajectories, commands, RGB
-         arrival output and RViz. The RTX episodic dataset remains the causal RGB
+  audit  Records policy state, CEC receipts, trajectories, commands and RGB
+         arrival output to MCAP. The RTX episodic dataset remains the causal RGB
          authority. This is the recommended formal-run profile.
   full   Adds raw D435i RGB and aligned depth to the rosbag. Use only when disk
          bandwidth and capacity have been checked; policy authority is unchanged.
@@ -95,94 +96,16 @@ session_name() {
   printf '%s-%s' "$CAPTURE_SESSION_PREFIX" "$1"
 }
 
-resolve_xauthority() {
-  local pid value
-  while read -r pid; do
-    [[ -r "/proc/$pid/environ" ]] || continue
-    value="$(
-      tr '\0' '\n' <"/proc/$pid/environ" |
-        sed -n 's/^XAUTHORITY=//p' | head -n 1
-    )"
-    if [[ -n "$value" && -r "$value" ]]; then
-      printf '%s' "$value"
-      return
-    fi
-  done < <(pgrep -x rviz2 2>/dev/null || true)
-  if [[ -n "${XAUTHORITY:-}" && -r "$XAUTHORITY" ]]; then
-    printf '%s' "$XAUTHORITY"
-  elif [[ -r "$HOME/.Xauthority" ]]; then
-    printf '%s' "$HOME/.Xauthority"
-  elif [[ -r "/run/user/$(id -u)/gdm/Xauthority" ]]; then
-    printf '%s' "/run/user/$(id -u)/gdm/Xauthority"
-  fi
-}
-
-resolve_display() {
-  local requested="${1:-}"
-  if [[ -n "$requested" ]]; then
-    DISPLAY="$requested" xdpyinfo >/dev/null 2>&1 \
-      || die "cannot open requested DISPLAY=$requested"
-    printf '%s' "$requested"
-    return
-  fi
-  if [[ -n "${DISPLAY:-}" ]] && xdpyinfo >/dev/null 2>&1; then
-    printf '%s' "$DISPLAY"
-    return
-  fi
-  local pid rviz_display
-  while read -r pid; do
-    [[ -r "/proc/$pid/environ" ]] || continue
-    rviz_display="$(
-      tr '\0' '\n' <"/proc/$pid/environ" |
-        sed -n 's/^DISPLAY=//p' | head -n 1
-    )"
-    if [[ -n "$rviz_display" ]] \
-        && DISPLAY="$rviz_display" xdpyinfo >/dev/null 2>&1; then
-      printf '%s' "$rviz_display"
-      return
-    fi
-  done < <(pgrep -x rviz2 2>/dev/null || true)
-  local socket candidate dimensions width height area
-  local best_display=""
-  local best_area=0
-  for socket in /tmp/.X11-unix/X*; do
-    [[ -S "$socket" ]] || continue
-    candidate=":${socket##*X}"
-    dimensions="$(
-      DISPLAY="$candidate" xdpyinfo 2>/dev/null |
-        awk '/dimensions:/ {value=$2} END {print value}'
-    )"
-    width="${dimensions%x*}"
-    height="${dimensions#*x}"
-    if [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]]; then
-      area=$((width * height))
-      if (( area > best_area )); then
-        best_area=$area
-        best_display="$candidate"
-      fi
-    fi
-  done
-  [[ -n "$best_display" ]] || die "no readable graphical DISPLAY found"
-  printf '%s' "$best_display"
-}
-
-display_dimensions() {
-  local display="$1"
-  DISPLAY="$display" xdpyinfo |
-    awk '/dimensions:/ {value=$2} END {print value}'
-}
-
 require_capture_commands() {
   local command
-  for command in python3 tmux ros2 gst-launch-1.0 gst-inspect-1.0 xdpyinfo; do
+  for command in python3 tmux ros2; do
     command -v "$command" >/dev/null 2>&1 || die "missing command: $command"
-  done
-  for command in ximagesrc videorate videoscale videoconvert x264enc h264parse mp4mux; do
-    gst-inspect-1.0 "$command" >/dev/null 2>&1 \
-      || die "missing GStreamer element: $command"
   done
   [[ -f "$MANIFEST_TOOL" ]] || die "missing manifest tool: $MANIFEST_TOOL"
   [[ -f "$TOPIC_LOGGER" ]] || die "missing receipt logger: $TOPIC_LOGGER"
+  navdp_source_ros
+  ros2 pkg prefix rosbag2_storage_mcap >/dev/null 2>&1 \
+    || die "rosbag2 MCAP storage plugin is missing"
 }
 
 require_live_topics() {
@@ -196,42 +119,25 @@ require_live_topics() {
     grep -Fxq /navdp/gt/status <<<"$topics" || die "/navdp/gt/status is not live"
     grep -Fxq /odin1/odometry <<<"$topics" || die "/odin1/odometry is not live"
   fi
-  pgrep -x rviz2 >/dev/null 2>&1 || die "RViz is not running; start with --with-rviz"
+  grep -Fxq /foxglove_bridge <<<"$(ros2 node list 2>/dev/null || true)" \
+    || die "Foxglove Bridge is not running"
 }
 
 preflight() {
-  local requested_display=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --display) [[ $# -ge 2 ]] || die "--display requires a value"; requested_display="$2"; shift ;;
-      *) die "unknown preflight option: $1" ;;
-    esac
-    shift
-  done
+  [[ $# -eq 0 ]] || die "preflight takes no options"
   require_capture_commands
-  local display dimensions xauthority
-  display="$(resolve_display "$requested_display")"
-  dimensions="$(display_dimensions "$display")"
-  xauthority="$(resolve_xauthority)"
-  [[ -n "$dimensions" ]] || die "cannot determine dimensions for DISPLAY=$display"
   navdp_source_ros
   ros2 bag record --help >/dev/null
   echo "Experiment capture preflight passed"
-  echo "  display:       $display ($dimensions)"
-  echo "  xauthority:    ${xauthority:-inherited/none}"
-  echo "  screen codec:  GStreamer x264/H.264"
-  echo "  rosbag:        available"
+  echo "  visualization: headless read-only Foxglove Bridge"
+  echo "  rosbag:        MCAP storage available"
   echo "  capture root:  $CAPTURE_ROOT"
   echo "  motion change: none"
 }
 
 write_launchers() {
   local root="$1"
-  local display="$2"
-  local xauthority="$3"
-  local capture_width="$4"
-  local capture_height="$5"
-  shift 5
+  shift
   local topics=("$@")
   local topic
 
@@ -240,7 +146,7 @@ write_launchers() {
     echo 'set -euo pipefail'
     printf 'source %q\n' "$GO2_DIR/scripts/common.sh"
     echo 'navdp_source_ros'
-    printf 'exec ros2 bag record --include-unpublished-topics -o %q' "$root/rosbag"
+    printf 'exec ros2 bag record --include-unpublished-topics -s mcap -o %q' "$root/rosbag"
     for topic in "${topics[@]}"; do
       printf ' %q' "$topic"
     done
@@ -256,16 +162,6 @@ write_launchers() {
     printf 'exec python %q --output-dir %q\n' "$TOPIC_LOGGER" "$root/logs"
   } >"$root/receipts/launch_receipts.sh"
 
-  {
-    echo '#!/usr/bin/env bash'
-    echo 'set -euo pipefail'
-    printf 'export DISPLAY=%q\n' "$display"
-    if [[ -n "$xauthority" ]]; then
-      printf 'export XAUTHORITY=%q\n' "$xauthority"
-    fi
-    printf '%s\n' \
-      "exec gst-launch-1.0 -e ximagesrc display-name=\"$display\" use-damage=false show-pointer=true ! videorate ! videoscale ! video/x-raw,framerate=12/1,width=$capture_width,height=$capture_height,pixel-aspect-ratio=1/1 ! queue leaky=downstream max-size-buffers=2 ! videoconvert ! video/x-raw,format=I420 ! x264enc bitrate=4500 speed-preset=ultrafast tune=zerolatency key-int-max=24 ! h264parse config-interval=-1 ! mp4mux faststart=true ! filesink location=\"$root/media/dashboard.mp4\""
-  } >"$root/receipts/launch_dashboard.sh"
   chmod +x "$root/receipts/launch_"*.sh
 }
 
@@ -288,7 +184,7 @@ stop_recorder_session() {
   local timeout_s="${2:-30}"
   tmux has-session -t "$session" 2>/dev/null || return 0
   local window
-  for window in rosbag receipts dashboard; do
+  for window in rosbag receipts; do
     tmux send-keys -t "$session:$window" C-c 2>/dev/null || true
   done
   local deadline=$((SECONDS + timeout_s))
@@ -311,14 +207,12 @@ start_capture() {
   local trial_kind="revisit"
   local profile="audit"
   local gt_source="none"
-  local requested_display=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dataset) [[ $# -ge 2 ]] || die "--dataset requires a value"; dataset_id="$2"; shift ;;
       --trial-kind) [[ $# -ge 2 ]] || die "--trial-kind requires a value"; trial_kind="$2"; shift ;;
       --profile) [[ $# -ge 2 ]] || die "--profile requires a value"; profile="$2"; shift ;;
       --gt-source) [[ $# -ge 2 ]] || die "--gt-source requires a value"; gt_source="$2"; shift ;;
-      --display) [[ $# -ge 2 ]] || die "--display requires a value"; requested_display="$2"; shift ;;
       *) die "unknown start option: $1" ;;
     esac
     shift
@@ -331,26 +225,11 @@ start_capture() {
 
   require_capture_commands
   require_live_topics "$gt_source"
-  local root session display xauthority dimensions source_width source_height
-  local capture_width capture_height
+  local root session
   root="$(run_root "$run_id")"
   session="$(session_name "$run_id")"
   [[ ! -e "$root" ]] || die "run already exists: $root"
   ! tmux has-session -t "$session" 2>/dev/null || die "capture session already exists: $session"
-  display="$(resolve_display "$requested_display")"
-  xauthority="$(resolve_xauthority)"
-  dimensions="$(display_dimensions "$display")"
-  source_width="${dimensions%x*}"
-  source_height="${dimensions#*x}"
-  [[ "$source_width" =~ ^[0-9]+$ && "$source_height" =~ ^[0-9]+$ ]] \
-    || die "invalid display dimensions: $dimensions"
-  capture_width="$source_width"
-  if (( capture_width > 1600 )); then
-    capture_width=1600
-  fi
-  capture_width=$((capture_width / 2 * 2))
-  capture_height=$((source_height * capture_width / source_width / 2 * 2))
-
   local topics=("${AUDIT_TOPICS[@]}")
   if [[ "$profile" == full ]]; then
     topics+=("${FULL_SENSOR_TOPICS[@]}")
@@ -369,19 +248,16 @@ start_capture() {
     manifest_args+=(--topic "$topic")
   done
   python3 "$MANIFEST_TOOL" "${manifest_args[@]}" >/dev/null
-  write_launchers "$root" "$display" "$xauthority" \
-    "$capture_width" "$capture_height" "${topics[@]}"
+  write_launchers "$root" "${topics[@]}"
 
   tmux new-session -d -s "$session" -n rosbag \
     "exec '$root/receipts/launch_rosbag.sh' >'$root/logs/rosbag.log' 2>&1"
   tmux new-window -t "$session" -n receipts \
     "exec '$root/receipts/launch_receipts.sh' >'$root/logs/receipt_logger.log' 2>&1"
-  tmux new-window -t "$session" -n dashboard \
-    "exec '$root/receipts/launch_dashboard.sh' >'$root/logs/dashboard.log' 2>&1"
   sleep 3
   local windows
   windows="$(tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null || true)"
-  for topic in rosbag receipts dashboard; do
+  for topic in rosbag receipts; do
     if ! grep -Fxq "$topic" <<<"$windows"; then
       stop_recorder_session "$session" 10 || true
       python3 "$MANIFEST_TOOL" mark-captured --run-root "$root" --clean false >/dev/null
@@ -397,7 +273,7 @@ start_capture() {
   echo "  run root:     $root"
   echo "  profile:      $profile"
   echo "  GT source:    $gt_source"
-  echo "  dashboard:    $display -> ${capture_width}x${capture_height} @ 12 fps"
+  echo "  dashboard:    attach a Foxglove screen recording after the run"
   echo "  motion change: none"
   echo
   echo "Start the external third-person camera now and make one visible sync clap."
@@ -443,7 +319,8 @@ stop_capture() {
   echo "  run root:   $root"
   echo "  clean stop: $clean"
   echo
-  echo "Import the external video, then finalize:"
+  echo "Import the Foxglove dashboard and external video, then finalize:"
+  echo "  $0 attach-dashboard $run_id /path/to/foxglove_dashboard.mp4"
   echo "  $0 attach-third-view $run_id /path/to/third_view.mp4"
   echo "  $0 finalize $run_id success --notes 'operator-confirmed outcome'"
 }
@@ -454,6 +331,15 @@ attach_third_view() {
   validate_id "$run_id"
   python3 "$MANIFEST_TOOL" attach-video \
     --run-root "$(run_root "$run_id")" --role third_view --source "$source"
+}
+
+attach_dashboard() {
+  local run_id="$1"
+  local source="$2"
+  validate_id "$run_id"
+  python3 "$MANIFEST_TOOL" attach-video \
+    --run-root "$(run_root "$run_id")" \
+    --role foxglove_dashboard --source "$source"
 }
 
 attach_odin_gt() {
@@ -502,6 +388,7 @@ case "$action" in
   start) [[ $# -ge 1 ]] || die "start requires RUN_ID"; run_id="$1"; shift; start_capture "$run_id" "$@" ;;
   status) [[ $# -eq 1 ]] || die "status requires RUN_ID"; status_capture "$1" ;;
   stop) [[ $# -eq 1 ]] || die "stop requires RUN_ID"; stop_capture "$1" ;;
+  attach-dashboard) [[ $# -eq 2 ]] || die "attach-dashboard requires RUN_ID VIDEO"; attach_dashboard "$1" "$2" ;;
   attach-third-view) [[ $# -eq 2 ]] || die "attach-third-view requires RUN_ID VIDEO"; attach_third_view "$1" "$2" ;;
   attach-odin-gt) [[ $# -eq 3 ]] || die "attach-odin-gt requires RUN_ID GT_RESULT SPL_RECEIPT"; attach_odin_gt "$1" "$2" "$3" ;;
   finalize) [[ $# -ge 2 ]] || die "finalize requires RUN_ID OUTCOME"; run_id="$1"; outcome="$2"; shift 2; finalize_capture "$run_id" "$outcome" "$@" ;;

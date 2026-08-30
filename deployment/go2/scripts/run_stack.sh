@@ -91,6 +91,10 @@ echo "  config=$NAVDP_RUN_CONFIG"
 echo "  config_id=$CFG_CONFIG_ID"
 echo "  ImageGoal=$CFG_IMAGE_GOAL"
 echo "  ImageGoal_sha256=$CFG_IMAGE_GOAL_SHA256"
-echo "  camera=$CFG_WITH_CAMERA go2_bridge=$CFG_WITH_GO2 rviz=$CFG_WITH_RVIZ"
+echo "  camera=$CFG_WITH_CAMERA go2_bridge=$CFG_WITH_GO2 foxglove=$CFG_WITH_FOXGLOVE"
+if [[ "$CFG_WITH_FOXGLOVE" == true ]]; then
+  echo "  Foxglove=ws://$CFG_FOXGLOVE_ADDRESS:$CFG_FOXGLOVE_PORT"
+  echo "  layout=$CFG_FOXGLOVE_LAYOUT"
+fi
 echo "  arrival=$CFG_ARRIVAL_MODULE"
 echo "Motion remains disabled until the explicit ROS SetBool call."

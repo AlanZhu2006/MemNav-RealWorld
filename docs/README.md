@@ -11,7 +11,7 @@
 | [`REALWORLD_EXPERIMENT_HANDBOOK_CN.md`](../REALWORLD_EXPERIMENT_HANDBOOK_CN.md) | 完整中文现场实验与交接手册 |
 | [`RUNBOOK.md`](../RUNBOOK.md) | Full-Mono 启动、检查、停止和故障注入速查 |
 | [`TWO_PASS_REVISIT_RUNBOOK.md`](../TWO_PASS_REVISIT_RUNBOOK.md) | sealed Survey → Formal Revisit 两阶段流程 |
-| [`EXPERIMENT_DATA_COLLECTION.md`](../EXPERIMENT_DATA_COLLECTION.md) | ROS bag、receipt、RViz 与第三视角证据封存 |
+| [`EXPERIMENT_DATA_COLLECTION.md`](../EXPERIMENT_DATA_COLLECTION.md) | ROS bag、receipt、Foxglove 与第三视角证据封存 |
 | [`REALWORLD_EVALUATION.md`](../REALWORLD_EVALUATION.md) | 4 场景 × 5 paired blocks 的空白正式评测协议 |
 
 ## 架构与组件

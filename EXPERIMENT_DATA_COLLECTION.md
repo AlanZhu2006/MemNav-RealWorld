@@ -1,16 +1,16 @@
 # Real-World Experiment Data Collection
 
-Snapshot: **2026-08-28**
+Snapshot: **2026-08-30**
 
 This workflow records one NavDP/Go2 trial as a synchronized evidence bundle:
 
-1. ROS 2 bag data for policy state, CEC receipts, trajectories, commands,
+1. ROS 2 MCAP data for policy state, CEC receipts, trajectories, commands,
    RGB arrival output and safety state;
 2. line-oriented JSON copies of `/navdp/status`, `/navdp/cec_receipt`,
    `/navdp/rgb_arrival_status` and the experiment start/stop events;
-3. an automatic H.264 recording of the live RViz desktop;
-4. an externally recorded third-person video, imported byte-for-byte after the
-   run;
+3. an operator-workstation recording of the live Foxglove dashboard, imported
+   byte-for-byte after the run;
+4. an externally recorded third-person video, also imported byte-for-byte;
 5. a frozen manifest containing the Git revision, configuration identity,
    outcome, file sizes and SHA-256 values.
 
@@ -22,9 +22,9 @@ adapter, clear estop or call the Unitree SDK.
 | Evidence | Capture authority | Purpose |
 | --- | --- | --- |
 | RTX episodic dataset | Full-Mono hub | Exact causal memory RGBs, excluded goal candidates and their immutable manifest |
-| ROS bag | Jetson collector | Policy/status/control/RGB-arrival timeline; optional full RGB-D replay |
+| ROS 2 MCAP | Jetson collector | Policy/status/control/RGB-arrival timeline; optional full RGB-D replay |
 | Receipt JSONL | Jetson collector | Human-readable phase, goal-selection, CEC and arrival-audit events |
-| RViz dashboard MP4 | Jetson GStreamer | First-person camera, goal, visual match, aligned safety depth, paths and live state |
+| Foxglove dashboard video | Operator workstation | First-person camera, goal, visual match, aligned safety depth, paths and live state |
 | Third-view master | External camera/operator | Physical motion, contacts, operator intervention and scene outcome |
 | Capture manifest | Jetson collector | Binds all artifacts to one run ID and Git revision with SHA-256 |
 | Optional Odin1 reference | Independent GT sidecar | Stable relocalization, metric goal region, odometry `P_i`, frozen A* `L_i` and SPL receipt; never a policy input |
@@ -36,19 +36,20 @@ records exact software-side `START` and `STOP` UTC events.
 
 ## One-time preflight
 
-Start the formal stack with RViz first. Motion remains locked:
+Start the formal stack with the headless Foxglove Bridge first. Motion remains
+locked:
 
 ~~~bash
 cd /home/nvidia/twork/MemNav-RealWorld
-# Set launch.rviz=true in fullmono_imagegoal.json first.
+# Set launch.foxglove=true in fullmono_imagegoal.json first.
 bash deployment/go2/offboard/revisit_experiment.sh formal-start DATASET_ID
 
 bash deployment/go2/offboard/experiment_capture.sh preflight
 ~~~
 
-Preflight requires the installed ROS bag recorder, `tmux`, a readable X11
-display and the existing GStreamer H.264 components. It does not start a
-recording or touch motion authority.
+Preflight requires the Foxglove Bridge node, the ROS 2 MCAP storage plugin,
+`tmux` and the required ROS topics. It does not require X11/VNC, start a
+dashboard recording or touch motion authority.
 
 ## Start a formal capture
 
@@ -68,8 +69,12 @@ The recommended `audit` profile records:
 
 - `/navdp/status`, `/navdp/cec_receipt` and `/navdp/rgb_arrival_status`;
 - selected/candidate paths, command velocity, enable/estop state and Go2 state;
-- ImageGoal, RGB-arrival debug image, camera calibration and RViz markers;
-- the RViz desktop at 12 fps, H.264, scaled to at most 1600 pixels wide.
+- ImageGoal, RGB-arrival debug image, camera calibration and Foxglove markers.
+
+The collector is intentionally headless. On the operator workstation, connect
+Foxglove to `ws://JETSON_IP:8765`, import
+`deployment/go2/config/navdp_debug.foxglove-layout.json`, and start a screen
+recording before motion authorization.
 
 It does not duplicate the raw camera stream because the RTX episodic dataset
 already owns the exact causal RGB memory. Use `--profile full` only when raw
@@ -96,6 +101,9 @@ the evidence processes gracefully:
 bash deployment/go2/offboard/experiment_capture.sh stop \
   revisit_scene01_trial01
 
+bash deployment/go2/offboard/experiment_capture.sh attach-dashboard \
+  revisit_scene01_trial01 /path/from/operator/foxglove_dashboard.mp4
+
 bash deployment/go2/offboard/experiment_capture.sh attach-third-view \
   revisit_scene01_trial01 /path/from/camera/third_view.mp4
 
@@ -115,8 +123,8 @@ bash deployment/go2/offboard/experiment_capture.sh verify \
 
 `finalize` refuses a formal bundle unless all of the following exist:
 
-- a closed ROS bag with storage and `metadata.yaml`;
-- a non-empty RViz dashboard MP4;
+- a closed MCAP rosbag with storage and `metadata.yaml`;
+- a non-empty, byte-preserved Foxglove dashboard video;
 - a byte-preserved imported third-view video;
 - non-empty status and CEC JSONL logs.
 

@@ -6,18 +6,18 @@
     "profile": "fullmono-lingbot-cec",
     "authority_mode": "cec",
     "navigation": {
-      "image_goal": "deployment/go2/goals/image_goal.png",
+      "image_goal": "deployment/go2/goals/goal_d_novel_frame_125.jpg",
       "revisit_image_goal": null
     },
     "arrival": {
       "module": "rgb-homography",
-      "image_goal": "deployment/go2/goals/image_goal.png",
+      "image_goal": "deployment/go2/goals/goal_d_novel_frame_125.jpg",
       "allowed_phases": ["memory_recording", "revisit_query"]
     },
     "launch": {
       "camera": true,
       "go2_bridge": false,
-      "rviz": false
+      "foxglove": true
     },
     "control": {
       "profile": "formal"

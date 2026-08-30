@@ -128,6 +128,8 @@ expected_modified = {
     "native_0_14": {"src/host_sdk_sample.cpp"},
     "legacy_0_13_1": {
         "config/control_command.yaml",
+        # The upstream patch still touches this unused legacy sample config.
+        # MemNav never launches it; operator visualization uses Foxglove.
         "config/odin_ros2.rviz",
         "src/host_sdk_sample.cpp",
         "src/yaml_parser.cpp",

@@ -1,0 +1,32 @@
+foxglove_bridge:
+  ros__parameters:
+    # Observation only. A browser must never gain motion authority through the
+    # visualization bridge on a physical Go2.
+    capabilities:
+      - connectionGraph
+    service_whitelist:
+      - "(?!)"
+    param_whitelist:
+      - "(?!)"
+    client_topic_whitelist:
+      - "(?!)"
+    topic_whitelist:
+      - "^/navdp/.*"
+      - "^/camera/camera/color/image_raw$"
+      - "^/camera/camera/aligned_depth_to_color/image_raw$"
+      - "^/camera/camera/color/camera_info$"
+      - "^/camera/camera/aligned_depth_to_color/camera_info$"
+      - "^/rt/sportmodestate$"
+      - "^/odin1/.*"
+      - "^/tf$"
+      - "^/tf_static$"
+    include_hidden: false
+    num_threads: 2
+    min_qos_depth: 1
+    max_qos_depth: 10
+    best_effort_qos_topic_whitelist:
+      - "^/camera/.*"
+      - "^/odin1/(cloud_slam|odometry.*|path)$"
+    sysinfo: true
+    publish_client_count: true
+    tls: false

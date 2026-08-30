@@ -19,6 +19,16 @@ if [[ "$(uname -m)" != "aarch64" ]]; then
   exit 1
 fi
 
+if ! dpkg-query -W -f='${Status}\n' \
+    ros-humble-foxglove-bridge ros-humble-rosbag2-storage-mcap \
+    2>/dev/null | grep -c '^install ok installed$' | grep -qx 2; then
+  echo "Installing the headless Foxglove Bridge and MCAP storage plugin"
+  sudo apt-get update
+  sudo apt-get install -y \
+    ros-humble-foxglove-bridge \
+    ros-humble-rosbag2-storage-mcap
+fi
+
 mkdir -p "$CACHE_DIR"
 if [[ ! -x "$NAVDP_VENV/bin/python" ]]; then
   echo "Creating $NAVDP_VENV with ROS system packages visible"

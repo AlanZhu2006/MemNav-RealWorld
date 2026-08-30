@@ -1,6 +1,6 @@
 # Current Full-Mono Real-World Status
 
-Snapshot: **2026-08-29, protocol-v3 + direct-bearing-v2 + optional Odin1 reference lane**
+Snapshot: **2026-08-30, Foxglove + MCAP migration**
 
 现场实验、交接、双机架构、两阶段数据、控制安全、证据采集和SR/SPL的统一操作入口为
 `REALWORLD_EXPERIMENT_HANDBOOK_CN.md`。本文件继续作为最新claim boundary；若旧日期文档
@@ -11,10 +11,10 @@ Snapshot: **2026-08-29, protocol-v3 + direct-bearing-v2 + optional Odin1 referen
 `TWO_PASS_REVISIT_RUNBOOK.md`。该更新解决实验生命周期和持久化，不改变下文
 “正式 arrival/STOP 尚未建立”的结论。
 
-2026-08-27 增加了不具备运动权限的实验采集侧车：每轮自动保存 ROS bag、CEC/status
-JSONL 和 RViz dashboard，第三人称原片导入后与同一 run ID、Git revision 和 SHA-256
-manifest 绑定。当前仓库中的双视角视频只是 engineering reference demo，不改变正式结果
-边界。完整操作见 `EXPERIMENT_DATA_COLLECTION.md`。
+实验采集侧车现在无界面地保存 ROS 2 MCAP 和 CEC/status JSONL。Foxglove dashboard与
+第三人称原片从操作电脑/外部相机逐字节导入，再与同一 run ID、Git revision 和 SHA-256
+manifest绑定；Jetson不再依赖VNC、X11或本地可视化进程。完整操作见
+`EXPERIMENT_DATA_COLLECTION.md`。
 
 原 `4 scenes x 5 repeats = 20 CEC runs` 模板已归档。会议要求的 controlling v2 协议
 改为 4 scenes × 5 matched native/CEC blocks：20 pairs、40 rollouts，方法顺序 10/10
@@ -38,8 +38,9 @@ robot automatically.  This is an engineering milestone, not a completed
 arbitrary-start ImageGoal rollout or a formal STOP contract.  The remaining P0
 is a separately validated, scale-free terminal visual-servo / arrival contract.
 
-The robot is currently stopped.  No camera, NavDP adapter, Go2 bridge or RTX
-policy service is running.
+The robot is currently motion-locked (`disabled + estop`). The native stack,
+camera and read-only Foxglove Bridge may remain live for inspection; this does
+not grant actuator authority.
 
 The paired campaign now has a fail-closed executable arm boundary.  The Jetson
 formal entry point requires `--arm mono_native|mono_cec`, forwards the choice

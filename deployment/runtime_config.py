@@ -250,7 +250,7 @@ def _validate_system(system: Mapping[str, Any]) -> None:
     _exact_keys(models, model_fields, "GPU models")
     _required_keys(models, model_fields, "GPU models")
     stack_fields = {
-        "adapter_params", "rviz_config", "camera_height_m", "formal_limits",
+        "adapter_params", "foxglove", "camera_height_m", "formal_limits",
         "memory", "cec", "arrival", "evidence", "adapter_ready_timeout_s",
         "tunnel_ready_timeout_s",
     }
@@ -258,6 +258,7 @@ def _validate_system(system: Mapping[str, Any]) -> None:
     _exact_keys(stack, stack_fields, "stack")
     _required_keys(stack, stack_fields, "stack")
     nested_fields = {
+        "foxglove": {"layout", "address", "port"},
         "formal_limits": {"max_linear_mps", "max_angular_rps"},
         "memory": {
             "navigate_during_recording", "pause_recording",
@@ -278,6 +279,10 @@ def _validate_system(system: Mapping[str, Any]) -> None:
         nested = _object(stack[name], f"stack.{name}")
         _exact_keys(nested, fields, f"stack.{name}")
         _required_keys(nested, fields, f"stack.{name}")
+    foxglove = _object(stack["foxglove"], "stack.foxglove")
+    if not isinstance(foxglove["address"], str) or not foxglove["address"]:
+        raise ConfigError("stack.foxglove.address must be a non-empty string")
+    _positive_port(foxglove["port"], "stack.foxglove.port")
     height = _number(
         stack.get("camera_height_m"),
         "stack.camera_height_m",
@@ -335,8 +340,8 @@ def _validate_experiment(experiment_file: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(phases, list) or not phases or any(p not in PHASES for p in phases):
         raise ConfigError("arrival.allowed_phases must be a non-empty valid phase list")
     launch = _object(experiment["launch"], "experiment.launch")
-    _exact_keys(launch, {"camera", "go2_bridge", "rviz"}, "launch")
-    _required_keys(launch, {"camera", "go2_bridge", "rviz"}, "launch")
+    _exact_keys(launch, {"camera", "go2_bridge", "foxglove"}, "launch")
+    _required_keys(launch, {"camera", "go2_bridge", "foxglove"}, "launch")
     if any(not isinstance(value, bool) for value in launch.values()):
         raise ConfigError("all launch fields must be booleans")
     if experiment["profile"] == "fullmono-lingbot-cec" and not launch["camera"]:
@@ -393,9 +398,11 @@ def resolve(experiment_path: Path, output: Path | None) -> Path:
     stack["adapter_params"] = str(
         _repo_path(repo, stack["adapter_params"], "adapter params")
     )
-    stack["rviz_config"] = str(
-        _repo_path(repo, stack["rviz_config"], "RViz config")
+    foxglove = _object(stack["foxglove"], "stack.foxglove")
+    foxglove["layout"] = str(
+        _repo_path(repo, foxglove["layout"], "Foxglove layout")
     )
+    stack["foxglove"] = foxglove
     goal = _image_artifact(repo, navigation["image_goal"], "navigation ImageGoal")
     revisit_goal = _optional_image_artifact(
         repo, navigation["revisit_image_goal"], "revisit ImageGoal"
@@ -655,7 +662,7 @@ def shell_exports(payload: Mapping[str, Any], site: str) -> str:
         "CFG_ARRIVAL_MAX_SCALE": payload["arrival"]["max_image_scale"],
         "CFG_WITH_CAMERA": payload["launch"]["camera"],
         "CFG_WITH_GO2": payload["launch"]["go2_bridge"],
-        "CFG_WITH_RVIZ": payload["launch"]["rviz"],
+        "CFG_WITH_FOXGLOVE": payload["launch"]["foxglove"],
         "CFG_CONTROL_PROFILE": payload["control"]["profile"],
         "CFG_MAX_LINEAR_MPS": payload["control"]["max_linear_mps"],
         "CFG_MAX_ANGULAR_RPS": payload["control"]["max_angular_rps"],
@@ -671,7 +678,9 @@ def shell_exports(payload: Mapping[str, Any], site: str) -> str:
         "CFG_DATASET_METADATA": payload["dataset"]["metadata"],
         "CFG_CAMERA_HEIGHT_M": payload["stack"]["camera_height_m"],
         "CFG_ADAPTER_PARAMS": payload["stack"]["adapter_params"],
-        "CFG_RVIZ_CONFIG": payload["stack"]["rviz_config"],
+        "CFG_FOXGLOVE_LAYOUT": payload["stack"]["foxglove"]["layout"],
+        "CFG_FOXGLOVE_ADDRESS": payload["stack"]["foxglove"]["address"],
+        "CFG_FOXGLOVE_PORT": payload["stack"]["foxglove"]["port"],
         "CFG_ADAPTER_READY_TIMEOUT_S": payload["stack"]["adapter_ready_timeout_s"],
         "CFG_TUNNEL_READY_TIMEOUT_S": payload["stack"]["tunnel_ready_timeout_s"],
         "CFG_JETSON_PYTHON": j["python"],

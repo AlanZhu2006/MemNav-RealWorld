@@ -72,7 +72,11 @@
   },
   "stack": {
     "adapter_params": "deployment/go2/config/navdp_go2.yaml",
-    "rviz_config": "deployment/go2/config/navdp_debug.rviz",
+    "foxglove": {
+      "layout": "deployment/go2/config/navdp_debug.foxglove-layout.json",
+      "address": "0.0.0.0",
+      "port": 8765
+    },
     "camera_height_m": 0.42,
     "adapter_ready_timeout_s": 30,
     "tunnel_ready_timeout_s": 10,

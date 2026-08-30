@@ -124,6 +124,10 @@ def test_shell_contract_has_explicit_imagegoal_and_no_legacy_names(tmp_path):
     exports = rc.shell_exports(rc.load_resolved(path), "jetson")
     assert "CFG_IMAGE_GOAL=" in exports
     assert "CFG_IMAGE_GOAL_SHA256=" in exports
+    assert "CFG_WITH_FOXGLOVE=true" in exports
+    assert "CFG_FOXGLOVE_LAYOUT=" in exports
+    assert "CFG_FOXGLOVE_PORT=8765" in exports
+    assert "CFG_WITH_RVIZ" not in exports
     assert "NAVDP_IMAGE_GOAL_PATH" not in exports
     assert "CEC_CAMERA_HEIGHT_M" not in exports
 
@@ -149,3 +153,45 @@ def test_gpu_shell_contract_exposes_only_gpu_and_shared_fields(tmp_path):
     assert "CFG_JETSON_PYTHON=" not in exports
     assert "CFG_UNITREE_NET_IF=" not in exports
     assert "CFG_IMAGE_GOAL=" not in exports
+
+
+def test_foxglove_layout_contains_no_control_panels():
+    layout = json.loads(
+        (
+            REPO
+            / "deployment/go2/config/navdp_debug.foxglove-layout.json"
+        ).read_text(encoding="utf-8")
+    )
+    panel_kinds = {panel_id.split("!", 1)[0] for panel_id in layout["configById"]}
+    assert "Publish" not in panel_kinds
+    assert "ServiceCall" not in panel_kinds
+    assert "Teleop" not in panel_kinds
+    assert {"3D", "Image", "RawMessages"} <= panel_kinds
+
+
+def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():
+    layout = json.loads(
+        (
+            REPO
+            / "deployment/go2/config/navdp_debug.foxglove-layout.json"
+        ).read_text(encoding="utf-8")
+    )
+    panels = layout["configById"]
+    expected_images = {
+        "Image!rgb": "/camera/camera/color/image_raw",
+        "Image!depth": "/camera/camera/aligned_depth_to_color/image_raw",
+        "Image!goal": "/navdp/image_goal",
+        "Image!arrival": "/navdp/rgb_arrival_debug",
+    }
+    for panel_id, topic in expected_images.items():
+        panel = panels[panel_id]
+        assert panel["imageMode"]["imageTopic"] == topic
+        assert "cameraTopic" not in panel
+        assert panel["imageMode"]["publish"] == {
+            "clickEnabled": False,
+            "hoverEnabled": False,
+        }
+    assert panels["3D!navdp"]["topics"]["/navdp/trajectory"]["visible"]
+    assert panels["3D!navdp"]["topics"]["/navdp/debug/markers"]["visible"]
+    assert panels["RawMessages!status"]["topicPath"] == "/navdp/status"
+    assert panels["RawMessages!arrival"]["topicPath"] == "/navdp/rgb_arrival_status"

@@ -65,9 +65,9 @@ depth is never forwarded into the navigation policy.
 
 ## Real-Robot Demo
 
-The clips below are engineering reference footage supplied on 2026-08-27, not
-a formal SR/SPL result. The external view shows physical Go2 motion; the RViz
-dashboard shows the ImageGoal, current RGB, aligned safety depth, visual match,
+The clips below are legacy engineering reference footage supplied on
+2026-08-27, not a formal SR/SPL result. The external view shows physical Go2
+motion; the first-person dashboard shows the ImageGoal, current RGB, aligned safety depth, visual match,
 candidate trajectories, selected trajectory and live control state.
 
 <table width="100%">
@@ -80,17 +80,18 @@ candidate trajectories, selected trajectory and live control state.
       <a href="media/demo/revisit_reference_third_view.mp4">H.264 MP4</a>
     </td>
     <td width="65%" align="center" valign="top">
-      <strong>First-person RViz dashboard</strong><br>
+      <strong>First-person dashboard</strong><br>
       <a href="media/demo/revisit_reference_dashboard.mp4">
-        <img src="media/demo/revisit_reference_dashboard.gif" width="100%" alt="NavDP first-person RViz dashboard engineering demo">
+        <img src="media/demo/revisit_reference_dashboard.gif" width="100%" alt="NavDP first-person dashboard engineering demo">
       </a><br>
       <a href="media/demo/revisit_reference_dashboard.mp4">H.264 MP4</a>
     </td>
   </tr>
 </table>
 
-Formal runs use one run ID to bind the ROS bag, readable CEC/status receipts,
-RViz recording and external third-view master into a SHA-256 manifest. See
+Formal runs use one run ID to bind the MCAP rosbag, readable CEC/status
+receipts, imported Foxglove recording and external third-view master into a
+SHA-256 manifest. See
 [EXPERIMENT_DATA_COLLECTION.md](EXPERIMENT_DATA_COLLECTION.md).
 
 ### Online ImageGoal Route
@@ -160,10 +161,10 @@ tethering for first motion, or the Unitree hand controller.
 
 | Path | Contents |
 | --- | --- |
-| <code>deployment/go2/</code> | D435i, ROS 2 adapter, RViz, RGB arrival gate, Go2 bridge and tests |
+| <code>deployment/go2/</code> | D435i, ROS 2 adapter, Foxglove, RGB arrival gate, Go2 bridge and tests |
 | <code>deployment/go2/nav_stack.sh</code> | Unified profile launcher separating native NavDP, Full-Mono CEC/LingBot and arrival authority |
 | <code>deployment/go2/offboard/</code> | Jetson-to-workstation SSH tunnel and dual-machine launcher |
-| <code>deployment/go2/offboard/experiment_capture.sh</code> | ROS bag, receipt, RViz and third-view evidence binding for each run |
+| <code>deployment/go2/offboard/experiment_capture.sh</code> | ROS bag, receipt, Foxglove and third-view evidence binding for each run |
 | <code>deployment/odin1_gt/</code> | Independent Odin mapping, relocalization, arrival, path and A* SPL evidence lane |
 | <code>deployment/gpu/</code> | Auditable CEC router, fixed-bearing adapter, GPU launch scripts and tests |
 | <code>baselines/navdp/</code> | Frozen NavDP plus audited mono-sidecar and state-safe inference interfaces |
@@ -237,12 +238,15 @@ The output names the final ImageGoal, content hash, source revision and
 
 ### 6. Supervised Run
 
-Set `launch.go2_bridge` and `launch.rviz` in the experiment JSON as required,
+Set `launch.go2_bridge` and `launch.foxglove` in the experiment JSON as required,
 then start with the same one-argument contract:
 
 ~~~bash
 bash deployment/go2/nav_stack.sh start \
   --config deployment/config/experiments/fullmono_imagegoal.json
+
+# On the operator computer, connect Foxglove to ws://JETSON_IP:8765 and import
+# deployment/go2/config/navdp_debug.foxglove-layout.json.
 
 source /opt/ros/humble/setup.bash
 ros2 service call /navdp_go2_adapter/set_enabled \

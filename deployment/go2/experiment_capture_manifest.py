@@ -17,7 +17,8 @@ import sys
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = "memnav_realworld_capture_v1_20260827"
+SCHEMA_VERSION = "memnav_realworld_capture_v2_20260830"
+LEGACY_SCHEMA_VERSIONS = {"memnav_realworld_capture_v1_20260827"}
 RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 OUTCOMES = (
     "success",
@@ -29,6 +30,10 @@ OUTCOMES = (
     "aborted",
 )
 VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv"}
+VIDEO_ROLES = {
+    "foxglove_dashboard": "dashboard",
+    "third_view": "third_view",
+}
 REFERENCE_ROLES = {
     "odin_gt_result": "odin_gt_result.json",
     "odin_spl_receipt": "odin_spl_receipt.json",
@@ -135,7 +140,7 @@ def create_manifest(
         "media_contract": {
             "dashboard": {
                 "required": True,
-                "capture": "automatic_rviz_desktop_recording",
+                "capture": "external_foxglove_dashboard_then_sha256_import",
             },
             "third_view": {
                 "required": True,
@@ -160,7 +165,10 @@ def read_manifest(run_root: Path) -> dict[str, Any]:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
         raise CaptureManifestError(f"invalid capture manifest: {error}") from error
-    if not isinstance(payload, dict) or payload.get("schema_version") != SCHEMA_VERSION:
+    if not isinstance(payload, dict) or payload.get("schema_version") not in {
+        SCHEMA_VERSION,
+        *LEGACY_SCHEMA_VERSIONS,
+    }:
         raise CaptureManifestError("unexpected capture manifest schema")
     validate_run_id(str(payload.get("run_id", "")))
     return payload
@@ -181,8 +189,8 @@ def attach_video(run_root: Path, *, role: str, source: Path) -> dict[str, Any]:
     payload = read_manifest(run_root)
     if payload.get("state") == "finalized":
         raise CaptureManifestError("a finalized run cannot accept new media")
-    if role != "third_view":
-        raise CaptureManifestError("only the external third_view role is attachable")
+    if role not in VIDEO_ROLES:
+        raise CaptureManifestError(f"unsupported video role: {role}")
     source = source.expanduser().resolve()
     if not source.is_file() or source.stat().st_size <= 0:
         raise CaptureManifestError(f"video is missing or empty: {source}")
@@ -191,7 +199,7 @@ def attach_video(run_root: Path, *, role: str, source: Path) -> dict[str, Any]:
         raise CaptureManifestError(
             f"video suffix must be one of {sorted(VIDEO_SUFFIXES)}"
         )
-    target = run_root.resolve() / "media" / f"{role}{suffix}"
+    target = run_root.resolve() / "media" / f"{VIDEO_ROLES[role]}{suffix}"
     if target.exists():
         raise CaptureManifestError(f"media role already attached: {target}")
     temporary = target.with_name(f".{target.name}.{os.getpid()}.tmp")
@@ -314,7 +322,11 @@ def completeness(
         path.startswith("rosbag/") and Path(path).suffix in {".db3", ".mcap"}
         for path in paths
     )
-    dashboard = "media/dashboard.mp4" in paths
+    dashboard = any(
+        path.startswith("media/dashboard")
+        and Path(path).suffix.lower() in VIDEO_SUFFIXES
+        for path in paths
+    )
     third_view = any(
         path.startswith("media/third_view") and Path(path).suffix.lower() in VIDEO_SUFFIXES
         for path in paths
@@ -394,7 +406,7 @@ def verify_manifest(run_root: Path) -> dict[str, Any]:
     ):
         raise CaptureManifestError("MANIFEST.sha256 does not match manifest.json")
     if (root / "FINALIZED").read_text(encoding="ascii").splitlines() != [
-        SCHEMA_VERSION,
+        str(payload["schema_version"]),
         digest,
     ]:
         raise CaptureManifestError("FINALIZED receipt does not match manifest.json")
@@ -440,7 +452,7 @@ def main() -> int:
 
     attach = subparsers.add_parser("attach-video")
     attach.add_argument("--run-root", type=Path, required=True)
-    attach.add_argument("--role", choices=("third_view",), required=True)
+    attach.add_argument("--role", choices=tuple(VIDEO_ROLES), required=True)
     attach.add_argument("--source", type=Path, required=True)
 
     attach_gt = subparsers.add_parser("attach-reference")

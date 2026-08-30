@@ -53,7 +53,10 @@ show_contract() {
   echo "  ImageGoal=$CFG_IMAGE_GOAL"
   echo "  ImageGoal_sha256=$CFG_IMAGE_GOAL_SHA256"
   echo "  arrival=$CFG_ARRIVAL_MODULE arrival_goal=$CFG_ARRIVAL_GOAL"
-  echo "  camera=$CFG_WITH_CAMERA go2_bridge=$CFG_WITH_GO2 rviz=$CFG_WITH_RVIZ"
+  echo "  camera=$CFG_WITH_CAMERA go2_bridge=$CFG_WITH_GO2 foxglove=$CFG_WITH_FOXGLOVE"
+  if [[ "$CFG_WITH_FOXGLOVE" == true ]]; then
+    echo "  Foxglove=ws://$CFG_FOXGLOVE_ADDRESS:$CFG_FOXGLOVE_PORT layout=$CFG_FOXGLOVE_LAYOUT"
+  fi
   echo "  max_linear_mps=$CFG_MAX_LINEAR_MPS max_angular_rps=$CFG_MAX_ANGULAR_RPS"
 }
 

@@ -6,18 +6,18 @@
     "profile": "native-navdp-rgbd",
     "authority_mode": "native",
     "navigation": {
-      "image_goal": "deployment/go2/goals/image_goal.png",
+      "image_goal": "deployment/go2/goals/goal_d_novel_frame_125.jpg",
       "revisit_image_goal": null
     },
     "arrival": {
       "module": "rgb-homography",
-      "image_goal": "deployment/go2/goals/image_goal.png",
+      "image_goal": "deployment/go2/goals/goal_d_novel_frame_125.jpg",
       "allowed_phases": ["revisit_query"]
     },
     "launch": {
       "camera": true,
-      "go2_bridge": false,
-      "rviz": false
+      "go2_bridge": true,
+      "foxglove": true
     },
     "control": {
       "profile": "formal"
