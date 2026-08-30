@@ -11,9 +11,10 @@ foxglove_bridge:
     client_topic_whitelist:
       - "(?!)"
     topic_whitelist:
-      - "^/navdp/.*"
-      - "^/camera/camera/color/image_raw$"
-      - "^/camera/camera/aligned_depth_to_color/image_raw$"
+      - "^/navdp/(arrival|cec_receipt|cmd_vel|enabled|estop|experiment_event|rgb_arrival_status|status|trajectory)$"
+      - "^/navdp/debug/markers$"
+      - "^/navdp/foxglove/.*"
+      - "^/navdp/gt/.*"
       - "^/camera/camera/color/camera_info$"
       - "^/camera/camera/aligned_depth_to_color/camera_info$"
       - "^/rt/sportmodestate$"
@@ -26,6 +27,7 @@ foxglove_bridge:
     max_qos_depth: 10
     best_effort_qos_topic_whitelist:
       - "^/camera/.*"
+      - "^/navdp/foxglove/.*"
       - "^/odin1/(cloud_slam|odometry.*|path)$"
     sysinfo: true
     publish_client_count: true

@@ -34,6 +34,8 @@ auditable overlay instead of an anonymous source dump.
 | `deployment/go2/offboard/` | SSH-forward and protocol-v3 offboard launcher with an executor-schema compatibility gate |
 | `deployment/go2/terminal_motion_override.py` | The sole typed boundary for bounded direct-bearing atomic turns |
 | `deployment/go2/scripts/run_foxglove_bridge.sh` | Headless read-only ROS 2 WebSocket bridge and visualization-only static TF |
+| `deployment/go2/scripts/run_foxglove_preview.sh` | Launch wrapper for bandwidth-bounded Foxglove camera previews |
+| `deployment/go2/foxglove_image_relay.py` | Observation-only camera, depth, goal and arrival JPEG preview relay |
 | `deployment/go2/config/navdp_debug.foxglove-layout.json` | Versioned NavDP camera/depth/goal/arrival/trajectory layout |
 | `deployment/go2/offboard/experiment_capture.sh` | Evidence-only MCAP and receipt recorder plus external Foxglove-dashboard import; no motion calls |
 | `deployment/go2/experiment_capture_manifest.py` | Run identity, third-view import, artifact SHA-256 and finalization contract |

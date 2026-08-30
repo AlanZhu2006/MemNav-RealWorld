@@ -1032,6 +1032,7 @@ Bridge禁止client publish、service call和参数修改，Foxglove只具有观�
 ```bash
 tmux capture-pane -pt navdp-go2:foxglove -S -100
 # Full-Mono使用navdp-go2-offboard:foxglove
+tmux capture-pane -pt navdp-go2:fox-preview -S -100
 ```
 
 也可以在其他终端观察：
@@ -1041,16 +1042,28 @@ ros2 topic echo /navdp/status
 ros2 topic echo /navdp/cec_receipt
 ros2 topic hz /camera/camera/color/image_raw
 ros2 topic hz /camera/camera/aligned_depth_to_color/image_raw
+ros2 topic hz /navdp/foxglove/rgb/compressed
+ros2 topic hz /navdp/foxglove/depth_color/compressed
+ros2 topic hz /navdp/foxglove/goal/compressed
+ros2 topic hz /navdp/foxglove/arrival/compressed
 ```
+
+`fox-preview`只生成显示侧车：RGB为640×360、15 Hz JPEG，深度先按200--4000 mm
+Turbo着色，再生成640×360、10 Hz JPEG；ImageGoal以2 Hz、arrival debug最多以5 Hz生成
+JPEG。原始图继续进入策略、arrival和可选full MCAP，不经过预览侧车。Foxglove保存导入
+布局的本地副本；仓库布局更新后需要重新导入一次，已有dashboard不会自动改topic。
+
+远程Bridge白名单不暴露四个原始图像topic，因此旧布局会显示`waiting for message`，但不会
+继续占满网络。需要原始RGB-D时只能在Jetson本机订阅，或使用`--profile full`的MCAP回放。
 
 ### 16.2 Dashboard内容
 
 | Foxglove display | Topic/含义 |
 | --- | --- |
-| RGB Camera | `/camera/camera/color/image_raw` |
-| Aligned Depth | `/camera/camera/aligned_depth_to_color/image_raw`，仅本地安全 |
-| Image Goal | `/navdp/image_goal`，当前安装目标 |
-| RGB Arrival Match | `/navdp/rgb_arrival_debug` |
+| RGB Camera | `/navdp/foxglove/rgb/compressed`，640×360、15 Hz显示预览 |
+| Aligned Depth | `/navdp/foxglove/depth_color/compressed`，200--4000 mm彩色显示预览 |
+| Image Goal | `/navdp/foxglove/goal/compressed`，当前安装目标预览 |
+| RGB Arrival Match | `/navdp/foxglove/arrival/compressed`，最多5 Hz预览 |
 | Candidate paths | `/navdp/debug/markers` |
 | Selected trajectory | `/navdp/trajectory` |
 | Goal/status markers | phase、CEC、clearance、vx/wz、error |
@@ -1062,7 +1075,7 @@ Bridge还允许Foxglove按需查看`/navdp/*`、`/tf`、`/tf_static`、Go2状态
 参考topic；布局只把最常用内容固定成dashboard，其余允许topic仍可从Topics侧栏临时加入。
 链路为`ROS publisher -> Bridge广告白名单topic -> 可见panel按需订阅`，不是Jetson把所有
 高带宽流持续强推给浏览器。Topics侧栏存在而panel没画面时，应先重新导入布局并核对panel
-的topic选择。
+的topic选择。四个原始Image topic不在远程Bridge白名单内，不能从dashboard绕过预览限流。
 
 ### 16.3 `/navdp/status`重点字段
 

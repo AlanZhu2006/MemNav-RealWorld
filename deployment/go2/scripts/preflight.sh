@@ -25,6 +25,9 @@ if [[ "$CFG_WITH_FOXGLOVE" == true ]]; then
   fi
   [[ -f "$CFG_FOXGLOVE_LAYOUT" ]] \
     && pass "Foxglove layout" || fail "Foxglove layout missing: $CFG_FOXGLOVE_LAYOUT"
+  [[ -f "$NAVDP_GO2_DIR/foxglove_image_relay.py" ]] \
+    && pass "Foxglove image preview relay" \
+    || fail "Foxglove image preview relay missing"
 fi
 
 realsense_devices=""

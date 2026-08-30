@@ -76,6 +76,15 @@ Foxglove to `ws://JETSON_IP:8765`, import
 `deployment/go2/config/navdp_debug.foxglove-layout.json`, and start a screen
 recording before motion authorization.
 
+The dashboard layout uses display-only JPEG previews: RGB is 640x360 at 15 Hz,
+and aligned depth is colorized over 200--4000 mm at 640x360 and 10 Hz. The
+ImageGoal repeats at 2 Hz and arrival debug is capped at 5 Hz as JPEG previews.
+The original image topics remain unchanged for policy, arrival and the optional
+`full` MCAP profile. Re-import the versioned layout after an upgrade; Foxglove
+does not automatically replace a previously imported local copy. Do not expect
+raw image panels to work remotely: the Bridge whitelist excludes all four raw
+image topics so a stale layout cannot bypass the bandwidth limit.
+
 It does not duplicate the raw camera stream because the RTX episodic dataset
 already owns the exact causal RGB memory. Use `--profile full` only when raw
 D435i RGB and aligned depth are required for an offline sensor replay. The full

@@ -75,6 +75,22 @@ def _positive_port(value: Any, label: str) -> int:
     return value
 
 
+def _positive_integer(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ConfigError(f"{label} must be a positive integer")
+    return value
+
+
+def _integer_range(value: Any, label: str, minimum: int, maximum: int) -> int:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not minimum <= value <= maximum
+    ):
+        raise ConfigError(f"{label} must be an integer in [{minimum}, {maximum}]")
+    return value
+
+
 def _sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -258,7 +274,7 @@ def _validate_system(system: Mapping[str, Any]) -> None:
     _exact_keys(stack, stack_fields, "stack")
     _required_keys(stack, stack_fields, "stack")
     nested_fields = {
-        "foxglove": {"layout", "address", "port"},
+        "foxglove": {"layout", "address", "port", "preview"},
         "formal_limits": {"max_linear_mps", "max_angular_rps"},
         "memory": {
             "navigate_during_recording", "pause_recording",
@@ -283,6 +299,39 @@ def _validate_system(system: Mapping[str, Any]) -> None:
     if not isinstance(foxglove["address"], str) or not foxglove["address"]:
         raise ConfigError("stack.foxglove.address must be a non-empty string")
     _positive_port(foxglove["port"], "stack.foxglove.port")
+    preview = _object(foxglove["preview"], "stack.foxglove.preview")
+    preview_fields = {
+        "rgb_topic", "depth_topic", "goal_topic", "arrival_topic", "width", "height",
+        "rgb_fps", "depth_fps", "goal_fps", "arrival_fps", "rgb_jpeg_quality",
+        "depth_jpeg_quality", "goal_jpeg_quality", "arrival_jpeg_quality",
+        "depth_min_mm", "depth_max_mm",
+    }
+    _exact_keys(preview, preview_fields, "stack.foxglove.preview")
+    _required_keys(preview, preview_fields, "stack.foxglove.preview")
+    for field in ("rgb_topic", "depth_topic", "goal_topic", "arrival_topic"):
+        if not isinstance(preview[field], str) or not preview[field].startswith("/"):
+            raise ConfigError(
+                f"stack.foxglove.preview.{field} must be an absolute ROS topic"
+            )
+    for field in (
+        "width", "height", "rgb_fps", "depth_fps", "goal_fps", "arrival_fps"
+    ):
+        _positive_integer(preview[field], f"stack.foxglove.preview.{field}")
+    for field in (
+        "rgb_jpeg_quality", "depth_jpeg_quality", "goal_jpeg_quality",
+        "arrival_jpeg_quality",
+    ):
+        _integer_range(preview[field], f"stack.foxglove.preview.{field}", 1, 100)
+    depth_min = _number(
+        preview["depth_min_mm"], "stack.foxglove.preview.depth_min_mm", 0
+    )
+    depth_max = _number(
+        preview["depth_max_mm"], "stack.foxglove.preview.depth_max_mm", 0
+    )
+    if depth_max <= depth_min:
+        raise ConfigError(
+            "stack.foxglove.preview.depth_max_mm must exceed depth_min_mm"
+        )
     height = _number(
         stack.get("camera_height_m"),
         "stack.camera_height_m",
@@ -681,6 +730,22 @@ def shell_exports(payload: Mapping[str, Any], site: str) -> str:
         "CFG_FOXGLOVE_LAYOUT": payload["stack"]["foxglove"]["layout"],
         "CFG_FOXGLOVE_ADDRESS": payload["stack"]["foxglove"]["address"],
         "CFG_FOXGLOVE_PORT": payload["stack"]["foxglove"]["port"],
+        "CFG_FOXGLOVE_PREVIEW_RGB_TOPIC": payload["stack"]["foxglove"]["preview"]["rgb_topic"],
+        "CFG_FOXGLOVE_PREVIEW_DEPTH_TOPIC": payload["stack"]["foxglove"]["preview"]["depth_topic"],
+        "CFG_FOXGLOVE_PREVIEW_GOAL_TOPIC": payload["stack"]["foxglove"]["preview"]["goal_topic"],
+        "CFG_FOXGLOVE_PREVIEW_ARRIVAL_TOPIC": payload["stack"]["foxglove"]["preview"]["arrival_topic"],
+        "CFG_FOXGLOVE_PREVIEW_WIDTH": payload["stack"]["foxglove"]["preview"]["width"],
+        "CFG_FOXGLOVE_PREVIEW_HEIGHT": payload["stack"]["foxglove"]["preview"]["height"],
+        "CFG_FOXGLOVE_PREVIEW_RGB_FPS": payload["stack"]["foxglove"]["preview"]["rgb_fps"],
+        "CFG_FOXGLOVE_PREVIEW_DEPTH_FPS": payload["stack"]["foxglove"]["preview"]["depth_fps"],
+        "CFG_FOXGLOVE_PREVIEW_GOAL_FPS": payload["stack"]["foxglove"]["preview"]["goal_fps"],
+        "CFG_FOXGLOVE_PREVIEW_ARRIVAL_FPS": payload["stack"]["foxglove"]["preview"]["arrival_fps"],
+        "CFG_FOXGLOVE_PREVIEW_RGB_JPEG_QUALITY": payload["stack"]["foxglove"]["preview"]["rgb_jpeg_quality"],
+        "CFG_FOXGLOVE_PREVIEW_DEPTH_JPEG_QUALITY": payload["stack"]["foxglove"]["preview"]["depth_jpeg_quality"],
+        "CFG_FOXGLOVE_PREVIEW_GOAL_JPEG_QUALITY": payload["stack"]["foxglove"]["preview"]["goal_jpeg_quality"],
+        "CFG_FOXGLOVE_PREVIEW_ARRIVAL_JPEG_QUALITY": payload["stack"]["foxglove"]["preview"]["arrival_jpeg_quality"],
+        "CFG_FOXGLOVE_PREVIEW_DEPTH_MIN_MM": payload["stack"]["foxglove"]["preview"]["depth_min_mm"],
+        "CFG_FOXGLOVE_PREVIEW_DEPTH_MAX_MM": payload["stack"]["foxglove"]["preview"]["depth_max_mm"],
         "CFG_ADAPTER_READY_TIMEOUT_S": payload["stack"]["adapter_ready_timeout_s"],
         "CFG_TUNNEL_READY_TIMEOUT_S": payload["stack"]["tunnel_ready_timeout_s"],
         "CFG_JETSON_PYTHON": j["python"],

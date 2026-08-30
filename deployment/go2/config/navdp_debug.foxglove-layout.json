@@ -73,15 +73,14 @@
       "layers": {},
       "synchronize": false,
       "imageMode": {
-        "imageTopic": "/camera/camera/color/image_raw",
-        "calibrationTopic": "/camera/camera/color/camera_info",
+        "imageTopic": "/navdp/foxglove/rgb/compressed",
         "rotation": 0,
         "flipHorizontal": false,
         "flipVertical": false,
         "rectifyImage": false,
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
-      "foxglovePanelTitle": "RealSense RGB"
+      "foxglovePanelTitle": "RealSense RGB preview (640x360 @ 15 Hz)"
     },
     "Image!depth": {
       "scene": {},
@@ -90,19 +89,14 @@
       "layers": {},
       "synchronize": false,
       "imageMode": {
-        "imageTopic": "/camera/camera/aligned_depth_to_color/image_raw",
-        "calibrationTopic": "/camera/camera/aligned_depth_to_color/camera_info",
-        "colorMode": "colormap",
-        "colorMap": "turbo",
-        "minValue": 200,
-        "maxValue": 4000,
+        "imageTopic": "/navdp/foxglove/depth_color/compressed",
         "rotation": 0,
         "flipHorizontal": false,
         "flipVertical": false,
         "rectifyImage": false,
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
-      "foxglovePanelTitle": "Aligned safety depth"
+      "foxglovePanelTitle": "Aligned depth preview (200-4000 mm @ 10 Hz)"
     },
     "Image!goal": {
       "scene": {},
@@ -111,7 +105,7 @@
       "layers": {},
       "synchronize": false,
       "imageMode": {
-        "imageTopic": "/navdp/image_goal",
+        "imageTopic": "/navdp/foxglove/goal/compressed",
         "rotation": 0,
         "flipHorizontal": false,
         "flipVertical": false,
@@ -127,7 +121,7 @@
       "layers": {},
       "synchronize": false,
       "imageMode": {
-        "imageTopic": "/navdp/rgb_arrival_debug",
+        "imageTopic": "/navdp/foxglove/arrival/compressed",
         "rotation": 0,
         "flipHorizontal": false,
         "flipVertical": false,

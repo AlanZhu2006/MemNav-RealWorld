@@ -127,6 +127,10 @@ def test_shell_contract_has_explicit_imagegoal_and_no_legacy_names(tmp_path):
     assert "CFG_WITH_FOXGLOVE=true" in exports
     assert "CFG_FOXGLOVE_LAYOUT=" in exports
     assert "CFG_FOXGLOVE_PORT=8765" in exports
+    assert "CFG_FOXGLOVE_PREVIEW_RGB_TOPIC=/navdp/foxglove/rgb/compressed" in exports
+    assert "CFG_FOXGLOVE_PREVIEW_DEPTH_FPS=10" in exports
+    assert "CFG_FOXGLOVE_PREVIEW_GOAL_TOPIC=/navdp/foxglove/goal/compressed" in exports
+    assert "CFG_FOXGLOVE_PREVIEW_ARRIVAL_FPS=5" in exports
     assert "CFG_WITH_RVIZ" not in exports
     assert "NAVDP_IMAGE_GOAL_PATH" not in exports
     assert "CEC_CAMERA_HEIGHT_M" not in exports
@@ -178,10 +182,10 @@ def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():
     )
     panels = layout["configById"]
     expected_images = {
-        "Image!rgb": "/camera/camera/color/image_raw",
-        "Image!depth": "/camera/camera/aligned_depth_to_color/image_raw",
-        "Image!goal": "/navdp/image_goal",
-        "Image!arrival": "/navdp/rgb_arrival_debug",
+        "Image!rgb": "/navdp/foxglove/rgb/compressed",
+        "Image!depth": "/navdp/foxglove/depth_color/compressed",
+        "Image!goal": "/navdp/foxglove/goal/compressed",
+        "Image!arrival": "/navdp/foxglove/arrival/compressed",
     }
     for panel_id, topic in expected_images.items():
         panel = panels[panel_id]
@@ -195,3 +199,15 @@ def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():
     assert panels["3D!navdp"]["topics"]["/navdp/debug/markers"]["visible"]
     assert panels["RawMessages!status"]["topicPath"] == "/navdp/status"
     assert panels["RawMessages!arrival"]["topicPath"] == "/navdp/rgb_arrival_status"
+
+
+def test_foxglove_bridge_does_not_expose_raw_camera_images():
+    parameters = (
+        REPO / "deployment/go2/config/foxglove_bridge.yaml"
+    ).read_text(encoding="utf-8")
+    assert '"^/navdp/foxglove/.*"' in parameters
+    assert '"^/camera/camera/color/image_raw$"' not in parameters
+    assert '"^/camera/camera/aligned_depth_to_color/image_raw$"' not in parameters
+    assert '"^/navdp/.*"' not in parameters
+    assert "/navdp/image_goal" not in parameters
+    assert "/navdp/rgb_arrival_debug" not in parameters

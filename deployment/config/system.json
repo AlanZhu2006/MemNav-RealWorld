@@ -75,7 +75,25 @@
     "foxglove": {
       "layout": "deployment/go2/config/navdp_debug.foxglove-layout.json",
       "address": "0.0.0.0",
-      "port": 8765
+      "port": 8765,
+      "preview": {
+        "rgb_topic": "/navdp/foxglove/rgb/compressed",
+        "depth_topic": "/navdp/foxglove/depth_color/compressed",
+        "goal_topic": "/navdp/foxglove/goal/compressed",
+        "arrival_topic": "/navdp/foxglove/arrival/compressed",
+        "width": 640,
+        "height": 360,
+        "rgb_fps": 15,
+        "depth_fps": 10,
+        "goal_fps": 2,
+        "arrival_fps": 5,
+        "rgb_jpeg_quality": 75,
+        "depth_jpeg_quality": 70,
+        "goal_jpeg_quality": 80,
+        "arrival_jpeg_quality": 75,
+        "depth_min_mm": 200,
+        "depth_max_mm": 4000
+      }
     },
     "camera_height_m": 0.42,
     "adapter_ready_timeout_s": 30,

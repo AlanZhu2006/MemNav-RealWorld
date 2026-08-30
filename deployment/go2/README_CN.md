@@ -73,6 +73,18 @@ ImageGoal。
 `deployment/go2/config/navdp_debug.foxglove-layout.json`。不需要VNC；Bridge不允许
 浏览器发布topic、调用service或修改参数。
 
+为避免原始RGB-D把无线链路占满，启动器同时运行观察专用的`fox-preview`窗口：RGB被缩放为
+640×360、15 Hz、JPEG质量75，深度被缩放、按200--4000 mm做Turbo着色后以640×360、
+10 Hz、JPEG质量70发布；ImageGoal以2 Hz、arrival debug最多以5 Hz压缩。版本化布局默认
+订阅`/navdp/foxglove/{rgb,depth_color,goal,arrival}/compressed`四路预览。
+这些topic有损且只用于显示；NavDP、arrival和`--profile full`采集仍读取原始
+848×480×30 Hz RGB-D。修改布局文件不会覆盖Foxglove已经导入的本地副本，升级后需要重新
+导入一次布局，或手动切换两个Image panel的topic。
+
+Bridge白名单故意不暴露四个原始图像topic，防止旧布局或临时panel绕过限流；相机标定、
+状态和其他低带宽调试topic仍可查看。需要原始传感器回放时使用本机ROS或`--profile full`
+MCAP，不通过远程dashboard传输。
+
 默认Bridge监听所有网卡且不启用TLS。虽然它没有控制权限，但会暴露相机与状态数据，
 所以只应在可信实验局域网或Tailscale内使用；跨公网时必须另加防火墙或加密代理。
 

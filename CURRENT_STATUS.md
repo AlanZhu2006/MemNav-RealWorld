@@ -16,6 +16,12 @@ Snapshot: **2026-08-30, Foxglove + MCAP migration**
 manifest绑定；Jetson不再依赖VNC、X11或本地可视化进程。完整操作见
 `EXPERIMENT_DATA_COLLECTION.md`。
 
+Foxglove实时相机显示现在走独立的带宽受限预览侧车：RGB为640×360@15 Hz JPEG，深度为
+200--4000 mm着色后的640×360@10 Hz JPEG，ImageGoal为2 Hz、arrival debug最多5 Hz。
+原始图仍由NavDP、arrival和可选full MCAP直接消费，预览不是策略或安全输入；Bridge明确
+屏蔽四路原始图以防旧布局绕过限流。已有Foxglove本地布局需重新导入版本化JSON后才会切到
+新topic。
+
 原 `4 scenes x 5 repeats = 20 CEC runs` 模板已归档。会议要求的 controlling v2 协议
 改为 4 scenes × 5 matched native/CEC blocks：20 pairs、40 rollouts，方法顺序 10/10
 平衡，并要求两条 Novel、两条 Revisit scene contracts。所有结果槽仍为空；该修复只冻结
