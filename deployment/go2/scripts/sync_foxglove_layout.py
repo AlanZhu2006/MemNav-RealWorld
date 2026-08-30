@@ -106,64 +106,57 @@ def load_layout(path: Path) -> dict[str, Any]:
 
 def layout_payload(
     *,
-    layout_id: str,
     name: str,
     folder_name: str,
     permission: str,
     data: dict[str, Any],
-    include_id: bool,
 ) -> dict[str, Any]:
-    payload: dict[str, Any] = {
+    return {
         "name": name,
         "folderName": folder_name,
         "permission": permission,
         "data": data,
     }
-    if include_id:
-        payload["id"] = layout_id
-    return payload
 
 
 def sync_layout(
     client: FoxgloveClient,
     *,
-    layout_id: str,
+    layout_id: Optional[str],
     name: str,
     folder_name: str,
     permission: str,
     data: dict[str, Any],
 ) -> dict[str, Any]:
-    encoded_id = parse.quote(layout_id, safe="")
-    try:
-        existing = client.request(
-            "GET", f"layouts/{encoded_id}?includeData=true"
-        )
-    except ApiError as exc:
-        if exc.status != 404:
-            raise
-        existing = None
+    existing = None
+    if layout_id:
+        encoded_id = parse.quote(layout_id, safe="")
+        try:
+            existing = client.request(
+                "GET", f"layouts/{encoded_id}?includeData=true"
+            )
+        except ApiError as exc:
+            if exc.status != 404:
+                raise
+    else:
+        layouts = client.request("GET", "layouts?includeData=true")
+        matches = [item for item in layouts if item.get("name") == name]
+        if len(matches) > 1:
+            raise ValueError(
+                f"multiple organization layouts are named {name!r}; "
+                "remove duplicates or pass --layout-id"
+            )
+        if matches:
+            existing = matches[0]
 
     desired = layout_payload(
-        layout_id=layout_id,
         name=name,
         folder_name=folder_name,
         permission=permission,
         data=data,
-        include_id=False,
     )
     if existing is None:
-        created = client.request(
-            "POST",
-            "layouts",
-            layout_payload(
-                layout_id=layout_id,
-                name=name,
-                folder_name=folder_name,
-                permission=permission,
-                data=data,
-                include_id=True,
-            ),
-        )
+        created = client.request("POST", "layouts", desired)
         return {"action": "created", "layout": created}
 
     current = {
@@ -175,6 +168,7 @@ def sync_layout(
     if current == desired:
         return {"action": "unchanged", "layout": existing}
 
+    encoded_id = parse.quote(str(existing["id"]), safe="")
     updated = client.request("PATCH", f"layouts/{encoded_id}", desired)
     return {"action": "updated", "layout": updated}
 
@@ -182,7 +176,7 @@ def sync_layout(
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--layout", type=Path, required=True)
-    parser.add_argument("--layout-id", required=True)
+    parser.add_argument("--layout-id")
     parser.add_argument("--name", required=True)
     parser.add_argument("--folder-name", default="")
     parser.add_argument("--permission", choices=PERMISSIONS, default="ORG_WRITE")
@@ -190,7 +184,7 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--result", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(argv)
-    if not args.layout_id or len(args.layout_id) > 36:
+    if args.layout_id is not None and not 1 <= len(args.layout_id) <= 36:
         parser.error("--layout-id must contain 1 to 36 characters")
     if "/" in args.folder_name:
         parser.error("--folder-name cannot contain forward slashes")
@@ -209,7 +203,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if args.dry_run:
             result = {
                 "action": "validated",
-                "layout": {"id": args.layout_id, "name": args.name},
+                "layout": {"id": args.layout_id or "server-generated", "name": args.name},
                 "sha256": digest,
             }
         else:

@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
-from sync_foxglove_layout import ApiError, sync_layout  # noqa: E402
+from sync_foxglove_layout import sync_layout  # noqa: E402
 
 
 LAYOUT_ID = "6f3394a6-b25e-5988-8b75-0c6f348b47c3"
@@ -20,8 +20,12 @@ class FakeClient:
         self.calls.append((method, path, payload))
         if method == "GET":
             if self.existing is None:
-                raise ApiError(404, "not found")
-            return self.existing
+                return []
+            return (
+                self.existing
+                if isinstance(self.existing, list)
+                else [self.existing]
+            )
         return {
             "id": LAYOUT_ID,
             "name": payload["name"],
@@ -34,7 +38,7 @@ class FakeClient:
 def sync(client):
     return sync_layout(
         client,
-        layout_id=LAYOUT_ID,
+        layout_id=None,
         name="MemNav Go2 Navigation",
         folder_name="MemNav-RealWorld",
         permission="ORG_WRITE",
@@ -42,19 +46,19 @@ def sync(client):
     )
 
 
-def test_missing_layout_is_created_with_stable_id():
+def test_missing_layout_is_created_with_server_generated_id():
     client = FakeClient()
     result = sync(client)
 
     assert result["action"] == "created"
     assert client.calls[0] == (
         "GET",
-        f"layouts/{LAYOUT_ID}?includeData=true",
+        "layouts?includeData=true",
         None,
     )
     method, path, payload = client.calls[1]
     assert (method, path) == ("POST", "layouts")
-    assert payload["id"] == LAYOUT_ID
+    assert "id" not in payload
     assert payload["permission"] == "ORG_WRITE"
     assert payload["data"] == LAYOUT_DATA
 
@@ -63,7 +67,7 @@ def test_changed_layout_is_patched_in_place():
     client = FakeClient(
         {
             "id": LAYOUT_ID,
-            "name": "Old name",
+            "name": "MemNav Go2 Navigation",
             "folderName": "",
             "permission": "ORG_READ",
             "data": {"old": True},
@@ -91,3 +95,20 @@ def test_identical_layout_does_not_create_history_noise():
 
     assert result == {"action": "unchanged", "layout": existing}
     assert len(client.calls) == 1
+
+
+def test_duplicate_layout_names_fail_instead_of_updating_an_arbitrary_copy():
+    duplicate = {
+        "id": LAYOUT_ID,
+        "name": "MemNav Go2 Navigation",
+        "folderName": "MemNav-RealWorld",
+        "permission": "ORG_WRITE",
+        "data": LAYOUT_DATA,
+    }
+    client = FakeClient([duplicate, {**duplicate, "id": "another-id"}])
+    try:
+        sync(client)
+    except ValueError as exc:
+        assert "multiple organization layouts" in str(exc)
+    else:
+        raise AssertionError("duplicate layout names must be rejected")

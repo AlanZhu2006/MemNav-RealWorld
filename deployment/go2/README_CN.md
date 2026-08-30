@@ -126,8 +126,8 @@ depth各至少10幅新帧后才返回成功；无论成功或失败都不自动�
 
 仓库同时提供组织级 Layout 自动同步：`.github/workflows/sync-foxglove-layout.yml`
 只在 `navdp_debug.foxglove-layout.json` 或同步器本身变化并 push 到 `main` 时运行，使用
-固定 Layout ID `6f3394a6-b25e-5988-8b75-0c6f348b47c3` 创建或原位更新组织 Layout
-`MemNav Go2 Navigation`，不会反复生成副本。首次启用前，由 Foxglove 组织管理员创建
+唯一名称 `MemNav Go2 Navigation` 查找组织 Layout：首次由 Foxglove 生成合法 ID，之后
+使用该 ID 原位更新，不会反复生成副本。首次启用前，由 Foxglove 组织管理员创建
 具备 Layout 读取、创建和更新能力的新 API Key，并通过交互式命令写入 GitHub Secret；
 不要把 Key 放入 JSON、workflow、shell 历史或文档：
 
