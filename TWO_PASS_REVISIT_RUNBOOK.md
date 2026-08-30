@@ -113,7 +113,11 @@ Seal 前脚本会再次发布 `set_enabled=false` 和 `estop=true`。若帧数�
 
 ```bash
 bash deployment/go2/offboard/revisit_experiment.sh \
-  formal-start office_loop_01 --arm mono_cec --with-rviz
+  formal-start office_loop_01 \
+  --scene-id scene01 --run-id scene01_pair01_cec \
+  --arm mono_cec --goal /abs/path/scene01_goal.jpg \
+  --expected-goal-sha256 "$GOAL_SHA256" \
+  --expected-dataset-sha256 "$DATASET_SHA256" --with-rviz
 ```
 
 该命令会：
@@ -124,8 +128,8 @@ bash deployment/go2/offboard/revisit_experiment.sh \
 4. 把 survey RGB 重放给 LingBot/CEC **长程 memory**；
 5. 不把 survey 末帧注入 NavDP 的短期 FIFO；
 6. 用正式实验现场的当前 RGB 初始化 NavDP short context；
-7. 重新评分候选、安装目标 JPEG、核对 active goal SHA-256；
-8. 把选中候选的 evaluator-only depth 落到本轮 run root；
+7. 安装 scene registry 中预先冻结的外部目标 JPEG，并逐字节核对 goal/dataset SHA-256；
+8. 写入 role-hidden `formal_ready.json`，不向运行时传 Novel/Revisit 标签；
 9. 保持 `disabled + estop`，等待独立 evaluator 和现场人员。
 
 因此“一键启动”指一键达到**可审计、运动锁止的 formal-ready 状态**，不是无人值守给

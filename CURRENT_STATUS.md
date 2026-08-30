@@ -48,6 +48,14 @@ receipt.  The native arm still consumes the same causal-monocular depth stream
 but skips both long-range certificate and direct-local bearing authority.  No
 formal rollout has been executed under this new control.
 
+`formal-start` now also closes the exact-goal startup gate.  Every registered
+run must provide its scene ID, run ID, external frozen goal JPEG, goal SHA-256,
+and sealed-dataset SHA-256.  The launcher verifies the source bytes before
+startup, verifies the committed goal and dataset from RTX health after replay,
+and writes a role-hidden `formal_ready.json`; it never receives a Novel/Revisit
+label.  Automatic Survey-candidate selection remains an engineering path and
+cannot silently enter the paired campaign.
+
 The paired result boundary is also executable rather than manual.  The
 outcome-blank preregistration remains immutable; the read-only
 `tools/verify_realworld_paired_campaign.py` binds the 40 registered run IDs to

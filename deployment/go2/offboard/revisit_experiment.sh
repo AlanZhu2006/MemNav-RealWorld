@@ -25,7 +25,10 @@ Usage (run on Jetson):
   revisit_experiment.sh survey-status
   revisit_experiment.sh survey-return DATASET_ID
   revisit_experiment.sh survey-seal DATASET_ID
-  revisit_experiment.sh formal-start DATASET_ID --arm mono_native|mono_cec [--with-rviz]
+  revisit_experiment.sh formal-start DATASET_ID --scene-id SCENE_ID --run-id RUN_ID
+      --arm mono_native|mono_cec --goal FROZEN_GOAL_JPEG
+      --expected-goal-sha256 SHA256 --expected-dataset-sha256 SHA256
+      [--with-rviz]
   revisit_experiment.sh formal-status
   revisit_experiment.sh stop
 
@@ -47,9 +50,11 @@ survey-return:
 formal-start:
   Safely restarts both machines, loads and verifies the sealed survey, uses
   the current camera view to initialize only NavDP's short FIFO, installs the
-  selected historical goal and starts the Go2 bridge.  The required arm is
-  verified from RTX health.  Motion remains LOCKED; a field operator must
-  verify the selected arrival module and explicitly arm.
+  exact preregistered external goal and starts the Go2 bridge.  Goal and
+  dataset SHA-256 plus the required authority arm are verified from RTX
+  health.  No Novel/Revisit label is passed to runtime.  Motion remains
+  LOCKED; a field operator must verify the selected arrival module and
+  explicitly arm.
 EOF
 }
 
@@ -61,6 +66,11 @@ die() {
 validate_id() {
   [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]] \
     || die "invalid DATASET_ID: $1"
+}
+
+validate_sha256() {
+  [[ "$1" =~ ^[0-9a-f]{64}$ ]] \
+    || die "expected a lowercase SHA-256, got: $1"
 }
 
 hub_get() {
@@ -258,12 +268,42 @@ formal_start() {
   validate_id "$dataset_id"
   local with_rviz=false
   local arm=""
+  local scene_id=""
+  local run_id=""
+  local frozen_goal=""
+  local expected_goal_sha256=""
+  local expected_dataset_sha256=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --with-rviz) with_rviz=true ;;
       --arm)
         [[ $# -ge 2 ]] || die "--arm requires mono_native or mono_cec"
         arm="$2"
+        shift
+        ;;
+      --scene-id)
+        [[ $# -ge 2 ]] || die "--scene-id requires a value"
+        scene_id="$2"
+        shift
+        ;;
+      --run-id)
+        [[ $# -ge 2 ]] || die "--run-id requires a value"
+        run_id="$2"
+        shift
+        ;;
+      --goal)
+        [[ $# -ge 2 ]] || die "--goal requires a frozen JPEG path"
+        frozen_goal="$2"
+        shift
+        ;;
+      --expected-goal-sha256)
+        [[ $# -ge 2 ]] || die "--expected-goal-sha256 requires a value"
+        expected_goal_sha256="$2"
+        shift
+        ;;
+      --expected-dataset-sha256)
+        [[ $# -ge 2 ]] || die "--expected-dataset-sha256 requires a value"
+        expected_dataset_sha256="$2"
         shift
         ;;
       *) die "unknown formal-start option: $1" ;;
@@ -277,6 +317,26 @@ formal_start() {
     "") die "formal-start requires --arm mono_native or --arm mono_cec" ;;
     *) die "unsupported formal arm: $arm" ;;
   esac
+  [[ -n "$scene_id" ]] || die "formal-start requires --scene-id"
+  [[ -n "$run_id" ]] || die "formal-start requires --run-id"
+  [[ -n "$frozen_goal" ]] || die "formal-start requires --goal"
+  [[ -n "$expected_goal_sha256" ]] \
+    || die "formal-start requires --expected-goal-sha256"
+  [[ -n "$expected_dataset_sha256" ]] \
+    || die "formal-start requires --expected-dataset-sha256"
+  validate_id "$scene_id"
+  validate_id "$run_id"
+  validate_sha256 "$expected_goal_sha256"
+  validate_sha256 "$expected_dataset_sha256"
+  [[ -f "$frozen_goal" ]] || die "frozen goal does not exist: $frozen_goal"
+  frozen_goal="$(readlink -f "$frozen_goal")"
+  local actual_goal_sha256
+  actual_goal_sha256="$(sha256sum "$frozen_goal" | awk '{print $1}')"
+  [[ "$actual_goal_sha256" == "$expected_goal_sha256" ]] \
+    || die "frozen goal SHA mismatch: expected $expected_goal_sha256, got $actual_goal_sha256"
+  local run_root
+  run_root="$RUNTIME_ROOT/$dataset_id/$run_id"
+  [[ ! -e "$run_root" ]] || die "formal run root already exists: $run_root"
 
   if tmux has-session -t "$SESSION" 2>/dev/null; then
     force_motion_lock
@@ -284,17 +344,15 @@ formal_start() {
   # A sealed dataset is persistent.  Always rebuild both process trees so the
   # formal pass proves load/replay instead of accidentally reusing survey RAM.
   bash "$FULLMONO" stop
-  local stamp run_root
-  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-  run_root="$RUNTIME_ROOT/$dataset_id/formal_${arm}_$stamp"
   mkdir -p "$run_root"
   local args=(start --with-go2)
   [[ "$with_rviz" == false ]] || args+=(--with-rviz)
   NAVDP_SELECTED_GOAL_IMAGE_PATH="$run_root/selected_goal.jpg" \
     NAVDP_SELECTED_GOAL_DEPTH_PATH="$run_root/selected_goal_depth.png" \
+    NAVDP_REVISIT_IMAGE_GOAL_PATH="$frozen_goal" \
     NAVDP_NAVIGATE_DURING_MEMORY_RECORDING=false \
     NAVDP_PAUSE_MEMORY_RECORDING=true \
-    NAVDP_AUTO_SELECT_GOAL_CANDIDATE=true \
+    NAVDP_AUTO_SELECT_GOAL_CANDIDATE=false \
     CEC_AUTHORITY_MODE="$authority_mode" \
     bash "$FULLMONO" "${args[@]}"
   wait_empty_recording_hub
@@ -320,25 +378,67 @@ PY
   fi
   local health
   health="$(hub_get /healthz)"
-  python3 - "$health" "$dataset_id" "$authority_mode" <<'PY'
+  python3 - "$health" "$dataset_id" "$authority_mode" \
+      "$expected_goal_sha256" "$expected_dataset_sha256" <<'PY'
 import json, sys
 p = json.loads(sys.argv[1])
 assert p["phase"] == "revisit_query"
-assert p["active_goal_sha256"]
+assert p["active_goal_sha256"] == sys.argv[4]
 assert p["cec_authority_mode"] == sys.argv[3]
 ds = p["episodic_dataset"]
 assert ds["loaded_dataset_id"] == sys.argv[2]
-assert ds["loaded_dataset_manifest_sha256"]
+assert ds["loaded_dataset_manifest_sha256"] == sys.argv[5]
+prepare = p["last_prepare_receipt"]
+assert prepare["goal_selection_contract"] == "operator_frozen_external_v1"
+assert prepare["selected_goal"]["goal_source"] == "operator_frozen_external"
+assert prepare["selected_goal"]["sha256"] == sys.argv[4]
 PY
   [[ -s "$run_root/selected_goal.jpg" ]] \
     || die "selected goal JPEG was not installed on Jetson"
+  local installed_goal_sha256
+  installed_goal_sha256="$(sha256sum "$run_root/selected_goal.jpg" | awk '{print $1}')"
+  [[ "$installed_goal_sha256" == "$expected_goal_sha256" ]] \
+    || die "installed goal SHA differs from the frozen registry goal"
   force_motion_lock
   write_receipt "$run_root/ready_health.json" "$health"
+  local formal_ready
+  formal_ready="$(python3 - "$scene_id" "$run_id" "$dataset_id" "$arm" \
+      "$authority_mode" "$frozen_goal" "$expected_goal_sha256" \
+      "$expected_dataset_sha256" "$health" <<'PY'
+from datetime import datetime, timezone
+import json
+import sys
+
+health = json.loads(sys.argv[9])
+print(json.dumps({
+    "schema": "memnav_realworld_formal_ready_v1_20260830",
+    "created_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+    "scene_id": sys.argv[1],
+    "run_id": sys.argv[2],
+    "dataset_id": sys.argv[3],
+    "arm": sys.argv[4],
+    "cec_authority_mode": sys.argv[5],
+    "runtime_role_visibility": "none",
+    "frozen_goal_path": sys.argv[6],
+    "goal_sha256": sys.argv[7],
+    "dataset_manifest_sha256": sys.argv[8],
+    "goal_selection_contract": "operator_frozen_external_v1",
+    "motion_enabled": False,
+    "estop_required": True,
+    "active_goal_sha256": health["active_goal_sha256"],
+    "loaded_dataset_id": health["episodic_dataset"]["loaded_dataset_id"],
+    "loaded_dataset_manifest_sha256": health["episodic_dataset"]["loaded_dataset_manifest_sha256"],
+}, sort_keys=True))
+PY
+)"
+  write_receipt "$run_root/formal_ready.json" "$formal_ready"
 
   echo "$load_receipt" | python3 -m json.tool
   echo
   echo "Formal software stack is READY."
   echo "  run root: $run_root"
+  echo "  run id:   $run_id"
+  echo "  scene:    $scene_id (role hidden from runtime)"
   echo "  arm:      $arm (authority_mode=$authority_mode)"
   echo "  goal:     $run_root/selected_goal.jpg"
   if [[ -s "$run_root/selected_goal_depth.png" ]]; then

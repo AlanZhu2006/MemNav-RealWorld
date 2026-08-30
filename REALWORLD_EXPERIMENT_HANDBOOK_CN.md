@@ -537,7 +537,11 @@ Formal 起点不必等于 Survey 终点。Survey 是长期记忆数据采集；F
 
 ```bash
 bash deployment/go2/offboard/revisit_experiment.sh \
-  formal-start scene01_dataset --with-rviz
+  formal-start scene01_dataset \
+  --scene-id scene01 --run-id scene01_pair01_cec \
+  --arm mono_cec --goal /absolute/path/to/scene01_goal.jpg \
+  --expected-goal-sha256 "$GOAL_SHA256" \
+  --expected-dataset-sha256 "$DATASET_SHA256" --with-rviz
 ```
 
 它会：
@@ -553,10 +557,10 @@ bash deployment/go2/offboard/revisit_experiment.sh \
 9. 将 survey RGB 重放给 LingBot/CEC 长期 memory；
 10. 不把 survey 尾部伪装成 NavDP 当前短期上下文；
 11. 用 formal 起点的当前 RGB 初始化 NavDP FIFO；
-12. 评分并安装目标候选；
-13. 校验 active goal SHA；
-14. 将 selected goal JPEG 和 optional offline depth 保存到本轮 run root；
-15. 输出 formal-ready health 和 prepare receipt。
+12. 安装 scene registry 预先冻结的 external exact goal；
+13. 校验 source、installed 与 active goal SHA 完全一致；
+14. 校验 sealed dataset manifest SHA；
+15. 输出 role-hidden `formal_ready.json`、health 和 prepare receipt。
 
 长 survey 的逐帧重放可能需要数分钟。不要因为终端暂时没有新输出而中断；先查看 RTX
 和 Jetson日志，确认不是失败。
@@ -611,13 +615,15 @@ bash deployment/go2/scripts/capture_image_goal.sh
 - 目标采集元数据；
 - 目标采集时间和scene ID。
 
-Formal-start前显式指定固定目标：
+Formal-start必须显式指定固定目标及registry收据：
 
 ```bash
-export NAVDP_REVISIT_IMAGE_GOAL_PATH=/absolute/path/to/frozen_goal.png
-
 bash deployment/go2/offboard/revisit_experiment.sh \
-  formal-start scene01_dataset --with-rviz
+  formal-start scene01_dataset \
+  --scene-id scene01 --run-id scene01_pair01_cec \
+  --arm mono_cec --goal /absolute/path/to/frozen_goal.png \
+  --expected-goal-sha256 "$GOAL_SHA256" \
+  --expected-dataset-sha256 "$DATASET_SHA256" --with-rviz
 ```
 
 Adapter会调用Hub的`prepare_revisit_goal`，目标来源收据应为
@@ -627,9 +633,9 @@ Adapter会调用Hub的`prepare_revisit_goal`，目标来源收据应为
 目标aligned depth只供独立evaluator。若external goal route没有通过Hub返回depth，使用预先冻结
 并由scene manifest绑定SHA的本地goal depth；它仍然没有policy authority。
 
-#### 路径B：sealed Survey自动候选（lifelong/engineering路径）
+#### 路径B：sealed Survey自动候选（仅lifelong/engineering路径）
 
-未设置`NAVDP_REVISIT_IMAGE_GOAL_PATH`时，当前`formal-start`会对sealed candidates重新评分，
+低层 engineering launcher 可对 sealed candidates 重新评分，
 按以下确定性顺序选择：
 
 1. geometry inliers 最大；
@@ -637,15 +643,9 @@ Adapter会调用Hub的`prepare_revisit_goal`，目标来源收据应为
 3. DINO support 最大；
 4. candidate ID 最早。
 
-该路径适合测试“在线候选采集、评分并安装为revisit goal”的完整lifelong能力。但注册的正式
-campaign仍要求每个场景使用一个exact goal JPEG。若要将自动候选纳入正式campaign，必须在
-第一个 paired block 前先固定选中candidate及SHA，之后40次rollout都比较
-`active_goal_sha256`；只要
-SHA不同，就不得开始该rollout。
-
-当前 launcher 尚未接受强制 `EXPECTED_GOAL_SHA256` 参数。这是进入正式 4×5 paired
-campaign 前应完成的
-软件门。门完成前，自动选择路径只能视为 engineering/lifelong demo 或人工逐次核对路径。
+该路径适合测试“在线候选采集、评分并安装为revisit goal”的完整lifelong能力，但不进入注册
+的4×5 formal campaign。正式 `formal-start` 已 fail-closed 地要求外部冻结goal、goal SHA、
+dataset SHA、scene ID与run ID，因而同一启动路径可执行Novel和Revisit，且不会读取role标签。
 
 ---
 
@@ -1318,15 +1318,18 @@ yaw:      0 / ±10 / ±20°
 6. 明确是independent RGB arrival termination还是policy STOP；
 7. 未通过跨场景验证前，只允许显式 opt-in 的 engineering STOP，不得用于正式结果。
 
-### P0-B：Exact goal SHA启动门
+### P0-B：Exact goal SHA启动门（软件已完成，待现场无运动验收）
 
-为`formal-start`增加并验证：
+`formal-start`现已强制并验证：
 
 ```text
-EXPECTED_GOAL_SHA256=<scene-registry value>
+--goal <scene-registry JPEG>
+--expected-goal-sha256 <scene-registry SHA>
+--expected-dataset-sha256 <sealed Survey SHA>
 ```
 
-自动选择结果不等于expected SHA时，保持disabled+estop并退出。
+source bytes、installed bytes、RTX active goal或dataset manifest任一不等于registry时，
+保持disabled+estop并退出；正式路径不再自动选择Survey candidate。
 
 ### P0-C：Candidate物理pose收据
 
@@ -1591,7 +1594,11 @@ bash deployment/go2/offboard/revisit_experiment.sh \
 
 ```bash
 bash deployment/go2/offboard/revisit_experiment.sh \
-  formal-start scene01_dataset --with-rviz
+  formal-start scene01_dataset \
+  --scene-id scene01 --run-id scene01_pair01_cec \
+  --arm mono_cec --goal /absolute/path/to/scene01_goal.jpg \
+  --expected-goal-sha256 "$GOAL_SHA256" \
+  --expected-dataset-sha256 "$DATASET_SHA256" --with-rviz
 
 bash deployment/go2/offboard/revisit_experiment.sh formal-status
 

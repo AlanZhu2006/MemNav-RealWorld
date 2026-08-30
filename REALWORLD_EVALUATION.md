@@ -29,6 +29,14 @@ endpoint.  `--arm mono_cec` enables the frozen certificate/bearing path.  A
 certificate that happens to reject is not accepted as a substitute for the
 native arm.
 
+The query-goal boundary is equally explicit.  `formal-start` requires a
+pre-registered external goal path, its exact SHA-256, the sealed dataset
+SHA-256, scene ID, and registered run ID.  It refuses to start on any mismatch
+and always uses `operator_frozen_external_v1`; automatic Survey-candidate
+selection is reserved for engineering/lifelong demos.  Novel versus Revisit is
+therefore a property of historical support for the same kind of frozen goal,
+not a runtime input or a different launcher branch.
+
 ## Why the design is paired
 
 Within one pair, both arms must share:

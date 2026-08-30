@@ -308,12 +308,24 @@ def main() -> int:
     contract_source = (
         root / "deployment/go2/offboard/runtime_contract.sh"
     ).read_text()
+    formal_source = (
+        root / "deployment/go2/offboard/revisit_experiment.sh"
+    ).read_text()
     check(
         'EXPECTED_HANDOFF_SCHEMA = "cec_direct_bearing_handoff_v2_20260824"'
         in terminal_source
         and "EXPECTED_TERMINAL_HANDOFF_SCHEMA" in client_source
         and "terminal_handoff_schema" in contract_source,
         "hub/executor schema handshake is implemented",
+        failures,
+    )
+    check(
+        "--expected-goal-sha256" in formal_source
+        and "--expected-dataset-sha256" in formal_source
+        and "NAVDP_REVISIT_IMAGE_GOAL_PATH" in formal_source
+        and "NAVDP_AUTO_SELECT_GOAL_CANDIDATE=false" in formal_source
+        and '"runtime_role_visibility": "none"' in formal_source,
+        "formal entry binds an external exact goal without role input",
         failures,
     )
     capture_source = (
