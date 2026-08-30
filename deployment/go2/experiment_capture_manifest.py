@@ -7,6 +7,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -17,8 +18,11 @@ import sys
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = "memnav_realworld_capture_v2_20260830"
-LEGACY_SCHEMA_VERSIONS = {"memnav_realworld_capture_v1_20260827"}
+SCHEMA_VERSION = "memnav_realworld_capture_v3_20260831"
+LEGACY_SCHEMA_VERSIONS = {
+    "memnav_realworld_capture_v1_20260827",
+    "memnav_realworld_capture_v2_20260830",
+}
 RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 OUTCOMES = (
     "success",
@@ -29,6 +33,7 @@ OUTCOMES = (
     "collision",
     "aborted",
 )
+TRIAL_KINDS = ("revisit", "novel", "calibration", "debug")
 VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv"}
 VIDEO_ROLES = {
     "foxglove_dashboard": "dashboard",
@@ -75,6 +80,65 @@ def validate_run_id(run_id: str) -> str:
     return value
 
 
+def calibration_label(
+    *,
+    trial_kind: str,
+    scene_id: str | None,
+    physical_distance_m: float | None,
+    physical_yaw_deg: float | None,
+    measurement_method: str | None,
+    recorded_utc: str,
+) -> dict[str, Any] | None:
+    """Freeze independent physical labels before a calibration capture starts."""
+
+    supplied = (
+        scene_id is not None,
+        physical_distance_m is not None,
+        physical_yaw_deg is not None,
+        measurement_method is not None,
+    )
+    if trial_kind != "calibration":
+        if any(supplied):
+            raise CaptureManifestError(
+                "physical calibration labels are only valid for calibration trials"
+            )
+        return None
+    if not all(supplied):
+        raise CaptureManifestError(
+            "calibration trials require scene ID, physical distance, physical "
+            "yaw, and measurement method before capture"
+        )
+    assert scene_id is not None
+    assert physical_distance_m is not None
+    assert physical_yaw_deg is not None
+    assert measurement_method is not None
+    scene = validate_run_id(scene_id)
+    method = str(measurement_method).strip()
+    if not method:
+        raise CaptureManifestError("calibration measurement method is empty")
+    if isinstance(physical_distance_m, bool) or not math.isfinite(
+        float(physical_distance_m)
+    ) or float(physical_distance_m) < 0.0:
+        raise CaptureManifestError(
+            "calibration physical distance must be finite and non-negative"
+        )
+    if isinstance(physical_yaw_deg, bool) or not math.isfinite(
+        float(physical_yaw_deg)
+    ) or abs(float(physical_yaw_deg)) > 180.0:
+        raise CaptureManifestError(
+            "calibration physical yaw must be finite and within [-180, 180]"
+        )
+    return {
+        "scene_id": scene,
+        "physical_distance_m": float(physical_distance_m),
+        "physical_yaw_deg": float(physical_yaw_deg),
+        "measurement_method": method,
+        "label_recorded_utc": recorded_utc,
+        "recorded_before_capture": True,
+        "arrival_score_logging_started_before_label": False,
+    }
+
+
 def repository_receipt(workspace: Path) -> dict[str, Any]:
     def git(*arguments: str) -> str:
         result = subprocess.run(
@@ -112,8 +176,23 @@ def create_manifest(
     topics: Iterable[str],
     workspace: Path,
     gt_source: str = "none",
+    calibration_scene_id: str | None = None,
+    physical_distance_m: float | None = None,
+    physical_yaw_deg: float | None = None,
+    physical_label_method: str | None = None,
 ) -> dict[str, Any]:
     run_id = validate_run_id(run_id)
+    if trial_kind not in TRIAL_KINDS:
+        raise CaptureManifestError(f"unsupported trial kind: {trial_kind}")
+    created_utc = utc_now()
+    frozen_calibration_label = calibration_label(
+        trial_kind=trial_kind,
+        scene_id=calibration_scene_id,
+        physical_distance_m=physical_distance_m,
+        physical_yaw_deg=physical_yaw_deg,
+        measurement_method=physical_label_method,
+        recorded_utc=created_utc,
+    )
     run_root = run_root.resolve()
     if run_root.exists():
         raise CaptureManifestError(f"run path already exists: {run_root}")
@@ -130,12 +209,13 @@ def create_manifest(
         "capture_profile": capture_profile,
         "gt_source": gt_source,
         "state": "recording",
-        "created_utc": utc_now(),
+        "created_utc": created_utc,
         "captured_utc": None,
         "finalized_utc": None,
         "host": socket.gethostname(),
         "repository": repository_receipt(workspace.resolve()),
         "motion_authority_changed_by_capture": False,
+        "calibration_label": frozen_calibration_label,
         "topics": sorted(set(str(topic) for topic in topics)),
         "media_contract": {
             "dashboard": {
@@ -389,7 +469,7 @@ def finalize_manifest(
         f"{digest}  manifest.json\n", encoding="ascii"
     )
     (run_root.resolve() / "FINALIZED").write_text(
-        f"{SCHEMA_VERSION}\n{digest}\n", encoding="ascii"
+        f"{payload['schema_version']}\n{digest}\n", encoding="ascii"
     )
     return payload
 
@@ -442,6 +522,10 @@ def main() -> int:
     create.add_argument("--capture-profile", choices=("audit", "full"), default="audit")
     create.add_argument("--topic", action="append", default=[])
     create.add_argument("--gt-source", choices=("none", "odin1"), default="none")
+    create.add_argument("--calibration-scene-id")
+    create.add_argument("--physical-distance-m", type=float)
+    create.add_argument("--physical-yaw-deg", type=float)
+    create.add_argument("--physical-label-method")
     create.add_argument(
         "--workspace", type=Path, default=Path(__file__).resolve().parents[2]
     )
@@ -481,6 +565,10 @@ def main() -> int:
                 topics=args.topic,
                 workspace=args.workspace,
                 gt_source=args.gt_source,
+                calibration_scene_id=args.calibration_scene_id,
+                physical_distance_m=args.physical_distance_m,
+                physical_yaw_deg=args.physical_yaw_deg,
+                physical_label_method=args.physical_label_method,
             )
         elif args.command == "mark-captured":
             result = mark_captured(args.run_root, clean=args.clean == "true")

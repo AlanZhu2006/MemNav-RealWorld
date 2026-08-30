@@ -81,6 +81,14 @@ the only unregistered route is explicitly marked engineering/debug and the
 final verifier rejects it.  No field registry or arrival calibration has yet
 been frozen.
 
+Calibration capture now has a pre-observation physical-label contract.  A
+`trial-kind=calibration` run cannot create its evidence directory unless the
+held-out scene ID, independently measured distance, yaw, and measurement
+method are supplied.  Capture schema v3 records that these labels precede this
+run's arrival-score logger; it does not claim that an operator never viewed a
+separate live display and does not mark calibration as passed.  This closes a
+receipt-timing gap only; physical calibration data are still absent.
+
 The opt-in RGB-only arrival gate added on 2026-08-28 is a commissioning aid,
 not an established STOP contract.  Its first powered A -> D trial produced a
 false negative and is recorded below.  After controlled threshold tuning and

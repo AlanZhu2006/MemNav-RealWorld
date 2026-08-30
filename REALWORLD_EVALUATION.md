@@ -94,6 +94,28 @@ calibration gate is closed.  In particular:
 - if an external evaluator terminates motion, the paper must say
   “navigation with independent evaluator termination,” not autonomous STOP.
 
+Calibration capture is fail-closed at creation time.  Every
+`--trial-kind calibration` run must record its held-out scene ID, independently
+measured physical distance and yaw, and the measurement method before any live
+arrival score is collected:
+
+```bash
+bash deployment/go2/offboard/experiment_capture.sh start CALIB_RUN_ID \
+  --dataset HELDOUT_CALIBRATION_ID --trial-kind calibration --gt-source odin1 \
+  --calibration-scene-id CALIB_SCENE_ID \
+  --physical-distance-m 0.50 --physical-yaw-deg -20 \
+  --physical-label-method tape-and-angle-jig
+```
+
+The capture manifest binds these values with
+`recorded_before_capture=true` and
+`arrival_score_logging_started_before_label=false`.
+Missing labels stop collection before a run directory is created.  These
+receipts provide calibration evidence only; they do not by themselves mark
+the held-out calibration as passed, prove that an operator did not inspect a
+separate live display, or unlock formal motion.  Operator blinding remains a
+field-protocol requirement.
+
 ## Metric and statistical contract
 
 For rollout `i`:

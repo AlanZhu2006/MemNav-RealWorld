@@ -50,6 +50,8 @@ Usage (run on Jetson while the NavDP stack and Foxglove Bridge are running):
   experiment_capture.sh start RUN_ID [--dataset DATASET_ID]
       [--trial-kind revisit|novel|calibration|debug]
       [--profile audit|full] [--gt-source none|odin1]
+      [--calibration-scene-id ID --physical-distance-m M
+       --physical-yaw-deg DEG --physical-label-method METHOD]
   experiment_capture.sh status RUN_ID
   experiment_capture.sh stop RUN_ID
   experiment_capture.sh attach-dashboard RUN_ID VIDEO
@@ -207,12 +209,20 @@ start_capture() {
   local trial_kind="revisit"
   local profile="audit"
   local gt_source="none"
+  local calibration_scene_id=""
+  local physical_distance_m=""
+  local physical_yaw_deg=""
+  local physical_label_method=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --dataset) [[ $# -ge 2 ]] || die "--dataset requires a value"; dataset_id="$2"; shift ;;
       --trial-kind) [[ $# -ge 2 ]] || die "--trial-kind requires a value"; trial_kind="$2"; shift ;;
       --profile) [[ $# -ge 2 ]] || die "--profile requires a value"; profile="$2"; shift ;;
       --gt-source) [[ $# -ge 2 ]] || die "--gt-source requires a value"; gt_source="$2"; shift ;;
+      --calibration-scene-id) [[ $# -ge 2 ]] || die "--calibration-scene-id requires a value"; calibration_scene_id="$2"; shift ;;
+      --physical-distance-m) [[ $# -ge 2 ]] || die "--physical-distance-m requires a value"; physical_distance_m="$2"; shift ;;
+      --physical-yaw-deg) [[ $# -ge 2 ]] || die "--physical-yaw-deg requires a value"; physical_yaw_deg="$2"; shift ;;
+      --physical-label-method) [[ $# -ge 2 ]] || die "--physical-label-method requires a value"; physical_label_method="$2"; shift ;;
       *) die "unknown start option: $1" ;;
     esac
     shift
@@ -243,6 +253,19 @@ start_capture() {
     --capture-profile "$profile" --workspace "$NAVDP_ROOT"
     --gt-source "$gt_source"
   )
+  if [[ "$trial_kind" == calibration ]]; then
+    [[ -n "$calibration_scene_id" && -n "$physical_distance_m" \
+      && -n "$physical_yaw_deg" && -n "$physical_label_method" ]] \
+      || die "calibration requires scene ID, physical distance/yaw, and label method"
+    manifest_args+=(
+      --calibration-scene-id "$calibration_scene_id"
+      --physical-distance-m "$physical_distance_m"
+      --physical-yaw-deg "$physical_yaw_deg"
+      --physical-label-method "$physical_label_method"
+    )
+  elif [[ -n "$calibration_scene_id$physical_distance_m$physical_yaw_deg$physical_label_method" ]]; then
+    die "physical calibration labels require --trial-kind calibration"
+  fi
   local topic
   for topic in "${topics[@]}"; do
     manifest_args+=(--topic "$topic")

@@ -157,6 +157,67 @@ class ExperimentCaptureManifestTests(unittest.TestCase):
             mark_captured(root, clean=True)
         self.assertIs(read_manifest(root)["capture_stop_clean"], True)
 
+    def test_calibration_requires_preobservation_physical_label(self):
+        root = self.tmp_path / "calibration-missing-label"
+
+        with self.assertRaisesRegex(
+            CaptureManifestError, "calibration trials require"
+        ):
+            create_manifest(
+                root,
+                run_id="calibration-missing-label",
+                dataset_id="heldout-calibration",
+                trial_kind="calibration",
+                capture_profile="audit",
+                topics=("/navdp/rgb_arrival_status",),
+                workspace=Path(__file__).resolve().parents[3],
+            )
+
+        self.assertFalse(root.exists())
+
+    def test_calibration_label_is_frozen_before_capture(self):
+        root = self.tmp_path / "calibration-labelled"
+        payload = create_manifest(
+            root,
+            run_id="calibration-labelled",
+            dataset_id="heldout-calibration",
+            trial_kind="calibration",
+            capture_profile="audit",
+            topics=("/navdp/rgb_arrival_status",),
+            workspace=Path(__file__).resolve().parents[3],
+            calibration_scene_id="calibration-a",
+            physical_distance_m=0.50,
+            physical_yaw_deg=-20.0,
+            physical_label_method="tape-and-angle-jig",
+        )
+
+        label = payload["calibration_label"]
+        self.assertEqual(label["scene_id"], "calibration-a")
+        self.assertEqual(label["physical_distance_m"], 0.50)
+        self.assertEqual(label["physical_yaw_deg"], -20.0)
+        self.assertEqual(label["measurement_method"], "tape-and-angle-jig")
+        self.assertIs(label["recorded_before_capture"], True)
+        self.assertIs(label["arrival_score_logging_started_before_label"], False)
+        self.assertEqual(label["label_recorded_utc"], payload["created_utc"])
+
+    def test_noncalibration_trial_rejects_physical_labels(self):
+        with self.assertRaisesRegex(
+            CaptureManifestError, "only valid for calibration"
+        ):
+            create_manifest(
+                self.tmp_path / "revisit-with-calibration-label",
+                run_id="revisit-with-calibration-label",
+                dataset_id="survey-01",
+                trial_kind="revisit",
+                capture_profile="audit",
+                topics=("/navdp/status",),
+                workspace=Path(__file__).resolve().parents[3],
+                calibration_scene_id="calibration-a",
+                physical_distance_m=0.25,
+                physical_yaw_deg=0.0,
+                physical_label_method="tape-and-angle-jig",
+            )
+
     def test_odin_gt_capture_requires_status_result_and_spl_receipts(self):
         root = self.tmp_path / "formal-odin-01"
         create_manifest(

@@ -1380,6 +1380,23 @@ yaw:      0 / ±10 / ±20°
 6. 明确是independent RGB arrival termination还是policy STOP；
 7. 未通过跨场景验证前，只允许显式 opt-in 的 engineering STOP，不得用于正式结果。
 
+每条 calibration capture 必须在读取 live visual score 之前，把物理标签原子写入
+manifest；不再允许只写在自由文本 notes 中：
+
+```bash
+bash deployment/go2/offboard/experiment_capture.sh start CALIB_RUN_ID \
+  --dataset HELDOUT_CALIBRATION_ID --trial-kind calibration --gt-source odin1 \
+  --calibration-scene-id CALIB_SCENE_ID \
+  --physical-distance-m 0.50 --physical-yaw-deg -20 \
+  --physical-label-method tape-and-angle-jig
+```
+
+采集器会写入 `recorded_before_capture=true` 和
+`arrival_score_logging_started_before_label=false`；缺少 scene、distance、yaw 或测量方法
+时，在建立 run 目录前直接拒绝。该字段只证明本次 capture 的 score logger 尚未启动，
+不能证明操作员此前没有查看另一个 live display；现场盲标仍须按协议执行。该收据也不会
+自动把 calibration 标成 passed 或解除 formal motion gate。
+
 ### P0-B：Exact goal SHA启动门（软件已完成，待现场无运动验收）
 
 `formal-start`现已强制并验证：
