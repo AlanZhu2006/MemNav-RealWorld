@@ -14,7 +14,8 @@ Usage:
   nav_stack.sh list
   nav_stack.sh describe PROFILE
   nav_stack.sh resolve --config EXPERIMENT.json
-  nav_stack.sh start --config EXPERIMENT.json [--dry-run]
+  nav_stack.sh camera-ui {start|status|stop} [--config EXPERIMENT.json]
+  nav_stack.sh start --config EXPERIMENT.json [--refresh] [--dry-run]
   nav_stack.sh run [--config EXPERIMENT.json] [--timeout-s SECONDS]
   nav_stack.sh status [--config EXPERIMENT.json]
   nav_stack.sh stop [--config EXPERIMENT.json]
@@ -24,8 +25,9 @@ system.json. The resolved, hash-verified JSON is the only runtime contract.
 No NAVDP_*/CEC_* environment override is accepted.
 
 Startup is motion-locked. It never clears estop or calls set_enabled=true.
-Starting an already-running profile safely replaces the complete stack so one
-tmux session never intentionally mixes runtime contracts.
+Starting an already-running, healthy instance of the exact same contract first
+confirms disabled + estop and then reuses it. Use --refresh to deliberately
+replace every process; stale, incomplete, or dead sessions are always replaced.
 
 "run" is the explicit onsite motion command for the native profile. It reuses
 a healthy current stack, cold-refreshes only when required, prints phase
@@ -94,10 +96,11 @@ stop_existing_local_stack() {
 }
 
 start_stack() {
-  local source="" dry_run=false
+  local source="" dry_run=false refresh=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --config) [[ $# -ge 2 ]] || die "--config requires a value"; source="$2"; shift 2 ;;
+      --refresh) refresh=true; shift ;;
       --dry-run) dry_run=true; shift ;;
       *) die "unknown start option: $1" ;;
     esac
@@ -109,6 +112,18 @@ start_stack() {
   if [[ "$dry_run" == true ]]; then
     echo "DRY RUN: validated; no tmux session or process was started."
     return 0
+  fi
+  if [[ "$refresh" != true ]] && profile_session_is_current_and_healthy; then
+    if bash "$GO2_DIR/scripts/lock_running_stack.sh" --config "$resolved"; then
+      echo "FAST START: reusing healthy $CFG_PROFILE stack config_id=$CFG_CONFIG_ID"
+      return 0
+    fi
+    echo "Existing stack could not prove motion lock; replacing it fail-closed." >&2
+  fi
+  local camera_ui_session="${CFG_NATIVE_SESSION}-camera-ui"
+  if tmux has-session -t "$camera_ui_session" 2>/dev/null; then
+    tmux kill-session -t "$camera_ui_session"
+    echo "Stopped camera-only UI before full-stack startup: $camera_ui_session"
   fi
   case "$CFG_PROFILE" in
     native-navdp-rgbd)
@@ -145,6 +160,40 @@ native_session_is_current_and_healthy() {
   for window in "${required[@]}"; do
     grep -Fxq "$window" <<<"$windows" || return 1
   done
+}
+
+fullmono_session_is_current_and_healthy() {
+  local session="$CFG_FULLMONO_SESSION"
+  tmux has-session -t "$session" 2>/dev/null || return 1
+  local active_id windows window_states
+  active_id="$(tmux show-environment -t "$session" MEMNAV_CONFIG_ID 2>/dev/null \
+    | sed -n 's/^MEMNAV_CONFIG_ID=//p' || true)"
+  [[ "$active_id" == "$CFG_CONFIG_ID" ]] || return 1
+  window_states="$(tmux list-windows -t "$session" \
+    -F '#{window_name} #{pane_dead}' 2>/dev/null)" \
+    || return 1
+  grep -Eq ' 1$' <<<"$window_states" && return 1
+  windows="$(cut -d' ' -f1 <<<"$window_states")"
+  local required=(tunnel adapter)
+  [[ "$CFG_WITH_CAMERA" != true ]] || required+=(rgbd camera-recovery)
+  [[ "$CFG_ARRIVAL_MODULE" != rgb-homography ]] || required+=(arrival)
+  [[ "$CFG_WITH_GO2" != true ]] || required+=(go2)
+  [[ "$CFG_WITH_FOXGLOVE" != true ]] \
+    || required+=(battery fox-preview foxglove)
+  local window
+  for window in "${required[@]}"; do
+    grep -Fxq "$window" <<<"$windows" || return 1
+  done
+  curl -fsS --max-time 2 \
+    "http://127.0.0.1:${CFG_TUNNEL_LOCAL_PORT}/healthz" >/dev/null 2>&1
+}
+
+profile_session_is_current_and_healthy() {
+  case "$CFG_PROFILE" in
+    native-navdp-rgbd) native_session_is_current_and_healthy ;;
+    fullmono-lingbot-cec) fullmono_session_is_current_and_healthy ;;
+    *) return 1 ;;
+  esac
 }
 
 run_navigation() {
@@ -256,7 +305,8 @@ stop_stack() {
     system_exports="$(python3 "$CONFIG_TOOL" system-shell \
       --config "$REPO_ROOT/deployment/config/system.json" --site jetson)"
     eval "$system_exports"
-    for session in "$CFG_NATIVE_SESSION" "$CFG_FULLMONO_SESSION"; do
+    for session in "$CFG_NATIVE_SESSION" "$CFG_FULLMONO_SESSION" \
+        "${CFG_NATIVE_SESSION}-camera-ui"; do
       if tmux has-session -t "$session" 2>/dev/null; then
         tmux kill-session -t "$session"
         echo "Stopped Jetson tmux session: $session"
@@ -284,6 +334,7 @@ main() {
     list) [[ $# -eq 0 ]] || die "list takes no arguments"; python3 "$PROFILE_TOOL" list ;;
     describe) [[ $# -eq 1 ]] || die "describe requires PROFILE"; python3 "$PROFILE_TOOL" show "$1" ;;
     resolve) resolve_only "$@" ;;
+    camera-ui) bash "$GO2_DIR/scripts/camera_ui.sh" "$@" ;;
     start) start_stack "$@" ;;
     run) run_navigation "$@" ;;
     status) status_stack "$@" ;;

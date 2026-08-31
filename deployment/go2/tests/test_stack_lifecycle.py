@@ -82,6 +82,62 @@ run_navigation --timeout-s 45
     assert "scripts/run_navigation.sh --config /tmp/resolved.json --timeout-s 45" in result.stdout
 
 
+def test_start_fast_path_relocks_and_reuses_exact_healthy_stack():
+    command = f"""
+source {NAV_STACK!s}
+resolve_config() {{ echo /tmp/resolved.json; }}
+show_contract() {{
+  CFG_PROFILE=native-navdp-rgbd
+  CFG_CONFIG_ID=current-id
+  CFG_NATIVE_SESSION=navdp-go2
+}}
+profile_session_is_current_and_healthy() {{ return 0; }}
+tmux() {{ return 1; }}
+bash() {{ printf 'child=%s\n' "$*"; }}
+stop_existing_local_stack() {{ echo unexpected-stop; return 99; }}
+start_stack --config /tmp/experiment.json
+"""
+
+    result = subprocess.run(
+        ["bash", "-c", command],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "scripts/lock_running_stack.sh --config /tmp/resolved.json" in result.stdout
+    assert "FAST START: reusing healthy native-navdp-rgbd stack" in result.stdout
+    assert "unexpected-stop" not in result.stdout
+
+
+def test_start_refresh_replaces_even_a_healthy_exact_stack():
+    command = f"""
+source {NAV_STACK!s}
+resolve_config() {{ echo /tmp/resolved.json; }}
+show_contract() {{
+  CFG_PROFILE=native-navdp-rgbd
+  CFG_CONFIG_ID=current-id
+  CFG_NATIVE_SESSION=navdp-go2
+}}
+profile_session_is_current_and_healthy() {{ echo unexpected-health-check; return 99; }}
+tmux() {{ return 1; }}
+stop_existing_local_stack() {{ printf 'stop=%s\n' "$*"; }}
+bash() {{ printf 'child=%s\n' "$*"; }}
+start_stack --config /tmp/experiment.json --refresh
+"""
+
+    result = subprocess.run(
+        ["bash", "-c", command],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "unexpected-health-check" not in result.stdout
+    assert "stop=/tmp/resolved.json navdp-go2 native-navdp-rgbd" in result.stdout
+    assert "scripts/run_stack.sh --config /tmp/resolved.json" in result.stdout
+
+
 def test_run_cold_path_refreshes_once_before_agent():
     command = f"""
 source {NAV_STACK!s}

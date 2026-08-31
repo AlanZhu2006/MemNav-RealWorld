@@ -68,7 +68,7 @@
           "frameId": "navdp_local"
         }
       },
-      "foxglovePanelTitle": "Trajectory (diagnostic)"
+      "foxglovePanelTitle": "Path"
     },
     "Image!rgb": {
       "scene": {},
@@ -84,7 +84,7 @@
         "rectifyImage": false,
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
-      "foxglovePanelTitle": "RealSense RGB preview (640x360 @ 15 Hz)"
+      "foxglovePanelTitle": "Live RGB"
     },
     "Image!depth": {
       "scene": {},
@@ -100,7 +100,7 @@
         "rectifyImage": false,
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
-      "foxglovePanelTitle": "Aligned depth preview (200-4000 mm @ 10 Hz)"
+      "foxglovePanelTitle": "Depth"
     },
     "Image!goal": {
       "scene": {},
@@ -116,7 +116,7 @@
         "rectifyImage": false,
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
-      "foxglovePanelTitle": "ImageGoal"
+      "foxglovePanelTitle": "Goal"
     },
     "Image!arrival": {
       "scene": {},
@@ -132,7 +132,7 @@
         "rectifyImage": false,
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
-      "foxglovePanelTitle": "Goal match (diagnostic; green = MATCH)"
+      "foxglovePanelTitle": "Match"
     },
     "Image!status": {
       "scene": {},
@@ -148,47 +148,47 @@
         "rectifyImage": false,
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
-      "foxglovePanelTitle": "Operator safety / motion / Go2 battery status"
+      "foxglovePanelTitle": "Status"
     },
     "CallService!stop": {
       "serviceName": "/navdp_go2_adapter/operator_stop",
       "requestPayload": "{}",
       "layout": "vertical",
       "buttonText": "STOP NAVIGATION",
-      "buttonTooltip": "Fail-closed only: disable motion, assert estop and command zero",
+      "buttonTooltip": "Disable motion, assert estop and command zero",
       "buttonColor": "#d32f2f",
       "editingMode": false,
-      "foxglovePanelTitle": "Emergency stop — cannot enable motion"
+      "foxglovePanelTitle": "Stop"
     },
     "CallService!camera-recovery": {
       "serviceName": "/navdp_camera_recovery/restart",
       "requestPayload": "{}",
       "layout": "vertical",
-      "buttonText": "RECOVER CAMERA",
+      "buttonText": "CAMERA RESET",
       "buttonTooltip": "Locks motion, restarts RealSense and verifies fresh RGB-D frames",
       "buttonColor": "#ef6c00",
       "editingMode": false,
-      "foxglovePanelTitle": "Camera recovery — motion stays locked"
+      "foxglovePanelTitle": "Camera"
     },
     "CallService!survey-start": {
       "serviceName": "/navdp_go2_adapter/survey_start",
       "requestPayload": "{}",
       "layout": "vertical",
       "buttonText": "START SURVEY",
-      "buttonTooltip": "Start or resume RGB Survey recording; verify ACTIVE in the large status card and the result below this button",
+      "buttonTooltip": "Start or resume RGB Survey recording",
       "buttonColor": "#2e7d32",
       "editingMode": false,
-      "foxglovePanelTitle": "START / RESUME — result appears below"
+      "foxglovePanelTitle": "Start"
     },
     "CallService!survey-seal": {
       "serviceName": "/navdp_go2_adapter/survey_seal",
       "requestPayload": "{}",
       "layout": "vertical",
       "buttonText": "SEAL SURVEY",
-      "buttonTooltip": "Pause and validate the Survey; verify SEALED or PAUSED/FAILED in the large status card and the result below",
+      "buttonTooltip": "Pause, validate and seal the Survey",
       "buttonColor": "#1565c0",
       "editingMode": false,
-      "foxglovePanelTitle": "SEAL — result appears below"
+      "foxglovePanelTitle": "Seal"
     }
   },
   "globalVariables": {},
@@ -230,18 +230,18 @@
             },
             "splitPercentage": 50
           },
-          "splitPercentage": 55
+          "splitPercentage": 70
         },
-        "splitPercentage": 43
+        "splitPercentage": 58
       },
-      "splitPercentage": 54
+      "splitPercentage": 58
     },
     "second": {
       "direction": "row",
       "first": "3D!navdp",
       "second": "Image!arrival",
-      "splitPercentage": 35
+      "splitPercentage": 45
     },
-    "splitPercentage": 82
+    "splitPercentage": 88
   }
 }

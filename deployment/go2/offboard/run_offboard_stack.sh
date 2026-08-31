@@ -25,6 +25,19 @@ fi
 
 tmux new-session -d -s "$SESSION" -n tunnel \
   "exec '$OFFBOARD_DIR/run_policy_tunnel.sh' --config '$NAVDP_RUN_CONFIG'"
+
+if [[ "$CFG_WITH_CAMERA" == true ]]; then
+  mkdir -p "$LOG_ROOT"
+  camera_log="$LOG_ROOT/realsense.log"
+  : >"$camera_log"
+  tmux new-window -t "$SESSION" -n rgbd \
+    "exec '$GO2_DIR/scripts/run_realsense.sh' --config '$NAVDP_RUN_CONFIG' >'$camera_log' 2>&1"
+fi
+# Camera, previews and the WebSocket bridge do not need to wait behind the RTX
+# tunnel. Starting them now overlaps the local 5--10 second sensor bring-up
+# with remote health verification and makes Foxglove connectable immediately.
+navdp_start_foxglove_windows "$SESSION"
+
 healthy=false
 for _ in $(seq 1 $((CFG_TUNNEL_READY_TIMEOUT_S * 4))); do
   health="$(curl -fsS --max-time 1 \
@@ -42,11 +55,6 @@ if [[ "$healthy" != true ]]; then
 fi
 
 if [[ "$CFG_WITH_CAMERA" == true ]]; then
-  mkdir -p "$LOG_ROOT"
-  camera_log="$LOG_ROOT/realsense.log"
-  : >"$camera_log"
-  tmux new-window -t "$SESSION" -n rgbd \
-    "exec '$GO2_DIR/scripts/run_realsense.sh' --config '$NAVDP_RUN_CONFIG' >'$camera_log' 2>&1"
   navdp_source_ros
   if ! navdp_wait_for_camera_info "$SESSION" true; then
     echo "D435i did not publish CameraInfo; refusing to start the adapter." >&2

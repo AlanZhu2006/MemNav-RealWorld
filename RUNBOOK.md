@@ -55,11 +55,14 @@ The launcher performs these transactions:
 2. copy the same file to RTX `runtime/config/`;
 3. require the RTX Git revision and model paths to match;
 4. preflight/start loopback MemNav, NavDP and CEC services;
-5. create the SSH tunnel and require a valid health contract;
-6. start D435i and require real CameraInfo before adapter startup;
-7. start selected optional processes while retaining disabled + estop.
+5. start the D435i and observation-only Foxglove windows while checking the SSH
+   tunnel, so local sensor bring-up overlaps remote health verification;
+6. require both a valid hub contract and real CameraInfo before adapter startup;
+7. start control-side optional processes while retaining disabled + estop.
 
 Any partial start is rolled back. GPU services never expose an actuator path.
+Repeating the same healthy `start` first proves `disabled + estop` and then
+reuses the complete stack. Add `--refresh` to force a cold replacement.
 
 ## 5. Survey and Formal Revisit
 

@@ -85,7 +85,7 @@
         "width": 640,
         "height": 360,
         "status_width": 720,
-        "status_height": 272,
+        "status_height": 220,
         "rgb_fps": 15,
         "depth_fps": 10,
         "goal_fps": 2,

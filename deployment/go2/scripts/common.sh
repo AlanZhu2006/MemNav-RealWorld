@@ -96,23 +96,48 @@ navdp_activate_venv() {
 navdp_wait_for_camera_info() {
   local session="$1"
   local require_live_window="$2"
-  local camera_ready=false
-  local camera_deadline=$((SECONDS + CFG_CAMERA_READY_TIMEOUT_S))
-  while (( SECONDS < camera_deadline )); do
+  # Keep one DDS subscriber alive while the USB reset and sensor bring-up run.
+  # Repeated short-lived `ros2 topic echo` processes each pay discovery startup
+  # and previously added roughly ten seconds after CameraInfo was already live.
+  timeout "$CFG_CAMERA_READY_TIMEOUT_S" python3 - \
+    "$CFG_CAMERA_INFO_TOPIC" >/dev/null 2>&1 <<'PY' &
+import sys
+
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import CameraInfo
+
+rclpy.init(args=[])
+node = Node("navdp_camera_info_waiter")
+received = False
+
+def on_message(_message):
+    global received
+    received = True
+
+subscription = node.create_subscription(
+    CameraInfo, sys.argv[1], on_message, qos_profile_sensor_data
+)
+while rclpy.ok() and not received:
+    rclpy.spin_once(node, timeout_sec=0.5)
+node.destroy_subscription(subscription)
+node.destroy_node()
+rclpy.shutdown()
+PY
+  local waiter_pid=$!
+  while kill -0 "$waiter_pid" 2>/dev/null; do
     if [[ "$require_live_window" == true ]]; then
       if ! tmux list-windows -t "$session" -F '#{window_name}' \
           | grep -Fxq rgbd; then
-        break
+        kill -TERM "$waiter_pid" 2>/dev/null || true
+        wait "$waiter_pid" 2>/dev/null || true
+        return 1
       fi
-    fi
-    if timeout 3 ros2 topic echo --once "$CFG_CAMERA_INFO_TOPIC" \
-        >/dev/null 2>&1; then
-      camera_ready=true
-      break
     fi
     sleep 0.25
   done
-  [[ "$camera_ready" == true ]]
+  wait "$waiter_pid"
 }
 
 navdp_start_adapter_and_wait() {
@@ -151,16 +176,8 @@ navdp_start_camera_recovery_and_wait() {
   [[ "$recovery_ready" == true ]]
 }
 
-navdp_start_optional_windows() {
+navdp_start_foxglove_windows() {
   local session="$1"
-  if [[ "$CFG_ARRIVAL_MODULE" == rgb-homography ]]; then
-    tmux new-window -t "$session" -n arrival \
-      "exec '$NAVDP_GO2_SCRIPT_DIR/run_arrival_module.sh' --config '$NAVDP_RUN_CONFIG'"
-  fi
-  if [[ "$CFG_WITH_GO2" == true ]]; then
-    tmux new-window -t "$session" -n go2 \
-      "exec '$NAVDP_GO2_SCRIPT_DIR/run_go2_bridge.sh' --config '$NAVDP_RUN_CONFIG'"
-  fi
   if [[ "$CFG_WITH_FOXGLOVE" == true ]]; then
     tmux new-window -t "$session" -n battery \
       "exec '$NAVDP_GO2_SCRIPT_DIR/run_go2_battery_monitor.sh' --config '$NAVDP_RUN_CONFIG'"
@@ -171,19 +188,64 @@ navdp_start_optional_windows() {
   fi
 }
 
+navdp_start_optional_windows() {
+  local session="$1"
+  if [[ "$CFG_ARRIVAL_MODULE" == rgb-homography ]]; then
+    tmux new-window -t "$session" -n arrival \
+      "exec '$NAVDP_GO2_SCRIPT_DIR/run_arrival_module.sh' --config '$NAVDP_RUN_CONFIG'"
+  fi
+  if [[ "$CFG_WITH_GO2" == true ]]; then
+    tmux new-window -t "$session" -n go2 \
+      "exec '$NAVDP_GO2_SCRIPT_DIR/run_go2_bridge.sh' --config '$NAVDP_RUN_CONFIG'"
+  fi
+}
+
 navdp_stamp_session_contract() {
   local session="$1"
   tmux set-environment -t "$session" MEMNAV_RUN_CONFIG "$NAVDP_RUN_CONFIG"
   tmux set-environment -t "$session" MEMNAV_CONFIG_ID "$CFG_CONFIG_ID"
 }
 
+navdp_assert_motion_locked() {
+  # Reusing a process generation is only safe after the adapter confirms that
+  # motion authority has been revoked and publishes the resulting locked state.
+  navdp_source_ros >/dev/null 2>&1 || return 1
+  local response payload
+  response="$(timeout 8 ros2 service call \
+    /navdp_go2_adapter/operator_stop std_srvs/srv/Trigger '{}' 2>&1)" \
+    || return 1
+  grep -Eiq 'success[=:][[:space:]]*(true|True)' <<<"$response" || return 1
+
+  for _ in $(seq 1 3); do
+    payload="$(timeout 3 ros2 topic echo --once /navdp/status \
+      --field data 2>/dev/null || true)"
+    if python3 - "$payload" <<'PY'
+import ast
+import json
+import sys
+
+raw = "\n".join(
+    line for line in sys.argv[1].splitlines() if line.strip() != "---"
+).strip()
+try:
+    decoded = ast.literal_eval(raw)
+    if isinstance(decoded, str):
+        raw = decoded
+except (SyntaxError, ValueError):
+    pass
+status = json.loads(raw)
+assert status.get("enabled") is False
+assert status.get("estop") is True
+PY
+    then
+      return 0
+    fi
+  done
+  return 1
+}
+
 navdp_lock_motion_before_shutdown() {
-  # A stack replacement must never carry motion authority across process
-  # generations.  The adapter service is the primary stop path; normal node
-  # shutdown remains the fallback when ROS or the adapter is unavailable.
-  if navdp_source_ros >/dev/null 2>&1; then
-    timeout 4 ros2 service call \
-      /navdp_go2_adapter/operator_stop std_srvs/srv/Trigger '{}' \
-      >/dev/null 2>&1 || true
-  fi
+  # Shutdown remains the fallback lock: failure to reach ROS cannot prevent
+  # process teardown, whose watchdog and process exit also remove commands.
+  navdp_assert_motion_locked >/dev/null 2>&1 || true
 }

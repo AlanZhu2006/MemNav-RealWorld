@@ -88,14 +88,28 @@ bash deployment/go2/nav_stack.sh start \
   --config deployment/config/experiments/native_imagegoal.json
 ```
 
-`start` 是唯一的整栈刷新入口：若同 profile 的 tmux 会话已经存在，它会先调用
-fail-closed 停止路径、关闭整个旧会话，再让所有窗口使用当前 revision 解析出的同一
-配置启动。提交代码后不要人工混用新旧配置重启单个窗口；相机恢复按钮除外，因为它
-始终沿用当前会话的运行合同，并且不会恢复运动权限。
+`start` 默认也是快速且幂等的：若相同 config ID 的所有窗口健康，它先调用
+`operator_stop`并从`/navdp/status`确认`disabled + estop`，随后直接复用相机、模型和
+Foxglove。合同变化、窗口缺失、进程死亡或无法确认锁止时才做完整冷启动。确实需要主动
+替换所有进程时加`--refresh`。提交代码后不要人工混用新旧配置重启单个窗口；相机恢复
+按钮除外，因为它始终沿用当前会话的运行合同，并且不会恢复运动权限。
 
 原生 profile 不访问 4090，不启动 CEC/MemNav/LingBot。它调用原版
 `NavDP_Agent.step_imagegoal()`，当前 RGB-D 进入策略，配置中的目标 RGB 作为
 ImageGoal。
+
+只连接D435i、没有连接机械狗且只想查看相机时，不要使用`go2_bridge=true`的默认整栈
+配置；直接启动轻量相机UI：
+
+```bash
+bash deployment/go2/nav_stack.sh camera-ui start
+# 查看/关闭：camera-ui status / camera-ui stop
+```
+
+该入口只创建`rgbd`、`fox-preview`和`foxglove`三个窗口，不加载NavDP/CEC模型，不启动
+adapter、arrival、battery或Unitree SDK，也不存在运动路径。Foxglove仍连接
+`ws://JETSON_IP:8765`，此模式只有Live RGB和Depth有数据；状态、轨迹、match与service
+按钮等待完整栈是预期行为。启动完整栈时会自动关闭这个独立相机会话以避免相机和端口冲突。
 
 `launch.foxglove=true`只在Jetson启动无界面、观察为主的Bridge。操作电脑打开Foxglove，
 连接`ws://JETSON_IP:8765`并选择组织 Layout `MemNav Go2 Navigation`；组织同步尚未配置时，
@@ -108,17 +122,19 @@ config-bound Survey 生命周期调用：`survey_start`只开始/恢复RGB记录
 640×360、15 Hz、JPEG质量75，深度被缩放、按200--4000 mm做Turbo着色后以640×360、
 10 Hz、JPEG质量70发布；ImageGoal以2 Hz压缩，arrival debug最多以5 Hz压缩并保留原始
 宽幅比例（当前通常为960×272），不会再把左右两幅图强拉成640×360。侧车还把
-`/navdp/status`渲染成720×272、2 Hz的只读操作状态卡。
+`/navdp/status`渲染成720×220、2 Hz的只读操作状态卡。
 
 状态卡标题下方同时显示 Go2 电量和总电压。独立的只读 `battery` 窗口只订阅 Unitree
 `rt/lowstate`中的 BMS/SOC 与供电字段，再发布标准 ROS
 `/navdp/go2/battery`；它不创建运动客户端，也不发布任何控制命令。最后一帧底层状态超过
-2 秒，或机械狗/网线尚未接通，状态卡会明确显示红色 `BATTERY OFFLINE`，并清空百分比、
+2 秒，或机械狗/网线尚未接通，状态卡会明确显示红色 `GO2 OFFLINE`，并清空百分比、
 电压和电流，不会保留一个看似有效的旧电量。该观察节点随 Foxglove 启动，因此 Survey
 锁停阶段也能看电量；链路恢复后会自动重连，无需重启整栈。
 
-版本化布局把上方82%的主工作区留给当前RGB、ImageGoal、深度、状态/电量和安全按钮；
-当前RGB占主区最大面积。选中轨迹和宽幅arrival对比只放在底部18%的辅助诊断条中，避免
+版本化布局把上方88%的主工作区留给当前RGB、ImageGoal、深度、状态/电量和安全按钮；
+当前RGB占主区最大面积。状态卡下方的四个内置Service Call按钮压成2×2控制区；
+Foxglove内置panel仍是一项service一个panel，因此不引入自定义扩展。选中轨迹和宽幅
+arrival对比只放在底部12%的辅助诊断条中，match宽度也进一步收窄，避免
 它们挤占日常操作信息，同时保持arrival图像的宽幅比例。`/navdp/trajectory`明确按4 cm
 细折线显示，并用绿到青的渐变区分轨迹起终方向；
 `/navdp/debug/markers`仍保留候选路径和Q值供诊断，但默认关闭，避免与选中轨迹重复叠加。
@@ -128,12 +144,13 @@ ImageGoal、最后一次arrival对比和状态卡使用transient-local显示QoS�
 重连后仍能立即取得最近快照；arrival panel表示“最后一次评估”，不是锁定期间的新判断。
 状态卡下方的绿色`START SURVEY`与蓝色`SEAL SURVEY`只在`survey-prepare`生成的Survey
 栈中可用。前者建立第一帧记录边界，后者等待当前帧提交完成后冻结dataset。状态卡会用
-大字显示`ACTIVE / PAUSED / SEALED`、已保存帧数和最近一次按钮结果；每个按钮面板也保留
-完整response。seal失败时保持记录暂停，已有帧不会丢失，可再次Start继续采集。红色
+紧凑显示`ACTIVE / PAUSED / SEALED`、已保存帧数和最近一次按钮结果。按钮关闭编辑模式，
+默认不铺开request/response文字；seal失败时保持记录暂停，已有帧不会丢失，可再次Start
+继续采集。红色
 `STOP NAVIGATION`按钮只执行
 `enabled=false + estop=true + zero command`；
 它不能启动机器人，重复点击也安全。调用成功后应在状态卡看到`E-STOP / LOCKED`和零命令。
-橙色`RECOVER CAMERA`会先执行相同的运动锁止，再只重启`rgbd`窗口，并等待RGB与aligned
+橙色`CAMERA RESET`会先执行相同的运动锁止，再只重启`rgbd`窗口，并等待RGB与aligned
 depth各至少10幅新帧后才返回成功；无论成功或失败都不自动解除estop或恢复导航。
 这些topic有损且只用于显示；NavDP、arrival和`--profile full`采集仍读取原始
 848×480×30 Hz RGB-D。修改布局文件不会覆盖Foxglove已经导入的本地副本，升级后需要重新

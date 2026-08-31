@@ -3,7 +3,20 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
-navdp_require_config_arg "$@"
+deep=false
+config_args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --deep) deep=true; shift ;;
+    --config)
+      [[ $# -ge 2 ]] || { echo "--config requires a value" >&2; exit 2; }
+      config_args+=("$1" "$2")
+      shift 2
+      ;;
+    *) echo "Unknown preflight option: $1" >&2; exit 2 ;;
+  esac
+done
+navdp_require_config_arg "${config_args[@]}"
 navdp_load_config "$NAVDP_RUN_CONFIG"
 
 failures=0
@@ -30,22 +43,18 @@ if [[ "$CFG_WITH_FOXGLOVE" == true ]]; then
     || fail "Foxglove image preview relay missing"
 fi
 
-realsense_devices=""
 if command -v rs-enumerate-devices >/dev/null 2>&1; then
-  realsense_devices="$(rs-enumerate-devices 2>/dev/null || true)"
-fi
-if grep -q 'Intel RealSense' <<<"$realsense_devices"; then
-  pass "RealSense device detected"
+  pass "RealSense tools"
 else
-  fail "RealSense device not detected"
+  fail "rs-enumerate-devices is unavailable"
 fi
 
 if [[ -x "$NAVDP_VENV/bin/python" ]]; then
   if navdp_source_ros >/dev/null 2>&1 && navdp_activate_venv >/dev/null 2>&1 && \
-      python -c 'import torch; assert torch.cuda.is_available(); import diffusers, flask, cv2, message_filters, rclpy' >/dev/null 2>&1; then
-    pass "NavDP Python environment and CUDA"
+      python -c 'import importlib.util as i; assert all(i.find_spec(x) for x in ("torch", "diffusers", "flask", "cv2", "message_filters", "rclpy"))' >/dev/null 2>&1; then
+    pass "NavDP Python modules available"
   else
-    fail "NavDP environment import/CUDA check failed"
+    fail "NavDP Python modules missing"
   fi
 else
   fail "Run setup_jetson.sh"
@@ -53,22 +62,28 @@ fi
 
 checkpoint="$CFG_NATIVE_CHECKPOINT"
 expected="$CFG_NATIVE_CHECKPOINT_SHA256"
-if [[ -f "$checkpoint" ]] && echo "$expected  $checkpoint" | sha256sum --check --status; then
-  pass "Verified $(basename "$checkpoint")"
+if [[ -f "$checkpoint" ]]; then
+  pass "Checkpoint present: $(basename "$checkpoint")"
 else
-  fail "Checkpoint missing or invalid: $checkpoint"
+  fail "Checkpoint missing: $checkpoint"
 fi
 
-if curl -fsS --max-time 1 "http://$CFG_NATIVE_HOST:$CFG_NATIVE_PORT/healthz" >/dev/null 2>&1; then
-  pass "Policy server health endpoint"
-else
-  warn "Policy server is not running yet"
-fi
-
-if command -v ros2 >/dev/null 2>&1; then
-  topics="$(timeout 3 ros2 topic list 2>/dev/null || true)"
-  grep -qx "$CFG_RGB_TOPIC" <<<"$topics" && pass "RGB topic active" || warn "RGB topic not active"
-  grep -qx "$CFG_DEPTH_TOPIC" <<<"$topics" && pass "Aligned depth topic active" || warn "Aligned depth topic not active"
+if [[ "$deep" == true ]]; then
+  realsense_devices="$(rs-enumerate-devices 2>/dev/null || true)"
+  grep -q 'Intel RealSense' <<<"$realsense_devices" \
+    && pass "RealSense device detected" || fail "RealSense device not detected"
+  if navdp_source_ros >/dev/null 2>&1 && navdp_activate_venv >/dev/null 2>&1 \
+      && python -c 'import torch; assert torch.cuda.is_available(); import diffusers, flask, cv2, message_filters, rclpy' >/dev/null 2>&1; then
+    pass "NavDP imports and CUDA"
+  else
+    fail "NavDP import/CUDA check failed"
+  fi
+  if [[ -f "$checkpoint" ]] \
+      && echo "$expected  $checkpoint" | sha256sum --check --status; then
+    pass "Verified $(basename "$checkpoint")"
+  else
+    fail "Checkpoint invalid: $checkpoint"
+  fi
 fi
 
 if [[ "$CFG_WITH_GO2" == true ]]; then

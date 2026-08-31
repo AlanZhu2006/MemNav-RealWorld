@@ -1040,10 +1040,20 @@ ws://JETSON_IP:8765
 deployment/go2/config/navdp_debug.foxglove-layout.json
 ```
 
-Bridge禁止client publish和参数修改；Service白名单精确限制为
-`/navdp_go2_adapter/operator_stop`与`/navdp_camera_recovery/restart`。后者先disable、assert
-estop并发布零速度，再重启相机并验证新RGB-D帧；成功后也保持锁止。Foxglove不能reset、
-clear estop或enable，因此只具有观察、单向撤销运动权限和锁止状态下的传感器恢复权限。
+若机械狗和4090均未连接、只需确认D435i与Foxglove画面，可在Jetson执行：
+
+```bash
+bash deployment/go2/nav_stack.sh camera-ui start
+```
+
+该模式只启动RealSense、限流预览和Bridge；Live RGB/Depth可用，其余完整栈panel等待消息是
+预期行为。它不加载策略、adapter或Unitree SDK，也没有运动路径。
+
+Bridge禁止client publish和参数修改；Service白名单精确限制为`operator_stop`、
+`survey_start`、`survey_seal`与`camera_recovery/restart`。Survey调用只能开始/冻结当前
+config-bound记录，不能取得运动权限；camera recovery先disable、assert estop并发布零速度，
+再重启相机并验证新RGB-D帧，成功后也保持锁止。Foxglove不能reset、clear estop或enable，
+因此只具有观察、Survey记录生命周期、单向撤销运动权限和锁止状态下的传感器恢复权限。
 默认配置监听所有网卡且没有TLS，因此只能放在可信实验局域网或Tailscale内；相机数据
 仍属于敏感遥测，不能把8765端口直接暴露到公网。查看Jetson端Bridge日志可执行：
 
@@ -1070,7 +1080,7 @@ ros2 topic hz /navdp/foxglove/status/compressed
 `fox-preview`只生成显示侧车：RGB为640×360、15 Hz JPEG，深度先按200--4000 mm
 Turbo着色，再生成640×360、10 Hz JPEG；ImageGoal以2 Hz、arrival debug最多以5 Hz生成
 JPEG并保留原始宽幅比例（当前通常为960×272）；`/navdp/status`另外被渲染成
-720×272、2 Hz操作状态卡。原始图继续进入策略、arrival和可选full MCAP，不经过预览
+720×220、2 Hz紧凑操作状态卡。原始图继续进入策略、arrival和可选full MCAP，不经过预览
 侧车。Foxglove保存导入布局的本地副本；仓库布局更新后需要重新导入一次，已有dashboard
 不会自动改topic或可见性。
 
@@ -1087,15 +1097,16 @@ JPEG并保留原始宽幅比例（当前通常为960×272）；`/navdp/status`�
 | RGB Arrival Match | `/navdp/foxglove/arrival/compressed`，保留左右对比图原始比例、最多5 Hz |
 | Operator status | `/navdp/foxglove/status/compressed`，安全锁、RGB-D/plan age、clearance、vx/wz、错误 |
 | STOP NAVIGATION | `/navdp_go2_adapter/operator_stop`，仅disabled + estop + zero，不具备启动能力 |
-| RECOVER CAMERA | `/navdp_camera_recovery/restart`，锁止运动、重启`rgbd`并验证RGB和aligned depth；不自动恢复运动 |
+| CAMERA RESET | `/navdp_camera_recovery/restart`，锁止运动、重启`rgbd`并验证RGB和aligned depth；不自动恢复运动 |
 | Candidate paths | `/navdp/debug/markers`，默认关闭，需要分析候选Q值时手动打开 |
 | Selected trajectory | `/navdp/trajectory` |
 | NavDP status | `/navdp/status`完整只读状态消息，从Topics侧栏按需查看 |
 | Arrival status | `/navdp/rgb_arrival_status`匹配分数与停靠判断，从Topics侧栏按需查看 |
 | Local grid | `navdp_local` robot-local frame |
 
-默认布局的视觉层级是：左上为唯一高亮的selected trajectory，左下为宽幅arrival对比；
-右上为当前RGB，右中为ImageGoal和aligned depth，右下为状态卡。debug markers中还包含一份
+默认布局的视觉层级是：主区左侧为大幅当前RGB；右侧上方为ImageGoal和aligned depth，
+右侧下方为紧凑状态卡与2×2按钮区；底部12%的诊断条才放selected trajectory和缩小的
+宽幅arrival对比。debug markers中还包含一份
 selected path、六条候选path、Q值文字、lookahead和状态文字，因此默认关闭；需要策略诊断时
 再从3D panel的Topics列表打开，不能把那一团marker误当成单条实际轨迹。
 ImageGoal、最后一次arrival对比和状态卡为transient-local显示快照，Bridge/Foxglove重连后
@@ -1506,7 +1517,7 @@ tail -n 100 runtime/go2/logs/realsense.log
 ### 22.2 `rgbd_stale`
 
 检查相机是否仍30Hz、同步skew、USB链路和CPU负载。不要调大timeout掩盖断流。
-若USB设备仍正常枚举，可在Foxglove点击`RECOVER CAMERA`，或直接调用：
+若USB设备仍正常枚举，可在Foxglove点击`CAMERA RESET`，或直接调用：
 
 ```bash
 ros2 service call /navdp_camera_recovery/restart std_srvs/srv/Trigger "{}"

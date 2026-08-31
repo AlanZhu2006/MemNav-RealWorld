@@ -41,6 +41,9 @@ if [[ "$CFG_WITH_CAMERA" == true ]]; then
   tmux new-window -t "$SESSION" -n rgbd \
     "exec '$SCRIPT_DIR/run_realsense.sh' --config '$NAVDP_RUN_CONFIG' >'$camera_log' 2>&1"
 fi
+# The dashboard is observation-only, so it can become connectable while the
+# model and camera finish their independent readiness checks.
+navdp_start_foxglove_windows "$SESSION"
 
 start_complete=false
 rollback_partial_start() {
@@ -59,6 +62,17 @@ for _ in $(seq 1 "$CFG_NATIVE_READY_TIMEOUT_S"); do
     policy_ready=true
     break
   fi
+  if ! tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null \
+      | grep -Fxq policy; then
+    break
+  fi
+  if [[ "$CFG_WITH_CAMERA" == true ]] \
+      && ! tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null \
+        | grep -Fxq rgbd; then
+    echo "D435i process exited during policy startup." >&2
+    tail -n 100 "$camera_log" >&2 || true
+    exit 1
+  fi
   sleep 1
 done
 if [[ "$policy_ready" != true ]]; then
@@ -69,7 +83,7 @@ fi
 
 if [[ "$CFG_WITH_CAMERA" == true ]]; then
   navdp_source_ros
-  if ! navdp_wait_for_camera_info "$SESSION" false; then
+  if ! navdp_wait_for_camera_info "$SESSION" true; then
     echo "D435i did not publish CameraInfo." >&2
     tail -n 100 "$camera_log" >&2 || true
     exit 1

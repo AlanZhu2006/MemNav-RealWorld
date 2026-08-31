@@ -249,7 +249,11 @@ absent, stale, incomplete, or unhealthy. A single fail-closed agent prints
 relative phase timings, locks motion, resets the policy, validates one fresh
 trajectory and the live goal view, arms, monitors arrival, and stops on any
 error, interruption, or timeout. Use `nav_stack.sh start --config ...` when the
-intent is to start services while retaining the motion lock.
+intent is to start services while retaining the motion lock. Repeating `start`
+with the same healthy contract confirms `disabled + estop` and reuses the
+running processes; add `--refresh` only when a deliberate cold replacement is
+needed. With only the D435i connected, `nav_stack.sh camera-ui start` launches
+just RealSense, the bounded previews and Foxglove Bridge—no policy or Go2 path.
 
 The tracked Foxglove dashboard is also published as the organization layout
 `MemNav Go2 Navigation` by `.github/workflows/sync-foxglove-layout.yml` whenever

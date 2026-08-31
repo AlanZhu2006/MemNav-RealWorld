@@ -221,7 +221,7 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     camera_panel = service_panels["CallService!camera-recovery"]
     assert camera_panel["serviceName"] == "/navdp_camera_recovery/restart"
     assert camera_panel["requestPayload"] == "{}"
-    assert camera_panel["buttonText"] == "RECOVER CAMERA"
+    assert camera_panel["buttonText"] == "CAMERA RESET"
     survey_start = service_panels["CallService!survey-start"]
     assert survey_start["serviceName"] == "/navdp_go2_adapter/survey_start"
     assert survey_start["requestPayload"] == "{}"
@@ -232,21 +232,25 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert survey_seal["buttonText"] == "SEAL SURVEY"
     root = layout["layout"]
     assert root["direction"] == "column"
-    assert root["splitPercentage"] == 82
+    assert root["splitPercentage"] == 88
     main_area = root["first"]
     assert main_area["direction"] == "row"
     assert main_area["first"] == "Image!rgb"
+    assert main_area["splitPercentage"] == 58
     diagnostics = root["second"]
     assert diagnostics == {
         "direction": "row",
         "first": "3D!navdp",
         "second": "Image!arrival",
-        "splitPercentage": 35,
+        "splitPercentage": 45,
     }
     operator_area = main_area["second"]["second"]
     assert operator_area["direction"] == "column"
     assert operator_area["first"] == "Image!status"
-    survey_button_row = operator_area["second"]["first"]
+    assert operator_area["splitPercentage"] == 70
+    controls = operator_area["second"]
+    assert controls["direction"] == "column"
+    survey_button_row = controls["first"]
     assert survey_button_row == {
         "direction": "row",
         "first": "CallService!survey-start",
