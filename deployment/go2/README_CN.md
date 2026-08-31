@@ -117,8 +117,10 @@ config-bound Survey 生命周期调用：`survey_start`只开始/恢复RGB记录
 电压和电流，不会保留一个看似有效的旧电量。该观察节点随 Foxglove 启动，因此 Survey
 锁停阶段也能看电量；链路恢复后会自动重连，无需重启整栈。
 
-版本化布局左侧优先显示选中轨迹和宽幅arrival对比，右侧显示当前RGB、ImageGoal、深度及
-状态卡。`/navdp/trajectory`明确按4 cm细折线显示，并用绿到青的渐变区分轨迹起终方向；
+版本化布局把上方82%的主工作区留给当前RGB、ImageGoal、深度、状态/电量和安全按钮；
+当前RGB占主区最大面积。选中轨迹和宽幅arrival对比只放在底部18%的辅助诊断条中，避免
+它们挤占日常操作信息，同时保持arrival图像的宽幅比例。`/navdp/trajectory`明确按4 cm
+细折线显示，并用绿到青的渐变区分轨迹起终方向；
 `/navdp/debug/markers`仍保留候选路径和Q值供诊断，但默认关闭，避免与选中轨迹重复叠加。
 完整`/navdp/status`和
 `/navdp/rgb_arrival_status`仍可从Topics侧栏按需查看，不再占用默认dashboard。

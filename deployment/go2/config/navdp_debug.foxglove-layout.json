@@ -68,7 +68,7 @@
           "frameId": "navdp_local"
         }
       },
-      "foxglovePanelTitle": "Selected NavDP trajectory (thin line, debug markers off)"
+      "foxglovePanelTitle": "Trajectory (diagnostic)"
     },
     "Image!rgb": {
       "scene": {},
@@ -132,7 +132,7 @@
         "rectifyImage": false,
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
-      "foxglovePanelTitle": "Goal vs live RGB match (green = MATCH, wide aspect)"
+      "foxglovePanelTitle": "Goal match (diagnostic; green = MATCH)"
     },
     "Image!status": {
       "scene": {},
@@ -199,15 +199,9 @@
     "messageOrder": "receiveTime"
   },
   "layout": {
-    "direction": "row",
+    "direction": "column",
     "first": {
-      "direction": "column",
-      "first": "3D!navdp",
-      "second": "Image!arrival",
-      "splitPercentage": 64
-    },
-    "second": {
-      "direction": "column",
+      "direction": "row",
       "first": "Image!rgb",
       "second": {
         "direction": "column",
@@ -236,12 +230,18 @@
             },
             "splitPercentage": 50
           },
-          "splitPercentage": 38
+          "splitPercentage": 55
         },
-        "splitPercentage": 36
+        "splitPercentage": 43
       },
+      "splitPercentage": 54
+    },
+    "second": {
+      "direction": "row",
+      "first": "3D!navdp",
+      "second": "Image!arrival",
       "splitPercentage": 35
     },
-    "splitPercentage": 55
+    "splitPercentage": 82
   }
 }

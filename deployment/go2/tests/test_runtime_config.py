@@ -230,7 +230,20 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert survey_seal["serviceName"] == "/navdp_go2_adapter/survey_seal"
     assert survey_seal["requestPayload"] == "{}"
     assert survey_seal["buttonText"] == "SEAL SURVEY"
-    operator_area = layout["layout"]["second"]["second"]["second"]
+    root = layout["layout"]
+    assert root["direction"] == "column"
+    assert root["splitPercentage"] == 82
+    main_area = root["first"]
+    assert main_area["direction"] == "row"
+    assert main_area["first"] == "Image!rgb"
+    diagnostics = root["second"]
+    assert diagnostics == {
+        "direction": "row",
+        "first": "3D!navdp",
+        "second": "Image!arrival",
+        "splitPercentage": 35,
+    }
+    operator_area = main_area["second"]["second"]
     assert operator_area["direction"] == "column"
     assert operator_area["first"] == "Image!status"
     survey_button_row = operator_area["second"]["first"]
