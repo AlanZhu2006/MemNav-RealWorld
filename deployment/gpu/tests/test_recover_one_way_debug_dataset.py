@@ -76,3 +76,58 @@ def test_recovery_refuses_a_backup_that_no_longer_matches(tmp_path):
             external_goal_sha256=hashlib.sha256(b"external-M").hexdigest(),
         )
     assert not (tmp_path / "route").exists()
+
+
+def test_short_route_override_seals_empty_external_goal_dataset(tmp_path):
+    staging, _ = _write_staging(tmp_path)
+    for path in (staging / "goals").iterdir():
+        path.unlink()
+    backup = tmp_path / "backup"
+    shutil.copytree(staging, backup)
+    external_goal_sha = hashlib.sha256(b"external-M").hexdigest()
+
+    receipt = recover_one_way_debug_dataset(
+        root=tmp_path,
+        dataset_id="route",
+        backup_root=backup,
+        expected_memory_frames=3,
+        created_utc="2026-08-31T12:47:25Z",
+        external_goal_sha256=external_goal_sha,
+        short_route_engineering_override=True,
+        configured_minimum_frames=160,
+    )
+
+    assert receipt["short_route_engineering_override"] is True
+    assert receipt["configured_minimum_frames"] == 160
+    assert receipt["formal_eligible"] is False
+    assert receipt["discarded_candidate_sha256"] is None
+    assert receipt["overlapping_memory_frame_index"] is None
+    assert staging.is_dir()
+    loaded = EpisodicDatasetStore(tmp_path, minimum_frames=1).load("route")
+    assert len(list(loaded.memory_frames())) == 3
+    assert list(loaded.goal_candidates()) == []
+    recovery = loaded.manifest["metadata"]["recovery"]
+    assert recovery["short_route_engineering_override"] is True
+    assert recovery["accepted_memory_frames"] == 3
+    assert recovery["configured_minimum_frames"] == 160
+    assert recovery["engineering_unregistered_required"] is True
+
+
+def test_short_route_override_refuses_any_survey_goal(tmp_path):
+    staging, _ = _write_staging(tmp_path)
+    backup = tmp_path / "backup"
+    shutil.copytree(staging, backup)
+
+    with pytest.raises(RecoveryError, match="empty goals directory"):
+        recover_one_way_debug_dataset(
+            root=tmp_path,
+            dataset_id="route",
+            backup_root=backup,
+            expected_memory_frames=3,
+            created_utc="2026-08-31T12:47:25Z",
+            external_goal_sha256=hashlib.sha256(b"external-M").hexdigest(),
+            short_route_engineering_override=True,
+            configured_minimum_frames=160,
+        )
+    assert staging.is_dir()
+    assert not (tmp_path / "route").exists()

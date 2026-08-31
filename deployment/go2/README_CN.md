@@ -231,6 +231,10 @@ causal memory 完全重复的候选，只能在双机停止、原始 staging 已
 下使用 `deployment/gpu/recover_one_way_debug_dataset.py` 做离线恢复；恢复工具保留原始
 staging 和无效候选用于审计，只把验证后的 memory 与“必须使用外部 M”契约写入最终
 manifest。它不是普通正式往返 Survey 的候选门绕过工具。
+若一条已人工验收的短路线低于通用帧数门槛，可在双机停止、staging 已逐文件哈希备份且
+`goals/`严格为空时显式使用`--short-route-engineering-override`恢复；manifest 会记录原
+门槛、实际帧数、操作员 override，并强制`formal_eligible=false`与
+`engineering_unregistered_required=true`，因此不能混入正式结果。
 
 Survey 锁停期间，`m-match` 是纯观察节点：持续比较 M 与实时 RGB，在 Foxglove 宽幅
 match panel 顶部显示绿色 `MATCH` 或红色 `NO MATCH`，并发布 good matches、inliers、

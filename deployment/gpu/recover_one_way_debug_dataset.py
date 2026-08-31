@@ -7,6 +7,11 @@ exact-JPEG duplicate of causal memory.  The source staging tree and its
 operator-provided backup are never modified.  A new sealed tree is built with
 all verified memory frames, no Survey goal candidates, and explicit provenance
 requiring an externally frozen goal during Revisit preparation.
+
+An explicit engineering-only short-route mode also accepts an empty goals/
+directory below the configured generic frame floor.  It records the rejected
+floor, actual frame count and formal-ineligibility in the immutable manifest;
+the source staging tree and its exact backup remain untouched.
 """
 
 from __future__ import annotations
@@ -94,6 +99,8 @@ def recover_one_way_debug_dataset(
     goal_min_frame_gap: int = 16,
     goal_min_inliers: int = 16,
     goal_max_cos: float = 0.9,
+    short_route_engineering_override: bool = False,
+    configured_minimum_frames: int | None = None,
 ) -> dict[str, Any]:
     dataset_id = validate_dataset_id(dataset_id)
     root = root.expanduser().resolve()
@@ -104,6 +111,16 @@ def recover_one_way_debug_dataset(
 
     if expected_memory_frames < 1:
         raise RecoveryError("expected memory frame count must be positive")
+    if short_route_engineering_override:
+        if configured_minimum_frames is None:
+            raise RecoveryError(
+                "short-route override requires configured_minimum_frames"
+            )
+        if int(configured_minimum_frames) <= expected_memory_frames:
+            raise RecoveryError(
+                "short-route override requires an actual frame count below "
+                "the configured minimum"
+            )
     if not _DIGEST.fullmatch(external_goal_sha256):
         raise RecoveryError("external goal SHA-256 must be lowercase hexadecimal")
     if not source.is_dir():
@@ -160,24 +177,33 @@ def recover_one_way_debug_dataset(
     if any(path.is_dir() or path.is_symlink() for path in goals_dir.iterdir()):
         raise RecoveryError("goals/ may contain only regular files")
     goal_jpegs = [path for path in goal_paths if path.suffix.lower() in {".jpg", ".jpeg"}]
-    if len(goal_jpegs) != 1:
-        raise RecoveryError(
-            "recovery requires exactly one invalid captured candidate JPEG"
-        )
-    invalid_goal = goal_jpegs[0]
-    invalid_goal_payload = invalid_goal.read_bytes()
-    invalid_goal_sha = _sha256(invalid_goal_payload)
-    overlap_record = memory_hashes.get(invalid_goal_sha)
-    if overlap_record is None:
-        raise RecoveryError(
-            "captured candidate is not the expected exact-JPEG memory duplicate"
-        )
+    invalid_goal_sha: str | None = None
+    overlap_record: dict[str, Any] | None = None
+    if short_route_engineering_override:
+        if goal_paths:
+            raise RecoveryError(
+                "short-route external-goal override requires an empty goals directory"
+            )
+    else:
+        if len(goal_jpegs) != 1:
+            raise RecoveryError(
+                "recovery requires exactly one invalid captured candidate JPEG"
+            )
+        invalid_goal = goal_jpegs[0]
+        invalid_goal_payload = invalid_goal.read_bytes()
+        invalid_goal_sha = _sha256(invalid_goal_payload)
+        overlap_record = memory_hashes.get(invalid_goal_sha)
+        if overlap_record is None:
+            raise RecoveryError(
+                "captured candidate is not the expected exact-JPEG memory duplicate"
+            )
 
     recovered.mkdir(parents=False)
     (recovered / "memory").mkdir()
     (recovered / "goals").mkdir()
     discarded_root = recovered / "recovery_discarded" / "goals"
-    discarded_root.mkdir(parents=True)
+    if goal_paths:
+        discarded_root.mkdir(parents=True)
     for path in memory_paths:
         shutil.copy2(path, recovered / "memory" / path.name)
     discarded_records: list[dict[str, Any]] = []
@@ -193,6 +219,35 @@ def recover_one_way_debug_dataset(
         })
 
     sealed_utc = _utc_now()
+    recovery_metadata: dict[str, Any] = {
+        "schema": "memnav_one_way_debug_recovery_v2",
+        "recovered_utc": sealed_utc,
+        "source_staging_root": str(source),
+        "verified_backup_root": str(backup_root),
+        "discarded_goal_artifacts": discarded_records,
+    }
+    if short_route_engineering_override:
+        recovery_metadata.update({
+            "reason": (
+                "operator-approved engineering short route ended before the "
+                "generic frame floor; external frozen M is mandatory"
+            ),
+            "short_route_engineering_override": True,
+            "configured_minimum_frames": int(configured_minimum_frames),
+            "accepted_memory_frames": len(memory_records),
+            "formal_eligible": False,
+            "engineering_unregistered_required": True,
+        })
+    else:
+        assert overlap_record is not None
+        recovery_metadata.update({
+            "reason": (
+                "unvalidated captured candidate exactly duplicated causal memory; "
+                "preserved for audit and excluded from the manifest"
+            ),
+            "short_route_engineering_override": False,
+            "overlapping_memory_frame": dict(overlap_record),
+        })
     metadata = {
         "dataset_id": dataset_id,
         "collection_mode": ONE_WAY_EXTERNAL_GOAL_MODE,
@@ -202,23 +257,14 @@ def recover_one_way_debug_dataset(
         "candidate_contract": "external_frozen_goal_only_no_survey_candidate",
         "goal_selection_contract": EXTERNAL_GOAL_CONTRACT,
         "goal_candidates_required": False,
+        "formal_eligible": False,
+        "engineering_unregistered_required": True,
         "external_goal": {
             "point_label": external_goal_point,
             "sha256": external_goal_sha256,
             "source": "operator_frozen_before_survey",
         },
-        "recovery": {
-            "schema": "memnav_one_way_debug_recovery_v1",
-            "recovered_utc": sealed_utc,
-            "source_staging_root": str(source),
-            "verified_backup_root": str(backup_root),
-            "reason": (
-                "unvalidated captured candidate exactly duplicated causal memory; "
-                "preserved for audit and excluded from the manifest"
-            ),
-            "discarded_goal_artifacts": discarded_records,
-            "overlapping_memory_frame": dict(overlap_record),
-        },
+        "recovery": recovery_metadata,
     }
     protocol = {
         "cec_protocol_version": 3,
@@ -227,6 +273,9 @@ def recover_one_way_debug_dataset(
         "goal_min_inliers": int(goal_min_inliers),
         "goal_max_cos": float(goal_max_cos),
         "metric_depth_sensor_consumed_by_policy": False,
+        "engineering_short_route_override": bool(
+            short_route_engineering_override
+        ),
     }
     manifest = {
         "schema_version": SCHEMA_VERSION,
@@ -279,8 +328,19 @@ def recover_one_way_debug_dataset(
         "memory_frames": len(memory_records),
         "goal_candidates": 0,
         "discarded_candidate_sha256": invalid_goal_sha,
-        "overlapping_memory_frame_index": overlap_record["frame_index"],
+        "overlapping_memory_frame_index": (
+            None if overlap_record is None else overlap_record["frame_index"]
+        ),
         "external_goal_sha256": external_goal_sha256,
+        "short_route_engineering_override": bool(
+            short_route_engineering_override
+        ),
+        "configured_minimum_frames": (
+            int(configured_minimum_frames)
+            if short_route_engineering_override
+            else None
+        ),
+        "formal_eligible": False,
         "artifacts_verified": True,
     }
 
@@ -294,6 +354,8 @@ def main() -> int:
     parser.add_argument("--created-utc", required=True)
     parser.add_argument("--external-goal-sha256", required=True)
     parser.add_argument("--external-goal-point", default="M")
+    parser.add_argument("--short-route-engineering-override", action="store_true")
+    parser.add_argument("--configured-minimum-frames", type=int)
     args = parser.parse_args()
     receipt = recover_one_way_debug_dataset(
         root=args.root,
@@ -303,6 +365,8 @@ def main() -> int:
         created_utc=args.created_utc,
         external_goal_sha256=args.external_goal_sha256,
         external_goal_point=args.external_goal_point,
+        short_route_engineering_override=args.short_route_engineering_override,
+        configured_minimum_frames=args.configured_minimum_frames,
     )
     print(json.dumps(receipt, indent=2, sort_keys=True))
     return 0
