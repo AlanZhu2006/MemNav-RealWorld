@@ -12,9 +12,11 @@ sys.path.insert(0, str(REPO / "deployment/go2"))
 
 from foxglove_image_relay import (  # noqa: E402
     battery_payload_from_message,
+    build_arrival_diagnostics,
     build_operator_diagnostics,
     colorize_depth_preview,
     depth_message_to_u16,
+    derive_arrival_state,
     derive_operator_state,
     encode_jpeg,
     prepare_color_preview,
@@ -303,6 +305,102 @@ def test_operator_fault_has_error_diagnostic_without_hiding_mode():
     assert state["activity"] == "FAULT"
     assert workflow.level == DiagnosticStatus.ERROR
     assert workflow.message == "policy timeout"
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"latest_rgb_ready": True, "armed": False, "result": None}, "STANDBY"),
+        ({"latest_rgb_ready": True, "armed": True, "result": None}, "CHECKING"),
+        (
+            {
+                "latest_rgb_ready": True,
+                "armed": True,
+                "result": {"matched": False},
+            },
+            "NO_MATCH",
+        ),
+        (
+            {
+                "latest_rgb_ready": True,
+                "armed": True,
+                "result": {"matched": True, "confirmed": False},
+            },
+            "MATCHING",
+        ),
+        (
+            {
+                "latest_rgb_ready": True,
+                "armed": False,
+                "result": {"matched": True},
+            },
+            "MATCH",
+        ),
+        (
+            {
+                "latest_rgb_ready": True,
+                "arrival_latched": True,
+                "result": {"matched": True, "confirmed": True},
+            },
+            "ARRIVED",
+        ),
+        ({"latest_rgb_ready": False}, "NO_RGB"),
+        ({"latest_rgb_ready": True, "error": "decode failed"}, "ERROR"),
+    ],
+)
+def test_arrival_state_reduces_json_to_one_operator_verdict(payload, expected):
+    assert derive_arrival_state(payload) == expected
+
+
+def test_arrival_diagnostics_keep_match_evidence_without_marking_no_match_faulty():
+    payload = {
+        "schema": "navdp_rgb_arrival_v1",
+        "armed": True,
+        "arrival_latched": False,
+        "phase": "revisit_query",
+        "latest_rgb_ready": True,
+        "error": "",
+        "result": {
+            "matched": False,
+            "confirmed": False,
+            "reason": "low_inlier_ratio",
+            "good_matches": 48,
+            "inliers": 19,
+            "inlier_ratio": 0.396,
+            "image_scale": 0.82,
+        },
+    }
+    diagnostics = build_arrival_diagnostics(payload)
+    status = diagnostics.status[0]
+    values = {value.key: value.value for value in status.values}
+
+    assert status.name == "MemNav/Arrival"
+    assert status.hardware_id == "rgb_arrival"
+    assert status.level == DiagnosticStatus.OK
+    assert status.message == "NO_MATCH"
+    assert values["reason"] == "low_inlier_ratio"
+    assert values["inliers"] == "19"
+    assert values["inlier_ratio"] == "0.396"
+
+
+def test_operator_diagnostics_can_include_latest_arrival_diagnostic():
+    operator = {
+        "phase": "revisit_query",
+        "server_initialized": True,
+        "enabled": False,
+        "estop": True,
+    }
+    arrival = {
+        "latest_rgb_ready": True,
+        "armed": False,
+        "result": None,
+    }
+    diagnostics = build_operator_diagnostics(
+        operator, arrival_payload=arrival
+    )
+
+    assert diagnostics.status[-1].name == "MemNav/Arrival"
+    assert diagnostics.status[-1].message == "STANDBY"
 
 
 def test_depth_preview_preserves_invalid_mask_and_colorizes_range():

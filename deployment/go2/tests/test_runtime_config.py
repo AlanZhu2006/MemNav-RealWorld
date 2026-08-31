@@ -202,12 +202,12 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert "Teleop" not in panel_kinds
     assert {
         "3D",
+        "DiagnosticStatusPanel",
         "DiagnosticSummary",
         "Image",
         "Indicator",
         "CallService",
         "Plot",
-        "RawMessages",
         "StateTransitions",
         "Tab",
         "TopicGraph",
@@ -284,11 +284,16 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
         },
         "second": {
             "direction": "row",
-            "first": "Indicator!safety",
-            "second": "Indicator!go2",
-            "splitPercentage": 50,
+            "first": {
+                "direction": "row",
+                "first": "Indicator!safety",
+                "second": "Indicator!go2",
+                "splitPercentage": 50,
+            },
+            "second": "Indicator!arrival",
+            "splitPercentage": 66.6667,
         },
-        "splitPercentage": 50,
+        "splitPercentage": 40,
     }
     assert status_and_controls["splitPercentage"] == 40
     controls = status_and_controls["second"]
@@ -365,9 +370,12 @@ def test_foxglove_debug_tabs_use_only_read_only_builtin_panels():
         "/navdp/cmd_vel.linear.x",
         "/navdp/cmd_vel.angular.z",
     }
-    assert panels["RawMessages!arrival-status"]["topicPath"] == (
-        "/navdp/rgb_arrival_status"
+    planning_detail = tabs["Planning"]["second"]["second"]["second"]
+    assert planning_detail == "DiagnosticStatusPanel!arrival"
+    assert panels[planning_detail]["topicToRender"] == (
+        "/navdp/operator/arrival_diagnostics"
     )
+    assert panels[planning_detail]["selectedName"] == "MemNav/Arrival"
 
     assert tabs["System"]["first"] == "TopicGraph!navdp"
     assert {
@@ -377,14 +385,18 @@ def test_foxglove_debug_tabs_use_only_read_only_builtin_panels():
         "/navdp/operator/activity.data",
         "/navdp/operator/safety.data",
         "/navdp/operator/go2.data",
+        "/navdp/operator/arrival.data",
     }
     assert panels["DiagnosticSummary!operator"]["topicToRender"] == (
         "/navdp/operator/diagnostics"
     )
-    assert panels["RawMessages!status"]["topicPath"] == "/navdp/status"
-    assert panels["RawMessages!battery"]["topicPath"] == (
-        "/navdp/go2/battery"
+    workflow_detail = tabs["System"]["second"]["second"]["second"]
+    assert workflow_detail == "DiagnosticStatusPanel!workflow"
+    assert panels[workflow_detail]["topicToRender"] == (
+        "/navdp/operator/diagnostics"
     )
+    assert panels[workflow_detail]["selectedName"] == "MemNav/Workflow"
+    assert not any(panel_id.startswith("RawMessages!") for panel_id in panels)
 
 
 def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():

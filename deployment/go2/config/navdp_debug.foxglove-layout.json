@@ -260,6 +260,24 @@
       ],
       "foxglovePanelTitle": "Go2"
     },
+    "Indicator!arrival": {
+      "path": "/navdp/operator/arrival.data",
+      "style": "background",
+      "fontSize": 17,
+      "fallbackColor": "#4b5563",
+      "fallbackLabel": "UNKNOWN",
+      "rules": [
+        {"operator": "=", "rawValue": "STANDBY", "color": "#475569", "label": "STANDBY"},
+        {"operator": "=", "rawValue": "CHECKING", "color": "#0369a1", "label": "CHECKING"},
+        {"operator": "=", "rawValue": "NO_MATCH", "color": "#475569", "label": "NO MATCH"},
+        {"operator": "=", "rawValue": "MATCHING", "color": "#15803d", "label": "MATCHING"},
+        {"operator": "=", "rawValue": "MATCH", "color": "#15803d", "label": "MATCH"},
+        {"operator": "=", "rawValue": "ARRIVED", "color": "#047857", "label": "ARRIVED"},
+        {"operator": "=", "rawValue": "NO_RGB", "color": "#d97706", "label": "NO RGB"},
+        {"operator": "=", "rawValue": "ERROR", "color": "#b91c1c", "label": "ERROR"}
+      ],
+      "foxglovePanelTitle": "Arrival"
+    },
     "Image!goal-debug": {
       "scene": {},
       "transforms": {},
@@ -381,34 +399,15 @@
           "value": "/navdp/operator/go2.data",
           "timestampMethod": "receiveTime",
           "label": "Go2"
+        },
+        {
+          "value": "/navdp/operator/arrival.data",
+          "timestampMethod": "receiveTime",
+          "label": "Arrival"
         }
       ],
       "isSynced": true,
       "foxglovePanelTitle": "Operator state timeline"
-    },
-    "RawMessages!status": {
-      "diffEnabled": false,
-      "diffMethod": "custom",
-      "diffTopicPath": "",
-      "showFullMessageForDiff": false,
-      "topicPath": "/navdp/status",
-      "foxglovePanelTitle": "NavDP status"
-    },
-    "RawMessages!arrival-status": {
-      "diffEnabled": false,
-      "diffMethod": "custom",
-      "diffTopicPath": "",
-      "showFullMessageForDiff": false,
-      "topicPath": "/navdp/rgb_arrival_status",
-      "foxglovePanelTitle": "Arrival status"
-    },
-    "RawMessages!battery": {
-      "diffEnabled": false,
-      "diffMethod": "custom",
-      "diffTopicPath": "",
-      "showFullMessageForDiff": false,
-      "topicPath": "/navdp/go2/battery",
-      "foxglovePanelTitle": "Go2 battery"
     },
     "TopicGraph!navdp": {
       "foxglovePanelTitle": "ROS graph"
@@ -419,6 +418,20 @@
       "topicToRender": "/navdp/operator/diagnostics",
       "sortByLevel": true,
       "foxglovePanelTitle": "Diagnostics"
+    },
+    "DiagnosticStatusPanel!workflow": {
+      "topicToRender": "/navdp/operator/diagnostics",
+      "selectedHardwareId": "navdp",
+      "selectedName": "MemNav/Workflow",
+      "splitFraction": 0.32,
+      "foxglovePanelTitle": "Workflow detail"
+    },
+    "DiagnosticStatusPanel!arrival": {
+      "topicToRender": "/navdp/operator/arrival_diagnostics",
+      "selectedHardwareId": "rgb_arrival",
+      "selectedName": "MemNav/Arrival",
+      "splitFraction": 0.25,
+      "foxglovePanelTitle": "Arrival evidence"
     },
     "Tab!navdp": {
       "activeTabIdx": 0,
@@ -458,11 +471,16 @@
                   },
                   "second": {
                     "direction": "row",
-                    "first": "Indicator!safety",
-                    "second": "Indicator!go2",
-                    "splitPercentage": 50
+                    "first": {
+                      "direction": "row",
+                      "first": "Indicator!safety",
+                      "second": "Indicator!go2",
+                      "splitPercentage": 50
+                    },
+                    "second": "Indicator!arrival",
+                    "splitPercentage": 66.6667
                   },
-                  "splitPercentage": 50
+                  "splitPercentage": 40
                 },
                 "second": {
                   "direction": "column",
@@ -503,7 +521,7 @@
                   "second": "Image!arrival-debug",
                   "splitPercentage": 50
                 },
-                "second": "RawMessages!arrival-status",
+                "second": "DiagnosticStatusPanel!arrival",
                 "splitPercentage": 58
               },
               "splitPercentage": 34
@@ -522,7 +540,7 @@
               "second": {
                 "direction": "row",
                 "first": "DiagnosticSummary!operator",
-                "second": "RawMessages!status",
+                "second": "DiagnosticStatusPanel!workflow",
                 "splitPercentage": 58
               },
               "splitPercentage": 34

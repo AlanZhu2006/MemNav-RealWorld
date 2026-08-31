@@ -266,6 +266,28 @@ def derive_operator_state(payload: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def derive_arrival_state(payload: dict[str, Any]) -> str:
+    """Reduce either arrival-status schema to one operator verdict."""
+
+    error = str(payload.get("error") or "").strip()
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        result = {}
+    if error:
+        return "ERROR"
+    if payload.get("arrival_latched") or result.get("confirmed"):
+        return "ARRIVED"
+    if not payload.get("latest_rgb_ready"):
+        return "NO_RGB"
+    if payload.get("armed"):
+        if not result:
+            return "CHECKING"
+        return "MATCHING" if result.get("matched") else "NO_MATCH"
+    if result:
+        return "MATCH" if result.get("matched") else "NO_MATCH"
+    return "STANDBY"
+
+
 def _diagnostic_value(value: Any) -> str:
     if value is None or value == "":
         return "-"
@@ -296,8 +318,66 @@ def _diagnostic_status(
     return status
 
 
-def build_operator_diagnostics(
+def build_arrival_diagnostic(payload: dict[str, Any]) -> DiagnosticStatus:
+    """Convert JSON arrival evidence into one standard ROS diagnostic."""
+
+    state = derive_arrival_state(payload)
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        result = {}
+    if state == "ERROR":
+        level = DiagnosticStatus.ERROR
+    elif state == "NO_RGB":
+        level = DiagnosticStatus.STALE
+    else:
+        # NO_MATCH is expected evidence while the robot is en route, not a
+        # component-health warning.
+        level = DiagnosticStatus.OK
+    return _diagnostic_status(
+        name="MemNav/Arrival",
+        hardware_id="rgb_arrival",
+        level=level,
+        message=str(payload.get("error") or state),
+        values={
+            "state": state,
+            "schema": payload.get("schema"),
+            "armed": payload.get("armed"),
+            "arrival_latched": payload.get("arrival_latched"),
+            "phase": payload.get("phase"),
+            "latest_rgb_ready": payload.get("latest_rgb_ready"),
+            "evaluation_age_s": payload.get("evaluation_age_s"),
+            "reason": result.get("reason"),
+            "matched": result.get("matched"),
+            "confirmed": result.get("confirmed"),
+            "consecutive_matches": result.get("consecutive_matches"),
+            "good_matches": result.get("good_matches"),
+            "inliers": result.get("inliers"),
+            "inlier_ratio": result.get("inlier_ratio"),
+            "target_coverage": result.get("target_coverage"),
+            "current_coverage": result.get("current_coverage"),
+            "center_offset_norm": result.get("center_offset_norm"),
+            "image_scale": result.get("image_scale"),
+            "rotation_deg": result.get("rotation_deg"),
+            "reprojection_error_px": result.get("reprojection_error_px"),
+        },
+    )
+
+
+def build_arrival_diagnostics(
     payload: dict[str, Any], *, stamp: Any | None = None
+) -> DiagnosticArray:
+    diagnostic_array = DiagnosticArray()
+    if stamp is not None:
+        diagnostic_array.header.stamp = stamp
+    diagnostic_array.status.append(build_arrival_diagnostic(payload))
+    return diagnostic_array
+
+
+def build_operator_diagnostics(
+    payload: dict[str, Any],
+    *,
+    arrival_payload: dict[str, Any] | None = None,
+    stamp: Any | None = None,
 ) -> DiagnosticArray:
     """Build standard ROS diagnostics consumed by Foxglove's native panel."""
 
@@ -407,6 +487,8 @@ def build_operator_diagnostics(
             },
         )
     )
+    if arrival_payload is not None:
+        diagnostic_array.status.append(build_arrival_diagnostic(arrival_payload))
     return diagnostic_array
 
 
@@ -664,6 +746,7 @@ class FoxgloveImageRelay(Node):
         self._last_error_log = 0.0
         self._battery_payload: dict[str, Any] = {"online": False}
         self._last_status_payload: dict[str, Any] | None = None
+        self._last_arrival_status_payload: dict[str, Any] | None = None
         sensor_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
@@ -705,13 +788,20 @@ class FoxgloveImageRelay(Node):
                 String, options.operator_go2_output, state_qos
             ),
         }
+        self._arrival_state_publisher = self.create_publisher(
+            String, options.operator_arrival_output, state_qos
+        )
         self._diagnostics_publisher = self.create_publisher(
             DiagnosticArray, options.operator_diagnostics_output, state_qos
+        )
+        self._arrival_diagnostics_publisher = self.create_publisher(
+            DiagnosticArray, options.operator_arrival_diagnostics_output, state_qos
         )
         rgb_callbacks = MutuallyExclusiveCallbackGroup()
         depth_callbacks = MutuallyExclusiveCallbackGroup()
         goal_callbacks = MutuallyExclusiveCallbackGroup()
         arrival_callbacks = MutuallyExclusiveCallbackGroup()
+        arrival_status_callbacks = MutuallyExclusiveCallbackGroup()
         status_callbacks = MutuallyExclusiveCallbackGroup()
         battery_callbacks = MutuallyExclusiveCallbackGroup()
         self.create_subscription(
@@ -741,6 +831,13 @@ class FoxgloveImageRelay(Node):
             self._on_arrival,
             state_qos,
             callback_group=arrival_callbacks,
+        )
+        self.create_subscription(
+            String,
+            options.arrival_status_input,
+            self._on_arrival_status,
+            state_qos,
+            callback_group=arrival_status_callbacks,
         )
         self.create_subscription(
             String,
@@ -793,20 +890,22 @@ class FoxgloveImageRelay(Node):
             )
         )
         self.get_logger().info(
-            "Native operator state -> %s, %s, %s, %s; diagnostics -> %s"
+            "Native operator state -> %s, %s, %s, %s, %s; diagnostics -> %s, %s"
             % (
                 options.operator_mode_output,
                 options.operator_activity_output,
                 options.operator_safety_output,
                 options.operator_go2_output,
+                options.operator_arrival_output,
                 options.operator_diagnostics_output,
+                options.operator_arrival_diagnostics_output,
             )
         )
 
     def _report_error(self, stream: str, error: Exception) -> None:
         now = time.monotonic()
         if now - self._last_error_log >= 5.0:
-            self.get_logger().error(f"Cannot publish {stream} preview: {error}")
+            self.get_logger().error(f"Cannot process {stream}: {error}")
             self._last_error_log = now
 
     @staticmethod
@@ -904,8 +1003,38 @@ class FoxgloveImageRelay(Node):
             publisher.publish(message)
         stamp = self.get_clock().now().to_msg()
         self._diagnostics_publisher.publish(
-            build_operator_diagnostics(payload, stamp=stamp)
+            build_operator_diagnostics(
+                payload,
+                arrival_payload=self._last_arrival_status_payload,
+                stamp=stamp,
+            )
         )
+
+    def _on_arrival_status(self, message: String) -> None:
+        try:
+            payload = json.loads(message.data)
+            if not isinstance(payload, dict):
+                raise ValueError("arrival status payload is not a JSON object")
+            self._last_arrival_status_payload = dict(payload)
+            state_message = String()
+            state_message.data = derive_arrival_state(payload)
+            self._arrival_state_publisher.publish(state_message)
+            stamp = self.get_clock().now().to_msg()
+            self._arrival_diagnostics_publisher.publish(
+                build_arrival_diagnostics(payload, stamp=stamp)
+            )
+            if self._last_status_payload is not None:
+                status_payload = dict(self._last_status_payload)
+                status_payload["go2_battery"] = dict(self._battery_payload)
+                self._diagnostics_publisher.publish(
+                    build_operator_diagnostics(
+                        status_payload,
+                        arrival_payload=payload,
+                        stamp=stamp,
+                    )
+                )
+        except (json.JSONDecodeError, ValueError) as error:
+            self._report_error("arrival status", error)
 
     def _on_status(self, message: String) -> None:
         try:
@@ -957,6 +1086,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--depth-output", required=True)
     parser.add_argument("--goal-input", required=True)
     parser.add_argument("--arrival-input", required=True)
+    parser.add_argument(
+        "--arrival-status-input", default="/navdp/rgb_arrival_status"
+    )
     parser.add_argument("--status-input", required=True)
     parser.add_argument("--battery-input", required=True)
     parser.add_argument("--goal-output", required=True)
@@ -971,7 +1103,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--operator-go2-output", default="/navdp/operator/go2")
     parser.add_argument(
+        "--operator-arrival-output", default="/navdp/operator/arrival"
+    )
+    parser.add_argument(
         "--operator-diagnostics-output", default="/navdp/operator/diagnostics"
+    )
+    parser.add_argument(
+        "--operator-arrival-diagnostics-output",
+        default="/navdp/operator/arrival_diagnostics",
     )
     parser.add_argument("--width", type=int, required=True)
     parser.add_argument("--height", type=int, required=True)

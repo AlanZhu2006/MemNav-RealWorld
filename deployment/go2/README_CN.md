@@ -122,14 +122,18 @@ config-bound Survey 生命周期调用：`survey_start`只开始/恢复RGB记录
 10 Hz、JPEG质量70发布；ImageGoal以2 Hz压缩，arrival debug最多以5 Hz压缩。Match不再
 左右拼接目标和当前图，而是在单幅当前RGB上叠加inlier点、目标投影边界和关键指标。侧车还把
 `/navdp/status`规范化为`/navdp/operator/{mode,activity,safety,go2}`四个只读字符串topic，
-并发布标准ROS `DiagnosticArray`到`/navdp/operator/diagnostics`。旧的720×220 JPEG状态卡
+同时把`/navdp/rgb_arrival_status`规范化为`/navdp/operator/arrival`。两类状态都发布标准
+ROS `DiagnosticArray`；完整汇总在`/navdp/operator/diagnostics`，匹配证据单独发布到
+`/navdp/operator/arrival_diagnostics`。旧的720×220 JPEG状态卡
 仍以2 Hz发布用于兼容已有布局，但默认布局不再显示它。
 
-四个状态维度相互独立：`mode`显示`SURVEY / REVISIT / IDLE / STARTING`，`activity`
+五个状态维度相互独立：`mode`显示`SURVEY / REVISIT / IDLE / STARTING`，`activity`
 显示`SURVEY_ACTIVE / SURVEY_PAUSED / SURVEY_SEALED / REVISITING / REVISIT_READY /
 NAVIGATING / ARRIVED / FAULT / READY`，另两个分别显示运动锁和Go2连接。因此Go2离线
-不会覆盖当前处于Survey或Revisit的信息。原始`phase`、RGB-D时延、策略状态和电池详情
-可在System页的原生Diagnostics panel中展开。
+不会覆盖当前处于Survey或Revisit的信息。第五个Arrival只显示`STANDBY / CHECKING /
+NO MATCH / MATCHING / MATCH / ARRIVED / NO RGB / ERROR`判定；inlier、比例、尺度、覆盖率、
+旋转和重投影误差等证据留在Planning页展开，不挤占Operate页。原始`phase`、RGB-D时延、
+策略状态和电池详情可在System页的原生Diagnostics panel中展开。
 
 独立的只读 `battery` 窗口只订阅 Unitree
 `rt/lowstate`中的 BMS/SOC 与供电字段，再发布标准 ROS
@@ -139,7 +143,7 @@ NAVIGATING / ARRIVED / FAULT / READY`，另两个分别显示运动锁和Go2连�
 锁停阶段也能看电量；链路恢复后会自动重连，无需重启整栈。
 
 版本化布局把当前RGB降到约40%的画布面积，Match降到约8%；Goal和Depth并排补足主区。
-右侧使用更紧凑的Trajectory，下方用四个内置Indicator组成原生状态条，四个Service Call
+右侧使用更紧凑的Trajectory，下方用五个内置Indicator组成原生状态条，四个Service Call
 按钮组成更高的2×2控制区，避免按钮文字被panel标题遮挡。Foxglove内置panel仍是一项
 service一个panel，因此不引入自定义
 扩展。Match只显示紧凑的单帧匹配叠加，不再用宽幅左右对比抢占横向空间。
@@ -148,8 +152,9 @@ service一个panel，因此不引入自定义
 `/navdp/debug/markers`仍保留候选路径和Q值供诊断，但默认关闭，避免与选中轨迹重复叠加。
 
 同一个组织布局使用Foxglove内置Tab分成三页：默认`Operate`保持上述简洁操作视图；
-`Planning`打开候选轨迹/Q值marker，并并列显示vx/wz曲线、Goal、Match与原始arrival状态；
-`System`显示ROS连接图、模式/动作/安全/Go2状态时间线、标准Diagnostics和原始NavDP状态。
+`Planning`打开候选轨迹/Q值marker，并并列显示vx/wz曲线、Goal、Match与格式化Arrival证据；
+`System`显示ROS连接图、模式/动作/安全/Go2/Arrival状态时间线、Diagnostics汇总和格式化
+Workflow详情。默认布局不再使用Raw Messages panel。
 这些页全部只用内置只读panel，不增加扩展，也不扩大Foxglove的控制权限。
 
 完整`/navdp/status`和
