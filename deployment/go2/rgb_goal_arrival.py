@@ -108,9 +108,7 @@ class RgbGoalArrivalVerifier:
                 f"{len(self.target_keypoints)} SIFT features"
             )
         self.consecutive_matches = 0
-        self.last_debug_rgb = np.concatenate(
-            (self.target_rgb, self.target_rgb), axis=1
-        )
+        self.last_debug_rgb = self.target_rgb.copy()
 
     def _resize(self, rgb: np.ndarray) -> np.ndarray:
         image = validate_rgb_image(rgb)
@@ -164,7 +162,7 @@ class RgbGoalArrivalVerifier:
         current_keypoints, current_descriptors = self.detector.detectAndCompute(
             current_gray, None
         )
-        self.last_debug_rgb = np.concatenate((self.target_rgb, current), axis=1)
+        self.last_debug_rgb = current.copy()
         if current_descriptors is None or len(current_keypoints) < 2:
             return self._empty(
                 "insufficient_current_features", len(current_keypoints)
@@ -282,25 +280,36 @@ class RgbGoalArrivalVerifier:
             self.consecutive_matches >= self.required_consecutive_matches
         )
 
-        inlier_matches = [item for item, flag in zip(good, keep) if flag]
-        debug_bgr = cv2.drawMatches(
-            cv2.cvtColor(self.target_rgb, cv2.COLOR_RGB2BGR),
-            self.target_keypoints,
-            cv2.cvtColor(current, cv2.COLOR_RGB2BGR),
-            current_keypoints,
-            inlier_matches[:80],
-            None,
-            flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
-        )
+        # The goal already has its own Foxglove panel.  Rendering it beside the
+        # live frame doubled this diagnostic's width and made Match dominate
+        # the dashboard.  Keep the useful evidence on one current-frame view:
+        # inlier locations plus the projected goal boundary.
+        debug_bgr = cv2.cvtColor(current, cv2.COLOR_RGB2BGR)
         color = (0, 180, 0) if matched else (0, 0, 220)
+        outline = np.rint(warped).astype(np.int32).reshape(-1, 1, 2)
+        cv2.polylines(debug_bgr, [outline], True, color, 2, cv2.LINE_AA)
+        for point in inlier_current[:80]:
+            x, y = np.rint(point).astype(int)
+            cv2.circle(debug_bgr, (x, y), 2, (0, 210, 255), -1, cv2.LINE_AA)
+        cv2.rectangle(debug_bgr, (0, 0), (width - 1, 48), (24, 27, 32), -1)
         cv2.putText(
             debug_bgr,
-            f"{reason} seq={self.consecutive_matches} scale={image_scale:.2f}",
-            (10, 28),
+            f"{'MATCH' if matched else 'NO MATCH'}  {reason}",
+            (10, 20),
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.65,
+            0.48,
             color,
-            2,
+            1,
+            cv2.LINE_AA,
+        )
+        cv2.putText(
+            debug_bgr,
+            f"good {len(good)}  inliers {inliers}  scale {image_scale:.2f}",
+            (10, 41),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.44,
+            (235, 238, 242),
+            1,
             cv2.LINE_AA,
         )
         self.last_debug_rgb = cv2.cvtColor(debug_bgr, cv2.COLOR_BGR2RGB)

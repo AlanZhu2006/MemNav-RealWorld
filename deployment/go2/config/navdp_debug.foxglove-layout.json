@@ -207,14 +207,14 @@
         "direction": "row",
         "first": "Image!arrival",
         "second": {
-          "direction": "column",
+          "direction": "row",
           "first": "Image!goal",
           "second": "Image!depth",
           "splitPercentage": 50
         },
-        "splitPercentage": 72
+        "splitPercentage": 32
       },
-      "splitPercentage": 74
+      "splitPercentage": 62
     },
     "second": {
       "direction": "column",
@@ -238,10 +238,10 @@
           },
           "splitPercentage": 50
         },
-        "splitPercentage": 34
+        "splitPercentage": 50
       },
-      "splitPercentage": 50
+      "splitPercentage": 62
     },
-    "splitPercentage": 72
+    "splitPercentage": 65
   }
 }

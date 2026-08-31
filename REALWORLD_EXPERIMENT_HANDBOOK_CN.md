@@ -1081,7 +1081,8 @@ ros2 topic hz /navdp/foxglove/status/compressed
 
 `fox-preview`只生成显示侧车：RGB为640×360、15 Hz JPEG，深度先按200--4000 mm
 Turbo着色，再生成640×360、10 Hz JPEG；ImageGoal以2 Hz、arrival debug最多以5 Hz生成
-JPEG并保留原始宽幅比例（当前通常为960×272）；`/navdp/status`另外被渲染成
+JPEG。Match不再左右拼接目标与当前图，而是在单幅当前RGB上叠加inlier点、目标投影边界
+和关键指标；`/navdp/status`另外被渲染成
 720×220、2 Hz紧凑操作状态卡。原始图继续进入策略、arrival和可选full MCAP，不经过预览
 侧车。Foxglove保存导入布局的本地副本；仓库布局更新后需要重新导入一次，已有dashboard
 不会自动改topic或可见性。
@@ -1096,7 +1097,7 @@ JPEG并保留原始宽幅比例（当前通常为960×272）；`/navdp/status`�
 | RGB Camera | `/navdp/foxglove/rgb/compressed`，640×360、15 Hz显示预览 |
 | Aligned Depth | `/navdp/foxglove/depth_color/compressed`，200--4000 mm彩色显示预览 |
 | Image Goal | `/navdp/foxglove/goal/compressed`，当前安装目标预览 |
-| RGB Arrival Match | `/navdp/foxglove/arrival/compressed`，保留左右对比图原始比例、最多5 Hz |
+| RGB Arrival Match | `/navdp/foxglove/arrival/compressed`，单帧匹配叠加、最多5 Hz |
 | Operator status | `/navdp/foxglove/status/compressed`，安全锁、RGB-D/plan age、clearance、vx/wz、错误 |
 | STOP NAVIGATION | `/navdp_go2_adapter/operator_stop`，仅disabled + estop + zero，不具备启动能力 |
 | CAMERA RESET | `/navdp_camera_recovery/restart`，锁止运动、重启`rgbd`并验证RGB和aligned depth；不自动恢复运动 |
@@ -1106,9 +1107,9 @@ JPEG并保留原始宽幅比例（当前通常为960×272）；`/navdp/status`�
 | Arrival status | `/navdp/rgb_arrival_status`匹配分数与停靠判断，从Topics侧栏按需查看 |
 | Local grid | `navdp_local` robot-local frame |
 
-默认布局的视觉层级是：主区左侧为大幅当前RGB；右侧上方为ImageGoal和aligned depth，
-右侧下方为紧凑状态卡与2×2按钮区；底部12%的诊断条才放selected trajectory和缩小的
-宽幅arrival对比。debug markers中还包含一份
+默认布局把当前RGB降到约40%的画布面积，Match降到约8%；Goal和Depth在主区并排。
+右侧Trajectory保持接近正方形，状态卡保持接近原始宽高比，下方是2×2按钮区。Match仅保留
+当前帧、inlier点、目标投影边界和关键指标。debug markers中还包含一份
 selected path、六条候选path、Q值文字、lookahead和状态文字，因此默认关闭；需要策略诊断时
 再从3D panel的Topics列表打开，不能把那一团marker误当成单条实际轨迹。
 ImageGoal、最后一次arrival对比和状态卡为transient-local显示快照，Bridge/Foxglove重连后

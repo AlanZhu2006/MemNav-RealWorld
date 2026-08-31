@@ -119,8 +119,8 @@ config-bound Survey 生命周期调用：`survey_start`只开始/恢复RGB记录
 
 为避免原始RGB-D把无线链路占满，启动器同时运行观察专用的`fox-preview`窗口：RGB被缩放为
 640×360、15 Hz、JPEG质量75，深度被缩放、按200--4000 mm做Turbo着色后以640×360、
-10 Hz、JPEG质量70发布；ImageGoal以2 Hz压缩，arrival debug最多以5 Hz压缩并保留原始
-宽幅比例（当前通常为960×272），不会再把左右两幅图强拉成640×360。侧车还把
+10 Hz、JPEG质量70发布；ImageGoal以2 Hz压缩，arrival debug最多以5 Hz压缩。Match不再
+左右拼接目标和当前图，而是在单幅当前RGB上叠加inlier点、目标投影边界和关键指标。侧车还把
 `/navdp/status`渲染成720×220、2 Hz的只读操作状态卡。
 
 状态卡标题下方同时显示 Go2 电量和总电压。独立的只读 `battery` 窗口只订阅 Unitree
@@ -130,11 +130,11 @@ config-bound Survey 生命周期调用：`survey_start`只开始/恢复RGB记录
 电压和电流，不会保留一个看似有效的旧电量。该观察节点随 Foxglove 启动，因此 Survey
 锁停阶段也能看电量；链路恢复后会自动重连，无需重启整栈。
 
-版本化布局把上方88%的主工作区留给当前RGB、ImageGoal、深度、状态/电量和安全按钮；
-当前RGB占主区最大面积。状态卡下方的四个内置Service Call按钮压成2×2控制区；
-Foxglove内置panel仍是一项service一个panel，因此不引入自定义扩展。选中轨迹和宽幅
-arrival对比只放在底部12%的辅助诊断条中，match宽度也进一步收窄，避免
-它们挤占日常操作信息，同时保持arrival图像的宽幅比例。`/navdp/trajectory`明确按4 cm
+版本化布局把当前RGB降到约40%的画布面积，Match降到约8%；Goal和Depth并排补足主区。
+右侧让Trajectory保持接近正方形，下方状态卡保持接近其原始宽高比，四个内置Service Call
+按钮继续组成2×2控制区。Foxglove内置panel仍是一项service一个panel，因此不引入自定义
+扩展。Match只显示紧凑的单帧匹配叠加，不再用宽幅左右对比抢占横向空间。
+`/navdp/trajectory`明确按4 cm
 细折线显示，并用绿到青的渐变区分轨迹起终方向；
 `/navdp/debug/markers`仍保留候选路径和Q值供诊断，但默认关闭，避免与选中轨迹重复叠加。
 完整`/navdp/status`和
@@ -261,7 +261,7 @@ manifest。它不是普通正式往返 Survey 的候选门绕过工具。
 门槛、实际帧数、操作员 override，并强制`formal_eligible=false`与
 `engineering_unregistered_required=true`，因此不能混入正式结果。
 
-Survey 锁停期间，`m-match` 是纯观察节点：持续比较 M 与实时 RGB，在 Foxglove 宽幅
+Survey 锁停期间，`m-match` 是纯观察节点：持续比较 M 与实时 RGB，在 Foxglove 紧凑
 match panel 顶部显示绿色 `MATCH` 或红色 `NO MATCH`，并发布 good matches、inliers、
 scale 和拒绝原因。它没有 `/navdp/arrival`、enable、estop 或速度 publisher。完成
 `revisit-prepare` 后，标准 RGB arrival 模块恢复；最终有电授权仍必须由现场人员单独执行。

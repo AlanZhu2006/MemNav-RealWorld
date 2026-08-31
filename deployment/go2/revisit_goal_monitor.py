@@ -44,7 +44,7 @@ def render_match_debug(
     *,
     point_label: str,
 ) -> np.ndarray:
-    """Add a legible MATCH/NO MATCH receipt above the wide comparison."""
+    """Add a legible MATCH/NO MATCH receipt above the compact live overlay."""
 
     image = np.asarray(comparison_rgb, dtype=np.uint8)
     if image.ndim != 3 or image.shape[2] != 3:

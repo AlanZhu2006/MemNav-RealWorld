@@ -72,15 +72,15 @@ def test_rgb_decoder_respects_padded_rows():
     assert np.array_equal(bgr[0, 1], [0, 255, 0])
 
 
-def test_arrival_preview_can_preserve_native_wide_aspect():
-    arrival = np.zeros((272, 960, 3), dtype=np.uint8)
-    arrival[:, :480, 0] = 255
+def test_arrival_preview_can_preserve_compact_native_aspect():
+    arrival = np.zeros((272, 480, 3), dtype=np.uint8)
+    arrival[:, :240, 0] = 255
     message = _message(arrival, "rgb8")
 
     native = prepare_color_preview(message, 640, 360, resize=False)
     resized = prepare_color_preview(message, 640, 360, resize=True)
 
-    assert native.shape == (272, 960, 3)
+    assert native.shape == (272, 480, 3)
     assert resized.shape == (360, 640, 3)
     assert np.array_equal(native[100, 100], [0, 0, 255])
 

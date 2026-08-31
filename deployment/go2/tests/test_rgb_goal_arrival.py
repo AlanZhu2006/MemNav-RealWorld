@@ -100,13 +100,14 @@ class RgbGoalArrivalVerifierTests(unittest.TestCase):
 
 
 class RevisitGoalMonitorRenderTests(unittest.TestCase):
-    def test_match_banner_preserves_wide_comparison(self):
+    def test_match_banner_preserves_compact_current_view(self):
         verifier = RgbGoalArrivalVerifier(textured_image(51), image_width=320)
         result = verifier.evaluate(verifier.target_rgb)
         comparison = verifier.last_debug_rgb
 
         rendered = render_match_debug(comparison, result, point_label="M")
 
+        self.assertEqual(comparison.shape, verifier.target_rgb.shape)
         self.assertEqual(rendered.shape[1], comparison.shape[1])
         self.assertEqual(rendered.shape[0], comparison.shape[0] + 58)
         self.assertGreater(float(rendered[:58, :, 1].mean()), 100.0)

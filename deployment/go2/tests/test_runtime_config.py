@@ -232,7 +232,7 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert survey_seal["buttonText"] == "SEAL SURVEY"
     root = layout["layout"]
     assert root["direction"] == "row"
-    assert root["splitPercentage"] == 72
+    assert root["splitPercentage"] == 65
     main_area = root["first"]
     assert main_area == {
         "direction": "column",
@@ -241,22 +241,22 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
             "direction": "row",
             "first": "Image!arrival",
             "second": {
-                "direction": "column",
+                "direction": "row",
                 "first": "Image!goal",
                 "second": "Image!depth",
                 "splitPercentage": 50,
             },
-            "splitPercentage": 72,
+            "splitPercentage": 32,
         },
-        "splitPercentage": 74,
+        "splitPercentage": 62,
     }
     operator_area = root["second"]
     assert operator_area["direction"] == "column"
     assert operator_area["first"] == "3D!navdp"
-    assert operator_area["splitPercentage"] == 50
+    assert operator_area["splitPercentage"] == 62
     status_and_controls = operator_area["second"]
     assert status_and_controls["first"] == "Image!status"
-    assert status_and_controls["splitPercentage"] == 34
+    assert status_and_controls["splitPercentage"] == 50
     controls = status_and_controls["second"]
     assert controls["direction"] == "column"
     survey_button_row = controls["first"]
@@ -268,7 +268,7 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     }
 
 
-def test_foxglove_layout_respects_native_panel_aspects_on_16_by_9_display():
+def test_foxglove_layout_keeps_rgb_and_match_secondary_on_16_by_9_display():
     layout = json.loads(
         (
             REPO
@@ -288,10 +288,15 @@ def test_foxglove_layout_respects_native_panel_aspects_on_16_by_9_display():
     trajectory_height = (
         viewport_height * layout["second"]["splitPercentage"] / 100.0
     )
+    status_height = (viewport_height - trajectory_height) * 0.5
+    viewport_area = viewport_width * viewport_height
+    rgb_area_fraction = main_width * main_height / viewport_area
+    match_area_fraction = match_width * diagnostics_height / viewport_area
 
-    assert main_width / main_height == pytest.approx(16 / 9, rel=0.04)
     assert side_width / trajectory_height == pytest.approx(1.0, rel=0.02)
-    assert match_width / diagnostics_height == pytest.approx(960 / 272, rel=0.02)
+    assert side_width / status_height == pytest.approx(720 / 220, rel=0.02)
+    assert 0.35 < rgb_area_fraction < 0.42
+    assert match_area_fraction < 0.08
 
 
 def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():

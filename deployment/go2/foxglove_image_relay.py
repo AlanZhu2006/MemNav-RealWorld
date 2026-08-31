@@ -86,9 +86,9 @@ def prepare_color_preview(
 ) -> np.ndarray:
     """Decode a color image and optionally resize it for display.
 
-    Arrival debug images already contain two camera views side by side.  They
-    must keep their native aspect ratio; resizing them to the single-camera
-    preview dimensions makes both halves unnaturally narrow.
+    Arrival debug images contain geometry overlays aligned to their source
+    pixels.  Keep their native aspect ratio instead of forcing the camera
+    preview dimensions and distorting that evidence.
     """
 
     image = rgb_message_to_bgr(message)
