@@ -4,6 +4,7 @@ import pytest
 
 from deployment.gpu.revisit_local_pose_adapter import (
     CERTIFIED_BEARING_RESIDUAL_M,
+    METRIC_POINTGOAL_STEP_CAP_M,
     decide_local_pose_handoff,
 )
 
@@ -18,6 +19,31 @@ def evidence(x, y, *, metric_distance=0.01, yaw_right=0.0):
         "metric_scale_available": True,
         "predicted_relative_xy_m": [metric_distance, 0.0],
         "predicted_distance_m": metric_distance,
+        "terminal_yaw_right_deg": yaw_right,
+    }
+
+
+def metric_evidence(x, y, *, metric_scale=1.0, yaw_right=0.0):
+    metric_x = metric_scale * x
+    metric_y = metric_scale * y
+    distance = math.hypot(metric_x, metric_y)
+    return {
+        "certificate_accepted": True,
+        "scale_free_direction_available": True,
+        "predicted_scale_free_relative_xy": [x, y],
+        "metric_scale_available": True,
+        "metric_scale_policy": "mdtec_first40",
+        "metric_scale_transaction_bound": True,
+        "metric_scale": {
+            "available": True,
+            "reason": "mdtec_first40_causal_scale_available",
+            "frame_count": 40,
+            "metric_scale_m_per_raw": metric_scale,
+            "scale_receipt_sha256": "a" * 64,
+            "scale_evidence_contract": "causal_first_prefix_rgb_only_v1",
+        },
+        "predicted_relative_xy_m": [metric_x, metric_y],
+        "predicted_distance_m": distance,
         "terminal_yaw_right_deg": yaw_right,
     }
 
@@ -59,6 +85,53 @@ def test_supported_direction_is_projected_to_frozen_scale_free_residual():
     )
     assert decision.predicted_distance_m == 99.0
     assert decision.stop_authorized is False
+
+
+def test_valid_first40_metric_distance_is_capped_per_replan():
+    decision = decide_local_pose_handoff(
+        long_range_available=True,
+        evidence=metric_evidence(3.0, 4.0, metric_scale=0.5),
+    )
+
+    assert decision.disposition == "bearing_local"
+    assert decision.reason == "direct_camera_height_metric_bounded_step"
+    assert decision.metric_scale_control_authority is True
+    assert math.hypot(*decision.controller_pointgoal_m) == pytest.approx(
+        METRIC_POINTGOAL_STEP_CAP_M
+    )
+    assert decision.controller_pointgoal_m == pytest.approx((0.48, 0.64))
+    audit = decision.audit_dict()
+    assert audit["terminal_metric_scale_control_authority"] is True
+    assert audit["terminal_predicted_distance_control_authority"] is True
+    assert audit["terminal_metric_scale_receipt_sha256"] == "a" * 64
+    assert audit["terminal_stop_authorized"] is False
+
+
+def test_valid_near_metric_distance_is_not_inflated_to_step_cap():
+    decision = decide_local_pose_handoff(
+        long_range_available=False,
+        evidence=metric_evidence(0.3, 0.4, metric_scale=0.5),
+    )
+
+    assert decision.controller_pointgoal_m == pytest.approx((0.15, 0.20))
+    assert decision.controller_distance_m == pytest.approx(0.25)
+    assert decision.stop_authorized is False
+
+
+def test_unbound_metric_receipt_falls_back_to_scale_free_residual():
+    unbound = metric_evidence(0.3, 0.4, metric_scale=0.5)
+    unbound["metric_scale_transaction_bound"] = False
+
+    decision = decide_local_pose_handoff(
+        long_range_available=True,
+        evidence=unbound,
+    )
+
+    assert decision.metric_scale_control_authority is False
+    assert decision.reason == "direct_scale_free_bearing_certified"
+    assert math.hypot(*decision.controller_pointgoal_m) == pytest.approx(
+        CERTIFIED_BEARING_RESIDUAL_M
+    )
 
 
 def test_proof_loss_returns_to_preceding_route_instead_of_holding():

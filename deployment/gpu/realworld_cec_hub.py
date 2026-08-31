@@ -43,6 +43,12 @@ from deployment.gpu.episodic_dataset import (
     DatasetContractError,
     EpisodicDatasetStore,
 )
+from deployment.gpu.monocular_depth_runtime import (
+    canonical_sha256,
+    decode_monocular_depth_payload,
+    validate_first40_scale_receipt,
+    validate_monocular_depth_transaction,
+)
 from deployment.gpu.revisit_bearing_adapter import adapt_revisit_pointgoal
 from deployment.gpu.revisit_local_pose_adapter import (
     SCHEMA_VERSION as TERMINAL_HANDOFF_SCHEMA,
@@ -463,6 +469,159 @@ class CecHybridRouter:
                 "error": f"{type(error).__name__}: {error}",
             }
 
+    def _transaction_metric_scale(
+        self,
+        append_receipt: Mapping[str, Any],
+        image: bytes,
+    ) -> dict[str, Any]:
+        """Read and validate the exact current first-40 scale receipt.
+
+        ``retrieval_probe_step`` already materialized the current monocular
+        depth transaction for NavDP.  Reading that immutable transaction a
+        second time neither appends RGB nor consumes the token; it lets the
+        controller reuse the same camera-height scale without trusting an
+        unbound status value or simulator depth.
+        """
+
+        image_digest = hashlib.sha256(image).hexdigest()
+        token = append_receipt.get("monocular_depth_transaction_token")
+        frame_index = append_receipt.get("monocular_depth_frame_index")
+        base = {
+            "available": False,
+            "source": "mdtec_first40_bound_depth_transaction",
+            "metric_depth_sensor_consumed": False,
+            "frame_index": frame_index,
+        }
+        try:
+            if not isinstance(token, str) or type(frame_index) is not int:
+                raise ValueError("append receipt lacks a bound depth transaction")
+            payload = _json_object(
+                self.session.post(
+                    f"{self.config.memnav_url}/monocular_depth_query",
+                    data={
+                        "expected_image_sha256": image_digest,
+                        "monocular_depth_transaction_token": token,
+                        "expected_frame_index": str(frame_index),
+                    },
+                    timeout=self.config.timeout,
+                ),
+                "bound first-40 metric scale",
+            )
+            validate_monocular_depth_transaction(
+                payload,
+                expected_token=token,
+                expected_image_sha256=image_digest,
+                expected_frame_index=frame_index,
+            )
+            _, metadata = decode_monocular_depth_payload(
+                payload, expected_image_sha256=image_digest
+            )
+            receipt = metadata.get("scale_receipt")
+            if not isinstance(receipt, Mapping):
+                raise ValueError("depth transaction has no scale receipt")
+            validate_first40_scale_receipt(receipt)
+            if (
+                metadata.get("scale_active") is not True
+                or metadata.get("scale_valid") is not True
+                or receipt.get("scale_valid") is not True
+            ):
+                raise ValueError("first-40 camera-height scale is not active")
+            receipt_height = float(receipt["camera_height_m"])
+            if not math.isclose(
+                receipt_height,
+                float(self.config.camera_height_m),
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            ):
+                raise ValueError(
+                    "scale receipt camera height does not match runtime config"
+                )
+            scale = float(receipt["scale_hat"])
+            if not math.isfinite(scale) or scale <= 0.0:
+                raise ValueError("first-40 camera-height scale is invalid")
+            return {
+                **base,
+                "available": True,
+                "reason": "mdtec_first40_causal_scale_available",
+                "metric_scale_m_per_raw": scale,
+                "camera_height_m": receipt_height,
+                "scale_receipt_sha256": canonical_sha256(receipt),
+                "scale_evidence_contract": receipt[
+                    "scale_evidence_contract"
+                ],
+                "frame_count": int(receipt["scale_prefix_frames"]),
+                "valid_frame_ratio": float(receipt["valid_frame_ratio"]),
+                "relative_floor_iqr": float(receipt["relative_floor_iqr"]),
+                "scale_clamped": bool(receipt["scale_clamped"]),
+            }
+        except Exception as error:
+            return {
+                **base,
+                "reason": "mdtec_first40_scale_unavailable",
+                "error": f"{type(error).__name__}: {error}",
+            }
+
+    @staticmethod
+    def _bind_local_metric_scale(
+        evidence: Mapping[str, Any],
+        transaction_scale: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Bind direct PnP scale claims to the exact current depth receipt."""
+
+        bound = dict(evidence)
+        bound["metric_scale_transaction_bound"] = False
+        direct_scale = evidence.get("metric_scale")
+        if (
+            evidence.get("metric_scale_available") is not True
+            or not isinstance(direct_scale, Mapping)
+            or direct_scale.get("available") is not True
+            or transaction_scale.get("available") is not True
+        ):
+            return bound
+        try:
+            direct_value = float(direct_scale["metric_scale_m_per_raw"])
+            transaction_value = float(
+                transaction_scale["metric_scale_m_per_raw"]
+            )
+            same_receipt = (
+                direct_scale.get("scale_receipt_sha256")
+                == transaction_scale.get("scale_receipt_sha256")
+            )
+            same_contract = (
+                direct_scale.get("scale_evidence_contract")
+                == transaction_scale.get("scale_evidence_contract")
+            )
+            direct_prefix = direct_scale.get("frame_count")
+            transaction_prefix = transaction_scale.get("frame_count")
+            direct_frame = evidence.get("frame_index")
+            transaction_frame = transaction_scale.get("frame_index")
+            same_prefix = (
+                type(direct_prefix) is int
+                and type(transaction_prefix) is int
+                and direct_prefix == transaction_prefix
+            )
+            same_frame = (
+                type(direct_frame) is int
+                and type(transaction_frame) is int
+                and direct_frame == transaction_frame
+            )
+            same_value = math.isclose(
+                direct_value,
+                transaction_value,
+                rel_tol=1e-9,
+                abs_tol=1e-12,
+            )
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return bound
+        bound["metric_scale_transaction_bound"] = bool(
+            same_receipt
+            and same_contract
+            and same_prefix
+            and same_frame
+            and same_value
+        )
+        return bound
+
     def memory_step(
         self,
         image: bytes,
@@ -568,6 +727,17 @@ class CecHybridRouter:
             dict(form or {}), memory, image
         )
         local_evidence = self._direct_local_pose(goal)
+        metric_scale_evidence: dict[str, Any] = {
+            "available": False,
+            "reason": "not_requested",
+        }
+        if local_evidence.get("metric_scale_available") is True:
+            metric_scale_evidence = self._transaction_metric_scale(
+                memory, image
+            )
+        local_evidence = self._bind_local_metric_scale(
+            local_evidence, metric_scale_evidence
+        )
         local_decision = decide_local_pose_handoff(
             long_range_available=False,
             evidence=local_evidence,
@@ -581,7 +751,11 @@ class CecHybridRouter:
             result = self._mixed_plan(
                 image, goal, local_decision.controller_pointgoal_m, navdp_form
             )
-            controller = "navdp_image_direct_certified_bearing_mix"
+            controller = (
+                "navdp_image_direct_metric_bounded_mix"
+                if local_decision.metric_scale_control_authority
+                else "navdp_image_direct_certified_bearing_mix"
+            )
         else:
             # Native still consumes exactly one current observation for
             # native, atomic-turn, hold and STOP dispositions.  The latter
@@ -619,6 +793,7 @@ class CecHybridRouter:
             "cec_takeover": False,
             "cec_reason": "novel_recording_no_long_range_memory",
             "cec_controller": controller,
+            "cec_metric_scale": metric_scale_evidence,
             "terminal_localization": local_evidence,
         })
         return result
@@ -1311,6 +1486,10 @@ class CecHybridRouter:
                 "cec_selected_anchor": None,
                 "cec_certificate": None,
                 "cec_relocalization_ms": None,
+                "cec_metric_scale": {
+                    "available": False,
+                    "reason": "authority_disabled_formal_native_arm",
+                },
                 "cec_candidate_ceiling_override": (
                     None
                     if self.active_goal is None
@@ -1360,12 +1539,23 @@ class CecHybridRouter:
         )
 
         # Long-range CEC answers content addressing; direct current->goal PnP
-        # refines the local scale-free bearing.  The direct proof is queried
+        # refines the local bearing and, when its exact first-40 receipt is
+        # valid, supplies a bounded metric residual.  The direct proof is queried
         # independently of semantic role and therefore also works when the
-        # long-range certificate is absent.  Its monocular translation norm
-        # has no metric-control or STOP authority; proof loss returns to the
-        # preceding route.
+        # long-range certificate is absent.  Metric distance never gains STOP
+        # authority; proof loss returns to the preceding route.
         local_evidence = self._direct_local_pose(goal)
+        metric_scale_evidence: dict[str, Any] = {
+            "available": False,
+            "reason": "not_requested",
+        }
+        if active or local_evidence.get("metric_scale_available") is True:
+            metric_scale_evidence = self._transaction_metric_scale(
+                probe, image
+            )
+        local_evidence = self._bind_local_metric_scale(
+            local_evidence, metric_scale_evidence
+        )
         local_decision = decide_local_pose_handoff(
             long_range_available=active,
             evidence=local_evidence,
@@ -1375,12 +1565,46 @@ class CecHybridRouter:
         self.terminal_local_latched = local_decision.local_latched
         self.terminal_stop_streak = local_decision.stop_streak
 
+        if active and local_decision.disposition == "long_range":
+            if metric_scale_evidence.get("available") is True:
+                try:
+                    raw = certificate.get("aux_pose")
+                    if not isinstance(raw, (list, tuple)) or len(raw) != 2:
+                        raise ValueError("certificate has no finite raw vector")
+                    scale = float(
+                        metric_scale_evidence["metric_scale_m_per_raw"]
+                    )
+                    metric_pointgoal = [
+                        scale * float(raw[0]),
+                        scale * float(raw[1]),
+                    ]
+                    if not all(math.isfinite(value) for value in metric_pointgoal):
+                        raise ValueError("scaled PointGoal is non-finite")
+                    decision = adapt_revisit_pointgoal(
+                        mode="verified_metric_step_v1",
+                        router_active=True,
+                        pointgoal=metric_pointgoal,
+                        source="lightglue_lingbot_pnp_first40_metric",
+                        pointgoal_units="metric_m",
+                    )
+                except (TypeError, ValueError, OverflowError) as error:
+                    metric_scale_evidence = {
+                        **metric_scale_evidence,
+                        "available": False,
+                        "reason": "metric_pointgoal_conversion_failed",
+                        "error": f"{type(error).__name__}: {error}",
+                    }
+
         if local_decision.disposition == "bearing_local":
             assert local_decision.controller_pointgoal_m is not None
             result = self._mixed_plan(
                 image, goal, local_decision.controller_pointgoal_m, navdp_form
             )
-            controller = "navdp_image_direct_certified_bearing_mix"
+            controller = (
+                "navdp_image_direct_metric_bounded_mix"
+                if local_decision.metric_scale_control_authority
+                else "navdp_image_direct_certified_bearing_mix"
+            )
         elif local_decision.disposition in {"atomic_turn", "hold", "stop"}:
             # NavDP still consumes exactly one current observation so its FIFO
             # remains causal.  The robot adapter atomically overrides this
@@ -1392,7 +1616,11 @@ class CecHybridRouter:
             result = self._mixed_plan(
                 image, goal, decision.controller_pointgoal, navdp_form
             )
-            controller = "navdp_image_point_mix"
+            controller = (
+                "navdp_image_metric_bounded_mix"
+                if decision.metric_scale_control_authority
+                else "navdp_image_point_mix"
+            )
         else:
             result = self._native_plan(image, goal, navdp_form)
             controller = "navdp_image_router"
@@ -1408,6 +1636,7 @@ class CecHybridRouter:
             "cec_selected_anchor": certificate.get("selected_anchor"),
             "cec_certificate": certificate.get("certificate"),
             "cec_relocalization_ms": certificate.get("relocalization_ms"),
+            "cec_metric_scale": metric_scale_evidence,
             "cec_candidate_ceiling_override": (
                 None
                 if self.active_goal is None

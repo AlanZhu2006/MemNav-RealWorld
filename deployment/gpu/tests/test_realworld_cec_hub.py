@@ -4,8 +4,14 @@ import json
 
 import pytest
 import requests
+import numpy as np
 
 from deployment.gpu.episodic_dataset import EpisodicDatasetStore
+from deployment.gpu.monocular_depth_runtime import (
+    bind_monocular_depth_transaction,
+    build_monocular_depth_payload,
+    canonical_sha256,
+)
 from deployment.gpu.realworld_cec_hub import (
     NAVIGATION_SENSOR_CONTRACT,
     TERMINAL_HANDOFF_SCHEMA,
@@ -33,9 +39,14 @@ class FakeSession:
     def __init__(self, responses):
         self.responses = list(responses)
         self.calls = []
+        self.latest_depth_payload = None
 
     def post(self, url, **kwargs):
         self.calls.append((url, kwargs))
+        if url.endswith("/monocular_depth_query"):
+            if self.latest_depth_payload is None:
+                return FakeResponse({"error": "no fake depth transaction"}, 409)
+            return FakeResponse(dict(self.latest_depth_payload))
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
@@ -55,10 +66,22 @@ class FakeSession:
                 and url.endswith(("/memory_step", "/retrieval_probe_step"))
             ):
                 frame_idx = int(payload.get("frame_idx", 0))
-                token = hashlib.sha256(
-                    b"test-depth-transaction" + image_bytes
-                    + str(frame_idx).encode()
-                ).hexdigest()
+                scale_receipt = first40_scale_receipt()
+                depth_payload = bind_monocular_depth_transaction(
+                    build_monocular_depth_payload(
+                        relative_depth=np.ones((2, 3), dtype=np.float32),
+                        depth_shape=(2, 3),
+                        image_sha256_value=hashlib.sha256(
+                            image_bytes
+                        ).hexdigest(),
+                        frame_index=frame_idx,
+                        scale_receipt=scale_receipt,
+                    )
+                )
+                self.latest_depth_payload = depth_payload
+                token = depth_payload[
+                    "monocular_depth_transaction_token"
+                ]
                 payload.update({
                     "image_sha256": hashlib.sha256(image_bytes).hexdigest(),
                     "monocular_depth_transaction_token": token,
@@ -81,6 +104,27 @@ class FakeSession:
                 payload["monocular_depth_receipt"] = receipt
             response = FakeResponse(payload, response.status_code)
         return response
+
+
+def first40_scale_receipt(*, scale=2.0):
+    return {
+        "schema": "mdtec_first40_scale_receipt_v1_20260819",
+        "scale_evidence_contract": "causal_first_prefix_rgb_only_v1",
+        "scale_prefix_frames": 40,
+        "scale_prefix_first_frame": 0,
+        "scale_prefix_last_frame": 39,
+        "frozen_after_observation_count": 40,
+        "active_from_frame_index": 40,
+        "whole_episode_ground_cache_consumed": False,
+        "camera_height_m": 0.5,
+        "ground_h_est_raw": 0.25,
+        "scale_valid": True,
+        "scale_hat": scale,
+        "valid_frame_ratio": 1.0,
+        "relative_floor_iqr": 0.05,
+        "scale_clamped": False,
+        "freeze_error": None,
+    }
 
 
 def config():
@@ -157,15 +201,39 @@ def local_reject_response():
     })
 
 
-def local_pose_response(x, y, *, yaw_right=0.0):
+def local_pose_response(
+    x,
+    y,
+    *,
+    yaw_right=0.0,
+    metric_scale=2.0,
+    frame_index=0,
+    receipt_sha256=None,
+):
+    metric_x = metric_scale * x
+    metric_y = metric_scale * y
+    if receipt_sha256 is None:
+        receipt_sha256 = canonical_sha256(
+            first40_scale_receipt(scale=metric_scale)
+        )
     return FakeResponse({
         "status": "ok",
+        "frame_index": frame_index,
         "certificate_accepted": True,
         "scale_free_direction_available": True,
         "predicted_scale_free_relative_xy": [x, y],
         "metric_scale_available": True,
-        "predicted_relative_xy_m": [x, y],
-        "predicted_distance_m": (x * x + y * y) ** 0.5,
+        "metric_scale_policy": "mdtec_first40",
+        "metric_scale": {
+            "available": True,
+            "reason": "mdtec_first40_causal_scale_available",
+            "frame_count": 40,
+            "metric_scale_m_per_raw": metric_scale,
+            "scale_receipt_sha256": receipt_sha256,
+            "scale_evidence_contract": "causal_first_prefix_rgb_only_v1",
+        },
+        "predicted_relative_xy_m": [metric_x, metric_y],
+        "predicted_distance_m": (metric_x * metric_x + metric_y * metric_y) ** 0.5,
         "terminal_yaw_right_deg": yaw_right,
     })
 
@@ -252,11 +320,11 @@ def test_invalid_authority_mode_is_rejected_before_runtime():
         )
 
 
-def test_certificate_accept_projects_to_frozen_radius_and_calls_mixed():
+def test_certificate_accept_uses_first40_scale_and_bounded_metric_step():
     session = FakeSession(reset_responses() + [
         memory_step_response(),
         warmup_response(),
-        FakeResponse({"frame_idx": 7, "certified_visual_candidates": [{"anchor": 2}]}),
+        FakeResponse({"frame_idx": 40, "certified_visual_candidates": [{"anchor": 2}]}),
         FakeResponse({
             "ok": True,
             "accepted": True,
@@ -276,11 +344,16 @@ def test_certificate_accept_projects_to_frozen_radius_and_calls_mixed():
     assert result["cec_takeover"] is True
     mixed_data = session.calls[-1][1]["data"]
     point = json.loads(mixed_data["goal_data"])
-    assert point == {"goal_x": [1.5], "goal_y": [2.0]}
+    assert point["goal_x"] == pytest.approx([0.48])
+    assert point["goal_y"] == pytest.approx([0.64])
+    assert result["cec_controller"] == "navdp_image_metric_bounded_mix"
+    assert result["memory_metric_scale_control_authority"] is True
+    assert result["memory_controller_pointgoal_step_cap_m"] == 0.8
+    assert result["cec_metric_scale"]["available"] is True
     assert "depth" not in session.calls[-1][1]["files"]
 
 
-def test_direct_certified_bearing_supersedes_long_range_when_covisible():
+def test_inactive_first40_scale_falls_back_to_frozen_bearing_radius():
     session = FakeSession(reset_responses() + [
         memory_step_response(),
         warmup_response(),
@@ -296,7 +369,42 @@ def test_direct_certified_bearing_supersedes_long_range_when_covisible():
             "aux_pose": [3.0, 4.0],
             "selected_anchor": 2,
         }),
-        local_pose_response(0.60, 0.20),
+        local_reject_response(),
+        nav_result("fixed-bearing-fallback"),
+    ])
+    router = CecHybridRouter(config(), session=session)
+    do_reset(router)
+    enter_revisit(router)
+
+    result = router.plan_imagegoal(image=b"i", goal=b"g", depth=b"d")
+
+    point = json.loads(session.calls[-1][1]["data"]["goal_data"])
+    assert point == {"goal_x": [1.5], "goal_y": [2.0]}
+    assert result["cec_controller"] == "navdp_image_point_mix"
+    assert result["memory_metric_scale_control_authority"] is False
+    assert result["cec_metric_scale"]["available"] is False
+    assert result["cec_metric_scale"]["reason"] == (
+        "mdtec_first40_scale_unavailable"
+    )
+
+
+def test_direct_certified_bearing_supersedes_long_range_when_covisible():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(),
+        warmup_response(),
+        FakeResponse({
+            "frame_idx": 40,
+            "certified_visual_candidates": [{"anchor": 2}],
+        }),
+        FakeResponse({
+            "ok": True,
+            "accepted": True,
+            "reason": "accepted",
+            "pointgoal_units": "lingbot_raw_direction_only",
+            "aux_pose": [3.0, 4.0],
+            "selected_anchor": 2,
+        }),
+        local_pose_response(0.60, 0.20, frame_index=40),
         nav_result("local-mixed"),
     ])
     router = CecHybridRouter(config(), session=session)
@@ -307,12 +415,56 @@ def test_direct_certified_bearing_supersedes_long_range_when_covisible():
 
     assert result["marker"] == "local-mixed"
     assert result["cec_controller"] == (
-        "navdp_image_direct_certified_bearing_mix"
+        "navdp_image_direct_metric_bounded_mix"
     )
     assert result["terminal_handoff_disposition"] == "bearing_local"
     assert result["terminal_local_latched"] is False
+    assert result["terminal_metric_scale_control_authority"] is True
+    assert session.calls[-3][0] == "http://mem/local_pose_query"
+    assert session.calls[-2][0] == "http://mem/monocular_depth_query"
+    point = json.loads(session.calls[-1][1]["data"]["goal_data"])
+    assert point["goal_x"] == pytest.approx([0.758946638])
+    assert point["goal_y"] == pytest.approx([0.252982213])
+
+
+def test_direct_metric_receipt_mismatch_falls_back_to_scale_free_bearing():
+    session = FakeSession(reset_responses() + [
+        memory_step_response(),
+        warmup_response(),
+        FakeResponse({
+            "frame_idx": 40,
+            "certified_visual_candidates": [{"anchor": 2}],
+        }),
+        FakeResponse({
+            "ok": True,
+            "accepted": True,
+            "reason": "accepted",
+            "pointgoal_units": "lingbot_raw_direction_only",
+            "aux_pose": [3.0, 4.0],
+            "selected_anchor": 2,
+        }),
+        local_pose_response(
+            0.60,
+            0.20,
+            frame_index=40,
+            receipt_sha256="b" * 64,
+        ),
+        nav_result("local-fixed-bearing"),
+    ])
+    router = CecHybridRouter(config(), session=session)
+    do_reset(router)
+    enter_revisit(router)
+
+    result = router.plan_imagegoal(image=b"i", goal=b"g", depth=b"d")
+
+    assert result["cec_metric_scale"]["available"] is True
+    assert result["terminal_localization"][
+        "metric_scale_transaction_bound"
+    ] is False
     assert result["terminal_metric_scale_control_authority"] is False
-    assert session.calls[-2][0] == "http://mem/local_pose_query"
+    assert result["cec_controller"] == (
+        "navdp_image_direct_certified_bearing_mix"
+    )
     point = json.loads(session.calls[-1][1]["data"]["goal_data"])
     assert point["goal_x"] == pytest.approx([2.371708245])
     assert point["goal_y"] == pytest.approx([0.790569415])
@@ -450,10 +602,10 @@ def test_live_novel_plan_records_same_frame_and_skips_replay_at_switch():
     assert switch["navdp_queue_lengths"] == [2]
 
 
-def test_novel_direct_pose_enters_scale_free_bearing_without_role_or_cec():
+def test_novel_direct_pose_uses_bounded_metric_without_role_or_cec():
     session = FakeSession(reset_responses() + [
-        memory_step_response(0),
-        local_pose_response(0.60, 0.20),
+        memory_step_response(40),
+        local_pose_response(0.60, 0.20, frame_index=40),
         nav_result("novel-local", queue_length=1),
     ])
     router = CecHybridRouter(config(), session=session)
@@ -466,15 +618,16 @@ def test_novel_direct_pose_enters_scale_free_bearing_without_role_or_cec():
     assert result["terminal_proof_active"] is True
     assert result["terminal_handoff_disposition"] == "bearing_local"
     assert result["cec_controller"] == (
-        "navdp_image_direct_certified_bearing_mix"
+        "navdp_image_direct_metric_bounded_mix"
     )
-    assert result["terminal_metric_scale_control_authority"] is False
+    assert result["terminal_metric_scale_control_authority"] is True
     assert result["terminal_stop_authorized"] is False
-    assert session.calls[-2][0] == "http://mem/local_pose_query"
+    assert session.calls[-3][0] == "http://mem/local_pose_query"
+    assert session.calls[-2][0] == "http://mem/monocular_depth_query"
     assert session.calls[-1][0] == "http://nav/navdp_step_ip_mixgoal"
     point = json.loads(session.calls[-1][1]["data"]["goal_data"])
-    assert point["goal_x"] == pytest.approx([2.371708245])
-    assert point["goal_y"] == pytest.approx([0.790569415])
+    assert point["goal_x"] == pytest.approx([0.758946638])
+    assert point["goal_y"] == pytest.approx([0.252982213])
 
 
 def test_novel_rear_direct_pose_emits_certified_atomic_turn_receipt():

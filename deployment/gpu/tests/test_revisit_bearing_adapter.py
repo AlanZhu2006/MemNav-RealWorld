@@ -3,6 +3,7 @@ import unittest
 
 from deployment.gpu.revisit_bearing_adapter import (
     VERIFIED_BEARING_RADIUS_M,
+    VERIFIED_METRIC_STEP_CAP_M,
     adapt_revisit_pointgoal,
     validate_revisit_adapter_configuration,
 )
@@ -145,11 +146,51 @@ class RevisitBearingAdapterTest(unittest.TestCase):
             pointgoal=[0.0, -7.0],
             source="sift_ransac_geometry",
         ).audit_dict()
-        self.assertEqual(audit["revisit_adapter_schema_version"], 2)
+        self.assertEqual(audit["revisit_adapter_schema_version"], 3)
         self.assertEqual(audit["revisit_adapter_source"],
                          "sift_ransac_geometry")
         self.assertEqual(audit["memory_bearing_unit"], [0.0, -1.0])
         self.assertEqual(audit["memory_controller_pointgoal"], [0.0, -2.5])
+
+    def test_verified_metric_step_preserves_near_distance_and_caps_far(self):
+        near = adapt_revisit_pointgoal(
+            mode="verified_metric_step_v1",
+            router_active=True,
+            pointgoal=[0.3, 0.4],
+            source="mdtec_first40_camera_height",
+            pointgoal_units="metric_m",
+        )
+        far = adapt_revisit_pointgoal(
+            mode="verified_metric_step_v1",
+            router_active=True,
+            pointgoal=[3.0, 4.0],
+            source="mdtec_first40_camera_height",
+            pointgoal_units="metric_m",
+        )
+
+        self.assertEqual(near.controller_pointgoal, (0.3, 0.4))
+        self.assertEqual(near.controller_distance_m, 0.5)
+        self.assertTrue(near.metric_scale_control_authority)
+        self.assertAlmostEqual(
+            math.hypot(*far.controller_pointgoal),
+            VERIFIED_METRIC_STEP_CAP_M,
+        )
+        self.assertAlmostEqual(far.controller_pointgoal[0], 0.48)
+        self.assertAlmostEqual(far.controller_pointgoal[1], 0.64)
+        self.assertEqual(
+            far.audit_dict()["memory_controller_pointgoal_step_cap_m"],
+            VERIFIED_METRIC_STEP_CAP_M,
+        )
+
+    def test_verified_metric_step_rejects_unscaled_units(self):
+        decision = adapt_revisit_pointgoal(
+            mode="verified_metric_step_v1",
+            router_active=True,
+            pointgoal=[3.0, 4.0],
+            pointgoal_units="lingbot_raw_direction_only",
+        )
+        self.assertFalse(decision.takeover)
+        self.assertEqual(decision.reason, "metric_units_required")
 
     def test_canonical_configuration_rejects_oracle_and_controller_swaps(self):
         validate_revisit_adapter_configuration(

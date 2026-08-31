@@ -294,7 +294,7 @@ class NavDPClientPhaseProtocolTests(unittest.TestCase):
             "algo": "cec_hybrid_navdp",
             "protocol_version": 3,
             "terminal_handoff_schema": (
-                "cec_direct_bearing_handoff_v2_20260824"
+                "cec_direct_metric_handoff_v3_20260831"
             ),
         })])
         algorithm = client.reset(np.eye(3, dtype=np.float32))

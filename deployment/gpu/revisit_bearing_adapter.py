@@ -1,10 +1,11 @@
 """Fail-closed controller interface for verified Revisit memory evidence.
 
 The memory system is allowed to decide *whether* a revisit match is verified
-and to estimate its camera-relative direction.  It is deliberately not
-allowed to choose a local controller or expose an uncalibrated metric distance
-to the canonical policy.  The canonical ``verified_bearing_v1`` interface
-therefore projects every non-zero verified PointGoal onto one frozen radius.
+and to estimate its camera-relative direction.  An uncalibrated translation
+is never exposed to the canonical policy: ``verified_bearing_v1`` projects it
+onto one frozen radius.  The separate ``verified_metric_step_v1`` path accepts
+only a metre vector whose first-40 camera-height receipt has already been
+validated and bound by the hub, then limits one receding-horizon request.
 
 This module is intentionally independent of Habitat, Torch, Flask, and NavDP.
 It is the auditable boundary between a direction source and a controller.
@@ -17,12 +18,13 @@ import math
 from typing import Any, Sequence
 
 
-REVISIT_ADAPTER_SCHEMA_VERSION = 2
+REVISIT_ADAPTER_SCHEMA_VERSION = 3
 REVISIT_ADAPTER_MODES = (
     "legacy_metric",
     "navdp_front_support_v1",
     "raw_fixed_bearing_v1",
     "verified_bearing_v1",
+    "verified_metric_step_v1",
 )
 FIXED_BEARING_MODES = frozenset({
     "raw_fixed_bearing_v1",
@@ -38,6 +40,11 @@ POINTGOAL_UNITS = (
 # first-active memory radius was 2.513 m and was rounded to 2.5 m.  It is a
 # semantic constant, not an evaluation-time hyperparameter.
 VERIFIED_BEARING_RADIUS_M = 2.5
+# A valid first-40 camera-height receipt may recover metric translation, but
+# one monocular estimate must never ask NavDP to consume the whole remaining
+# route in one local token.  Receding-horizon control re-estimates after every
+# observation and caps only the per-plan PointGoal radius.
+VERIFIED_METRIC_STEP_CAP_M = 0.8
 ZERO_BEARING_EPS = 1e-12
 
 
@@ -57,6 +64,8 @@ class RevisitAdapterDecision:
     raw_pointgoal_norm: float | None
     raw_distance_m: float | None
     controller_distance_m: float | None
+    metric_scale_control_authority: bool = False
+    controller_step_cap_m: float | None = None
 
     def audit_dict(self) -> dict[str, Any]:
         """Return stable JSON-compatible fields for every planning step."""
@@ -87,6 +96,10 @@ class RevisitAdapterDecision:
             "memory_pointgoal_fixed_radius_m": (
                 VERIFIED_BEARING_RADIUS_M
                 if self.mode in FIXED_BEARING_MODES else None),
+            "memory_metric_scale_control_authority": (
+                self.metric_scale_control_authority),
+            "memory_controller_pointgoal_step_cap_m": (
+                self.controller_step_cap_m),
         }
 
 
@@ -134,6 +147,12 @@ def adapt_revisit_pointgoal(
     ``verified_bearing_v1``.  Their arbitrary norm is audited but never called
     metres and never reaches the controller; only the normalized direction
     survives the fixed-radius projection.
+
+    ``verified_metric_step_v1`` accepts only a metre vector backed by the
+    separately validated first-40 camera-height receipt.  It preserves the
+    recovered distance when nearby and caps a single controller request at
+    0.8 m when far away.  The next RGB observation produces a fresh vector;
+    this adapter never grants metric STOP authority.
 
     ``raw_fixed_bearing_v1`` is an ablation, not a verified method.  It applies
     the identical fixed-radius projection to an always-on raw metric proposal,
@@ -275,6 +294,56 @@ def adapt_revisit_pointgoal(
             controller_distance_m=raw_distance,
         )
 
+    if mode == "verified_metric_step_v1":
+        if pointgoal_units != "metric_m":
+            return RevisitAdapterDecision(
+                mode=mode, source=source, takeover=False,
+                reason="metric_units_required",
+                controller_contract="native_imagegoal",
+                raw_pointgoal=raw,
+                raw_pointgoal_units=pointgoal_units,
+                unit_bearing=unit,
+                controller_pointgoal=None,
+                raw_pointgoal_norm=raw_norm,
+                raw_distance_m=None,
+                controller_distance_m=None,
+            )
+        if unit is None or raw_distance is None:
+            return RevisitAdapterDecision(
+                mode=mode, source=source, takeover=False,
+                reason="zero_metric_pointgoal",
+                controller_contract="native_imagegoal",
+                raw_pointgoal=raw,
+                raw_pointgoal_units=pointgoal_units,
+                unit_bearing=None,
+                controller_pointgoal=None,
+                raw_pointgoal_norm=raw_norm,
+                raw_distance_m=raw_distance,
+                controller_distance_m=None,
+            )
+        controller_distance = min(
+            raw_distance, VERIFIED_METRIC_STEP_CAP_M
+        )
+        return RevisitAdapterDecision(
+            mode=mode,
+            source=source,
+            takeover=True,
+            reason="verified_camera_height_metric_bounded_step",
+            controller_contract="mixed_imagegoal_pointgoal",
+            raw_pointgoal=raw,
+            raw_pointgoal_units=pointgoal_units,
+            unit_bearing=unit,
+            controller_pointgoal=(
+                unit[0] * controller_distance,
+                unit[1] * controller_distance,
+            ),
+            raw_pointgoal_norm=raw_norm,
+            raw_distance_m=raw_distance,
+            controller_distance_m=controller_distance,
+            metric_scale_control_authority=True,
+            controller_step_cap_m=VERIFIED_METRIC_STEP_CAP_M,
+        )
+
     if mode == "raw_fixed_bearing_v1" and pointgoal_units != "metric_m":
         return RevisitAdapterDecision(
             mode=mode, source=source, takeover=False,
@@ -355,7 +424,7 @@ def validate_revisit_adapter_configuration(
         return
     if not router_is_automatic_geometry:
         raise ValueError(
-            "verified_bearing_v1 requires an automatic, geometry-verified "
+            f"{mode} requires an automatic, geometry-verified "
             "router; the phase-oracle route is not deployable")
 
 
@@ -365,6 +434,7 @@ __all__ = [
     "POINTGOAL_UNITS",
     "RevisitAdapterDecision",
     "VERIFIED_BEARING_RADIUS_M",
+    "VERIFIED_METRIC_STEP_CAP_M",
     "adapt_revisit_pointgoal",
     "validate_revisit_adapter_configuration",
 ]

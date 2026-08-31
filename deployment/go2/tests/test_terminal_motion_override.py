@@ -5,7 +5,7 @@ from terminal_motion_override import terminal_motion_override
 
 def receipt(disposition, **updates):
     value = {
-        "terminal_handoff_schema": "cec_direct_bearing_handoff_v2_20260824",
+        "terminal_handoff_schema": "cec_direct_metric_handoff_v3_20260831",
         "cec_takeover": True,
         "terminal_handoff_disposition": disposition,
         "terminal_local_latched": disposition in {"hold", "stop"},
