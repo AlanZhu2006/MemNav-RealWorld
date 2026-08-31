@@ -25,6 +25,7 @@ BASE_RESOLVED=""
 LOCAL_PORT=""
 SESSION=""
 RUNTIME_ROOT=""
+SURVEY_COLLECTION_MODE=""
 
 load_base_config() {
   [[ -z "$BASE_RESOLVED" ]] || return 0
@@ -45,6 +46,8 @@ load_base_config() {
 usage() {
   cat <<'EOF'
 Usage (run on Jetson):
+  revisit_experiment.sh [--config EXPERIMENT.json] survey-prepare DATASET_ID
+      [--collection-mode manual_long_out_and_back|manual_one_way_external_goal_debug]
   revisit_experiment.sh [--config EXPERIMENT.json] survey-start DATASET_ID
       [--collection-mode manual_long_out_and_back|manual_one_way_external_goal_debug]
   revisit_experiment.sh survey-status
@@ -58,11 +61,14 @@ Usage (run on Jetson):
   revisit_experiment.sh formal-status
   revisit_experiment.sh stop
 
-survey-start:
+survey-prepare:
   Starts RTX + D435i + a LOCKED adapter, resets the policy and opens an
-  immutable dataset.  Drive a long outbound-and-return route with the Unitree
-  hand controller.  Automatic goal candidates are captured on the return and
-  are excluded from memory with a causal guard.
+  immutable empty dataset, but leaves frame recording paused.  Use Foxglove's
+  START SURVEY button when the robot and operator are ready.
+
+survey-start:
+  Backward-compatible CLI path: performs survey-prepare, then calls the same
+  fail-closed ROS service as Foxglove's START SURVEY button.
 
 survey-seal:
   Reasserts disabled+estop and seals the exact RGB/candidate manifest.  It
@@ -195,7 +201,7 @@ temporary.replace(path)
 PY
 }
 
-survey_start() {
+prepare_survey_stack() {
   local dataset_id="$1"
   shift
   validate_id "$dataset_id"
@@ -207,13 +213,14 @@ survey_start() {
         collection_mode="$2"
         shift 2
         ;;
-      *) die "unknown survey-start option: $1; Foxglove belongs in config" ;;
+      *) die "unknown survey preparation option: $1; Foxglove belongs in config" ;;
     esac
   done
   case "$collection_mode" in
     manual_long_out_and_back|manual_one_way_external_goal_debug) ;;
     *) die "unsupported survey collection mode: $collection_mode" ;;
   esac
+  SURVEY_COLLECTION_MODE="$collection_mode"
   load_base_config
   ! tmux has-session -t "$SESSION" 2>/dev/null \
     || die "stack is already running; seal or stop it first"
@@ -227,11 +234,17 @@ survey_start() {
   wait_survey_dataset "$dataset_id"
   local receipt
   receipt="$(hub_get /dataset/status)"
-  write_receipt "$RUNTIME_ROOT/$dataset_id/survey_start.json" "$receipt"
+  write_receipt "$RUNTIME_ROOT/$dataset_id/survey_prepare.json" "$receipt"
   force_motion_lock
   echo "$receipt" | python3 -m json.tool
   echo
-  echo "Survey recording is active and motion is policy-locked."
+  echo "Survey is PREPARED: the dataset is open, frame recording is paused,"
+  echo "and motion is policy-locked."
+}
+
+print_survey_route_instructions() {
+  local dataset_id="$1"
+  local collection_mode="$2"
   if [[ "$collection_mode" == "manual_one_way_external_goal_debug" ]]; then
     echo "Drive one way with the Unitree hand controller. The frozen external"
     echo "goal is installed only during Revisit; Survey candidate capture is off."
@@ -242,6 +255,36 @@ survey_start() {
   fi
   echo "Monitor: $0 survey-status"
   echo "Seal:    $0 survey-seal $dataset_id"
+}
+
+survey_prepare() {
+  local dataset_id="$1"
+  prepare_survey_stack "$@"
+  echo "In Foxglove, click START SURVEY when ready."
+  echo "CLI fallback: ros2 service call /navdp_go2_adapter/survey_start std_srvs/srv/Trigger '{}'"
+  print_survey_route_instructions "$dataset_id" "$SURVEY_COLLECTION_MODE"
+}
+
+survey_start() {
+  local dataset_id="$1"
+  prepare_survey_stack "$@"
+  navdp_source_ros
+  local receipt_path="$RUNTIME_ROOT/$dataset_id/survey_start.txt"
+  local started=false
+  for _ in $(seq 1 30); do
+    if timeout 8 ros2 service call \
+        /navdp_go2_adapter/survey_start std_srvs/srv/Trigger '{}' \
+        >"$receipt_path" 2>&1 \
+        && grep -Eq 'success[=:][[:space:]]*[Tt]rue' "$receipt_path"; then
+      started=true
+      break
+    fi
+    sleep 1
+  done
+  [[ "$started" == true ]] \
+    || die "Survey prepared but START was rejected; see $receipt_path"
+  echo "Survey recording is ACTIVE; motion remains disabled + estop."
+  print_survey_route_instructions "$dataset_id" "$SURVEY_COLLECTION_MODE"
 }
 
 survey_return() {
@@ -549,6 +592,7 @@ stop_all() {
 action="${1:-}"
 [[ $# -eq 0 ]] || shift
 case "$action" in
+  survey-prepare) [[ $# -ge 1 ]] || die "survey-prepare requires DATASET_ID"; survey_prepare "$@" ;;
   survey-start) [[ $# -ge 1 ]] || die "survey-start requires DATASET_ID"; survey_start "$@" ;;
   survey-status) [[ $# -eq 0 ]] || die "survey-status takes no arguments"; survey_status ;;
   survey-return) [[ $# -eq 1 ]] || die "survey-return requires DATASET_ID"; survey_return "$1" ;;

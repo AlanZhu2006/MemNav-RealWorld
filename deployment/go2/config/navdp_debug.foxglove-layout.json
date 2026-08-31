@@ -158,7 +158,7 @@
       "buttonTooltip": "Fail-closed only: disable motion, assert estop and command zero",
       "buttonColor": "#d32f2f",
       "editingMode": false,
-      "foxglovePanelTitle": "STOP only — cannot start"
+      "foxglovePanelTitle": "Emergency stop — cannot enable motion"
     },
     "CallService!camera-recovery": {
       "serviceName": "/navdp_camera_recovery/restart",
@@ -169,6 +169,26 @@
       "buttonColor": "#ef6c00",
       "editingMode": false,
       "foxglovePanelTitle": "Camera recovery — motion stays locked"
+    },
+    "CallService!survey-start": {
+      "serviceName": "/navdp_go2_adapter/survey_start",
+      "requestPayload": "{}",
+      "layout": "vertical",
+      "buttonText": "START SURVEY",
+      "buttonTooltip": "Start or resume RGB Survey recording for the config-bound dataset; motion stays disabled + estop",
+      "buttonColor": "#2e7d32",
+      "editingMode": false,
+      "foxglovePanelTitle": "Survey recording only — no motion authority"
+    },
+    "CallService!survey-seal": {
+      "serviceName": "/navdp_go2_adapter/survey_seal",
+      "requestPayload": "{}",
+      "layout": "vertical",
+      "buttonText": "SEAL SURVEY",
+      "buttonTooltip": "Pause recording, lock motion, validate and immutably seal the config-bound Survey dataset",
+      "buttonColor": "#1565c0",
+      "editingMode": false,
+      "foxglovePanelTitle": "Seal dataset — motion stays locked"
     }
   },
   "globalVariables": {},
@@ -202,8 +222,18 @@
           "first": "Image!status",
           "second": {
             "direction": "column",
-            "first": "CallService!stop",
-            "second": "CallService!camera-recovery",
+            "first": {
+              "direction": "row",
+              "first": "CallService!survey-start",
+              "second": "CallService!survey-seal",
+              "splitPercentage": 50
+            },
+            "second": {
+              "direction": "row",
+              "first": "CallService!stop",
+              "second": "CallService!camera-recovery",
+              "splitPercentage": 50
+            },
             "splitPercentage": 50
           },
           "splitPercentage": 66

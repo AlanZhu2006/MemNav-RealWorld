@@ -22,6 +22,9 @@ class _Logger:
     def info(self, _message):
         return None
 
+    def warning(self, _message):
+        return None
+
 
 class _BlockingClient:
     def __init__(self):
@@ -39,6 +42,32 @@ class _SelectedGoalClient:
     last_goal_jpeg = b"exact-goal-jpeg"
     last_goal_evaluation_depth_png = b"offline-depth-png"
     last_goal_evaluation_depth_scale_m = 0.001
+
+
+class _SurveyClient:
+    def __init__(self, *, frames=0, seal_error=None):
+        self.frames = frames
+        self.seal_error = seal_error
+        self.seal_calls = 0
+
+    def dataset_status(self):
+        return {
+            "recording": True,
+            "dataset_id": "survey_01",
+            "memory_frames": self.frames,
+            "sealed_datasets": [],
+        }
+
+    def seal_dataset(self):
+        self.seal_calls += 1
+        if self.seal_error is not None:
+            raise RuntimeError(self.seal_error)
+        return {
+            "dataset_id": "survey_01",
+            "memory_frames": self.frames,
+            "goal_candidates": 2,
+            "manifest_sha256": "a" * 64,
+        }
 
 
 def _adapter(client):
@@ -61,6 +90,21 @@ def _adapter(client):
     adapter._publish_receipt = lambda *_args: None
     adapter._publish_image_goal = lambda: None
     adapter.get_logger = lambda: _Logger()
+    return adapter
+
+
+def _survey_adapter(client):
+    adapter = _adapter(client)
+    adapter.pause_memory_recording = True
+    adapter._enabled = False
+    adapter._estop = True
+    adapter._target_command = None
+    adapter._stop_reason = "memory_recording_paused"
+    adapter._survey_seal_receipt = {}
+    adapter.survey_dataset_id = "survey_01"
+    adapter.survey_seal_receipt_path = ""
+    adapter.request_timeout_s = 1.0
+    adapter._publish_zero = lambda *_args: None
     return adapter
 
 
@@ -142,3 +186,73 @@ def test_selected_goal_artifacts_use_filesystem_paths(tmp_path):
     assert (tmp_path / "selected" / "goal.jpg").read_bytes() == b"exact-goal-jpeg"
     assert (tmp_path / "selected" / "depth.png").read_bytes() == b"offline-depth-png"
     assert receipt["selected_goal_depth_policy_authority"] is False
+
+
+def test_survey_start_unpauses_only_the_config_bound_dataset():
+    client = _SurveyClient(frames=0)
+    adapter = _survey_adapter(client)
+    response = _Response()
+
+    adapter._survey_start_service(object(), response)
+
+    assert response.success is True
+    assert adapter.pause_memory_recording is False
+    assert adapter._enabled is False
+    assert adapter._estop is True
+    assert adapter._inference_busy is False
+    assert '"recording_active": true' in response.message
+
+
+def test_survey_start_rejects_a_different_active_dataset():
+    client = _SurveyClient(frames=0)
+    adapter = _survey_adapter(client)
+    adapter.survey_dataset_id = "survey_02"
+    response = _Response()
+
+    adapter._survey_start_service(object(), response)
+
+    assert response.success is False
+    assert adapter.pause_memory_recording is True
+    assert adapter._enabled is False
+    assert adapter._estop is True
+    assert "identity/recording state" in response.message
+
+
+def test_survey_seal_locks_motion_and_is_idempotent():
+    client = _SurveyClient(frames=200)
+    adapter = _survey_adapter(client)
+    adapter.pause_memory_recording = False
+    first = _Response()
+    second = _Response()
+
+    adapter._survey_seal_service(object(), first)
+    adapter._survey_seal_service(object(), second)
+
+    assert first.success is True
+    assert second.success is True
+    assert client.seal_calls == 1
+    assert adapter.pause_memory_recording is True
+    assert adapter._enabled is False
+    assert adapter._estop is True
+    assert adapter._stop_reason == "survey_sealed"
+    assert '"manifest_sha256": "' in first.message
+
+
+def test_failed_survey_seal_remains_paused_and_start_can_resume():
+    client = _SurveyClient(frames=12, seal_error="dataset is too short")
+    adapter = _survey_adapter(client)
+    adapter.pause_memory_recording = False
+    seal_response = _Response()
+
+    adapter._survey_seal_service(object(), seal_response)
+
+    assert seal_response.success is False
+    assert adapter.pause_memory_recording is True
+    assert adapter._inference_busy is False
+
+    start_response = _Response()
+    adapter._survey_start_service(object(), start_response)
+
+    assert start_response.success is True
+    assert adapter.pause_memory_recording is False
+    assert '"resumed": true' in start_response.message

@@ -635,6 +635,12 @@ def _derive(
             },
         }
         payload["memory"]["navigate_during_recording"] = False
+        # Open the exact-byte dataset during the atomic upstream reset, but do
+        # not append camera frames until the operator explicitly starts the
+        # Survey.  This gives the Foxglove START SURVEY service a real causal
+        # boundary without allowing the browser to start processes or gain
+        # motion authority.
+        payload["memory"]["pause_recording"] = True
         payload["memory"]["auto_goal_candidate_capture_enabled"] = False
         payload["memory"]["auto_select_goal_candidate"] = True
         payload["launch"]["go2_bridge"] = False

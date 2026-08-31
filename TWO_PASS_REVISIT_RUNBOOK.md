@@ -73,13 +73,15 @@ deployment/go2/offboard/revisit_experiment.sh
 ```bash
 cd /home/nvidia/twork/MemNav-RealWorld
 bash deployment/go2/offboard/revisit_experiment.sh \
-  survey-start office_loop_01
+  survey-prepare office_loop_01
 ```
 
 该命令从 Jetson 拉起 RTX policy stack、SSH tunnel、D435i 和 adapter。Dataset id 在 RTX
 hub 第一次 `navigator_reset` 内原子打开，因此不存在 adapter 提前写入、dataset 后启动而
 漏掉开头帧的竞态。Go2 bridge 不启动，adapter 始终 `disabled + estop`；机器人只由原装
-手柄移动。
+手柄移动。此时 dataset 已打开但 frame recording 仍暂停；在 Foxglove 点击绿色
+`START SURVEY` 后才建立第一帧的因果边界。继续使用原来的 `survey-start` 命令也可以：
+它等价于 `survey-prepare` 后自动调用同一个 Start 服务。
 
 查看进度：
 
@@ -97,15 +99,16 @@ bash deployment/go2/offboard/revisit_experiment.sh \
 这个动作不改变任何电机权限，只冻结“从哪一帧起属于回程”的因果边界。之后系统才会
 按固定间隔自动尝试支持验证并截取 memory-excluded candidates。
 
-走完去程和回程后：
+走完去程和回程后，在 Foxglove 点击蓝色 `SEAL SURVEY`。它会先暂停记录并再次锁止运动，
+等待正在提交的单帧结束，再执行完整 seal 门。命令行等价入口仍为：
 
 ```bash
 bash deployment/go2/offboard/revisit_experiment.sh \
   survey-seal office_loop_01
 ```
 
-Seal 前脚本会再次发布 `set_enabled=false` 和 `estop=true`。若帧数、候选、哈希或互斥门
-不满足，seal 失败且不会产生 `SEALED`。
+若帧数、候选、哈希或互斥门不满足，seal 失败且不会产生 `SEALED`；记录保持暂停，可以
+再次点击 `START SURVEY` 继续采集。两个按钮都不能 enable、解除 estop 或启动 Go2 bridge。
 
 ### 第二次：一键准备正式实验
 

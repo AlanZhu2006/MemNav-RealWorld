@@ -106,6 +106,7 @@ def test_survey_and_formal_are_derived_from_one_contract(tmp_path):
     survey_payload = rc.load_resolved(survey)
     formal_payload = rc.load_resolved(formal)
     assert survey_payload["dataset"]["auto_open"] is True
+    assert survey_payload["memory"]["pause_recording"] is True
     assert survey_payload["launch"]["go2_bridge"] is False
     assert formal_payload["dataset"]["auto_open"] is False
     assert formal_payload["launch"]["go2_bridge"] is True
@@ -209,6 +210,8 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert set(service_panels) == {
         "CallService!stop",
         "CallService!camera-recovery",
+        "CallService!survey-start",
+        "CallService!survey-seal",
     }
     assert service_panels["CallService!stop"]["serviceName"] == (
         "/navdp_go2_adapter/operator_stop"
@@ -219,6 +222,14 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert camera_panel["serviceName"] == "/navdp_camera_recovery/restart"
     assert camera_panel["requestPayload"] == "{}"
     assert camera_panel["buttonText"] == "RECOVER CAMERA"
+    survey_start = service_panels["CallService!survey-start"]
+    assert survey_start["serviceName"] == "/navdp_go2_adapter/survey_start"
+    assert survey_start["requestPayload"] == "{}"
+    assert survey_start["buttonText"] == "START SURVEY"
+    survey_seal = service_panels["CallService!survey-seal"]
+    assert survey_seal["serviceName"] == "/navdp_go2_adapter/survey_seal"
+    assert survey_seal["requestPayload"] == "{}"
+    assert survey_seal["buttonText"] == "SEAL SURVEY"
 
 
 def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():
@@ -266,6 +277,8 @@ def test_foxglove_bridge_does_not_expose_raw_camera_images():
         "param_whitelist:", 1
     )[0]
     assert '"^/navdp_go2_adapter/operator_stop$"' in services
+    assert '"^/navdp_go2_adapter/survey_start$"' in services
+    assert '"^/navdp_go2_adapter/survey_seal$"' in services
     assert '"^/navdp_camera_recovery/restart$"' in services
     assert "set_enabled" not in services
     assert "reset_policy" not in services

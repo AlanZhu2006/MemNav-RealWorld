@@ -366,7 +366,7 @@ Formal 01 之前应填写并冻结：
 ```bash
 cd /home/nvidia/twork/MemNav-RealWorld
 bash deployment/go2/offboard/revisit_experiment.sh \
-  survey-start scene01_dataset
+  survey-prepare scene01_dataset
 ```
 
 该命令会：
@@ -380,7 +380,12 @@ bash deployment/go2/offboard/revisit_experiment.sh \
 7. 保持 `enabled=false + estop=true`；
 8. 不启动 Go2 bridge；
 9. 关闭自动候选门；
-10. 将 survey metadata 写入 dataset。
+10. 将 survey metadata 写入 dataset；
+11. 保持 frame recording 暂停，等待 Foxglove 的 `START SURVEY`。
+
+机器人与操作员就位后，在 Foxglove 点击绿色 `START SURVEY`。这个 Trigger 只解除记录
+暂停，不会 enable、解除 estop 或启动 Go2 bridge。原来的 `survey-start` CLI 保持兼容，
+等价于 prepare 后自动调用同一个服务。
 
 Survey 机器人只允许由原装 Unitree 遥控器移动。
 
@@ -477,14 +482,15 @@ bash deployment/go2/offboard/revisit_experiment.sh \
 
 ### 8.6 Seal
 
-走完去程和回程后：
+走完去程和回程后，在 Foxglove 点击蓝色 `SEAL SURVEY`；命令行等价入口为：
 
 ```bash
 bash deployment/go2/offboard/revisit_experiment.sh \
   survey-seal scene01_dataset
 ```
 
-Seal 前脚本再次执行 motion lock。合法 dataset 形状：
+服务会先暂停记录并执行 motion lock，等待正在提交的单帧完成后再 seal。若完整性门拒绝，
+记录保持暂停，可点击 `START SURVEY` 恢复。合法 dataset 形状：
 
 ```text
 episodic_datasets/scene01_dataset/
@@ -1665,13 +1671,16 @@ bridge min_cmd_w=0.20
 ```bash
 cd /home/nvidia/twork/MemNav-RealWorld
 bash deployment/go2/offboard/revisit_experiment.sh \
-  survey-start scene01_dataset
+  survey-prepare scene01_dataset
+
+# Foxglove: START SURVEY（或使用兼容CLI survey-start直接准备并开始）
 
 bash deployment/go2/offboard/revisit_experiment.sh survey-status
 
 bash deployment/go2/offboard/revisit_experiment.sh \
   survey-return scene01_dataset
 
+# Foxglove: SEAL SURVEY（下面是CLI等价入口）
 bash deployment/go2/offboard/revisit_experiment.sh \
   survey-seal scene01_dataset
 ```

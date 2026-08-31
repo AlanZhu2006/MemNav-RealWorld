@@ -100,8 +100,9 @@ ImageGoal。
 `launch.foxglove=true`只在Jetson启动无界面、观察为主的Bridge。操作电脑打开Foxglove，
 连接`ws://JETSON_IP:8765`并选择组织 Layout `MemNav Go2 Navigation`；组织同步尚未配置时，
 才回退到导入`deployment/go2/config/navdp_debug.foxglove-layout.json`。不需要VNC。Bridge不允许浏览器
-发布topic、修改参数、reset、解除estop或enable；只开放两个fail-closed调用：
-`/navdp_go2_adapter/operator_stop`和`/navdp_camera_recovery/restart`。
+发布topic、修改参数、reset、解除estop或enable；除 STOP 和相机恢复外，只开放两个
+config-bound Survey 生命周期调用：`survey_start`只开始/恢复RGB记录，`survey_seal`先锁停
+再校验并冻结当前resolved config指定的数据集。它们均不取得运动权限。
 
 为避免原始RGB-D把无线链路占满，启动器同时运行观察专用的`fox-preview`窗口：RGB被缩放为
 640×360、15 Hz、JPEG质量75，深度被缩放、按200--4000 mm做Turbo着色后以640×360、
@@ -116,7 +117,10 @@ ImageGoal。
 `/navdp/rgb_arrival_status`仍可从Topics侧栏按需查看，不再占用默认dashboard。
 ImageGoal、最后一次arrival对比和状态卡使用transient-local显示QoS，因此Bridge或浏览器
 重连后仍能立即取得最近快照；arrival panel表示“最后一次评估”，不是锁定期间的新判断。
-状态卡右侧的红色`STOP NAVIGATION`按钮只执行`enabled=false + estop=true + zero command`；
+状态卡右侧的绿色`START SURVEY`与蓝色`SEAL SURVEY`只在`survey-prepare`生成的Survey
+栈中可用。前者建立第一帧记录边界，后者等待当前帧提交完成后冻结dataset；seal失败时
+保持记录暂停，可再次Start继续采集。红色`STOP NAVIGATION`按钮只执行
+`enabled=false + estop=true + zero command`；
 它不能启动机器人，重复点击也安全。调用成功后应在状态卡看到`E-STOP / LOCKED`和零命令。
 橙色`RECOVER CAMERA`会先执行相同的运动锁止，再只重启`rgbd`窗口，并等待RGB与aligned
 depth各至少10幅新帧后才返回成功；无论成功或失败都不自动解除estop或恢复导航。
@@ -176,9 +180,11 @@ session、建立 loopback SSH tunnel，再启动 Jetson 相机和 adapter。4090
 ## 5. Survey → Formal Revisit
 
 ```bash
-bash deployment/go2/offboard/revisit_experiment.sh survey-start DATASET_ID
+bash deployment/go2/offboard/revisit_experiment.sh survey-prepare DATASET_ID
+# 在 Foxglove 点击 START SURVEY；旧的 survey-start 仍可一条命令直接开始
 # 遥控器走出并返回；转身处执行：
 bash deployment/go2/offboard/revisit_experiment.sh survey-return DATASET_ID
+# 在 Foxglove 点击 SEAL SURVEY；或使用下面的CLI等价入口
 bash deployment/go2/offboard/revisit_experiment.sh survey-seal DATASET_ID
 bash deployment/go2/offboard/revisit_experiment.sh formal-start DATASET_ID \
   --scene-id SCENE_ID --run-id RUN_ID --arm mono_cec \

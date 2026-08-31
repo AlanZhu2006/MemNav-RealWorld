@@ -101,6 +101,7 @@ class NavDPGo2Adapter(Node):
         self._last_plan_receipt: dict = {}
         self._terminal_motion_receipt: dict = {}
         self._last_receipt_event = ""
+        self._survey_seal_receipt: dict = {}
         self._arrival_latched = False
         self._client_lock = threading.Lock()
 
@@ -167,6 +168,13 @@ class NavDPGo2Adapter(Node):
             self.create_service(
                 Trigger, "~/begin_revisit", self._begin_revisit_service
             )
+            if self.survey_dataset_id:
+                self.create_service(
+                    Trigger, "~/survey_start", self._survey_start_service
+                )
+                self.create_service(
+                    Trigger, "~/survey_seal", self._survey_seal_service
+                )
 
         self.create_timer(1.0 / self.planning_rate_hz, self._request_inference)
         self.create_timer(1.0 / self.control_rate_hz, self._control_tick)
@@ -226,6 +234,8 @@ class NavDPGo2Adapter(Node):
             "auto_goal_candidate_post_guard_frames": 4,
             "auto_goal_candidate_capture_enabled": True,
             "auto_select_goal_candidate": True,
+            "survey_dataset_id": "",
+            "survey_seal_receipt_path": "",
             "planning_rate_hz": 2.0,
             "control_rate_hz": 20.0,
             "connect_timeout_s": 3.0,
@@ -324,6 +334,8 @@ class NavDPGo2Adapter(Node):
             "estop_topic",
             "arrival_topic",
             "base_frame",
+            "survey_dataset_id",
+            "survey_seal_receipt_path",
         ):
             setattr(self, name, str(self.get_parameter(name).value))
 
@@ -520,6 +532,202 @@ class NavDPGo2Adapter(Node):
         self.get_logger().warning(response.message)
         return response
 
+    def _lock_survey_motion(self, reason: str, *, pause: bool) -> None:
+        """Revoke policy motion before any operator dataset transition."""
+
+        with self._lock:
+            self._enabled = False
+            self._estop = True
+            self._target_command = VelocityCommand()
+            self.pause_memory_recording = bool(pause)
+        self._publish_zero(reason)
+
+    def _survey_start_service(self, _request, response):
+        """Start or resume an already prepared Survey without arming motion.
+
+        Dataset identity is frozen in the resolved Survey config.  Foxglove
+        therefore sends an empty Trigger request and cannot select an
+        arbitrary dataset, reset either policy, or alter motor authority.
+        """
+
+        with self._lock:
+            initialized = self._server_initialized
+            phase = self._phase
+            busy = self._inference_busy
+            frames = self._frames_recorded
+            active_recording = (
+                initialized
+                and phase == "memory_recording"
+                and not self.pause_memory_recording
+            )
+        self._lock_survey_motion(
+            "survey_start", pause=not active_recording
+        )
+        if active_recording:
+            receipt = {
+                "dataset_id": self.survey_dataset_id,
+                "recording_active": True,
+                "resumed": True,
+                "memory_frames": frames,
+                "motion_enabled": False,
+                "estop": True,
+                "motion_authority_changed": False,
+            }
+            response.success = True
+            response.message = json.dumps(receipt, ensure_ascii=False)
+            return response
+
+        reserved = False
+        with self._lock:
+            if initialized and phase == "memory_recording" and not busy:
+                self._inference_busy = True
+                reserved = True
+        if not initialized:
+            response.success = False
+            response.message = "Survey policy is not initialized; retry after PREPARE"
+            return response
+        if phase != "memory_recording":
+            response.success = False
+            response.message = f"Survey start requires memory_recording, not {phase}"
+            return response
+        if busy:
+            response.success = False
+            response.message = "Survey transition is busy; retry"
+            return response
+
+        try:
+            with self._client_lock:
+                status = self._client.dataset_status()
+            if (
+                status.get("recording") is not True
+                or status.get("dataset_id") != self.survey_dataset_id
+            ):
+                raise RuntimeError(
+                    "prepared dataset identity/recording state does not match "
+                    f"{self.survey_dataset_id!r}"
+                )
+            frames = int(status.get("memory_frames", frames))
+            receipt = {
+                "dataset_id": self.survey_dataset_id,
+                "recording_active": True,
+                "resumed": bool(frames > 0),
+                "memory_frames": frames,
+                "motion_enabled": False,
+                "estop": True,
+                "motion_authority_changed": False,
+            }
+            with self._lock:
+                self.pause_memory_recording = False
+                self._stop_reason = "memory_recording"
+            self._publish_receipt("survey_start", receipt)
+            self.get_logger().info(f"Survey recording started: {receipt}")
+            response.success = True
+            response.message = json.dumps(receipt, ensure_ascii=False)
+            return response
+        except Exception as exc:
+            with self._lock:
+                self.pause_memory_recording = True
+            response.success = False
+            response.message = f"{type(exc).__name__}: {exc}; recording remains paused"
+            return response
+        finally:
+            if reserved:
+                with self._lock:
+                    self._inference_busy = False
+
+    def _survey_seal_service(self, _request, response):
+        """Pause, lock and atomically seal the config-bound Survey dataset."""
+
+        self._lock_survey_motion("survey_seal", pause=True)
+        with self._lock:
+            initialized = self._server_initialized
+            phase = self._phase
+            cached = dict(self._survey_seal_receipt)
+        if cached:
+            response.success = True
+            response.message = json.dumps(cached, ensure_ascii=False)
+            return response
+        if not initialized:
+            response.success = False
+            response.message = "Survey policy is not initialized"
+            return response
+        if phase != "memory_recording":
+            response.success = False
+            response.message = f"Survey seal requires memory_recording, not {phase}"
+            return response
+
+        # Pausing above prevents a new memory transaction from starting.  Let
+        # the one already in flight finish, then reserve the same slot used by
+        # the inference worker before calling the immutable seal endpoint.
+        deadline = time.monotonic() + min(max(self.request_timeout_s, 1.0), 30.0)
+        reserved = False
+        while time.monotonic() < deadline:
+            with self._lock:
+                if not self._inference_busy:
+                    self._inference_busy = True
+                    reserved = True
+                    break
+            time.sleep(0.01)
+        if not reserved:
+            response.success = False
+            response.message = "Timed out waiting for the current Survey frame; recording remains paused"
+            return response
+
+        try:
+            with self._client_lock:
+                status = self._client.dataset_status()
+                if status.get("recording") is True:
+                    if status.get("dataset_id") != self.survey_dataset_id:
+                        raise RuntimeError(
+                            "active dataset identity does not match the resolved "
+                            f"Survey config {self.survey_dataset_id!r}"
+                        )
+                    receipt = self._client.seal_dataset()
+                else:
+                    receipt = next(
+                        (
+                            dict(item)
+                            for item in status.get("sealed_datasets", [])
+                            if item.get("dataset_id") == self.survey_dataset_id
+                        ),
+                        None,
+                    )
+                    if receipt is None:
+                        raise RuntimeError(
+                            "configured Survey dataset is neither recording nor sealed"
+                        )
+            if receipt.get("dataset_id") != self.survey_dataset_id:
+                raise RuntimeError("seal receipt dataset identity mismatch")
+            receipt = {
+                **dict(receipt),
+                "recording_active": False,
+                "motion_enabled": False,
+                "estop": True,
+                "motion_authority_changed": False,
+            }
+            if self.survey_seal_receipt_path:
+                encoded = (
+                    json.dumps(receipt, indent=2, sort_keys=True) + "\n"
+                ).encode("utf-8")
+                self._atomic_write(
+                    FilePath(self.survey_seal_receipt_path).expanduser(), encoded
+                )
+            with self._lock:
+                self._survey_seal_receipt = dict(receipt)
+                self._stop_reason = "survey_sealed"
+            self._publish_receipt("survey_seal", receipt)
+            self.get_logger().warning(f"Survey dataset sealed: {receipt}")
+            response.success = True
+            response.message = json.dumps(receipt, ensure_ascii=False)
+            return response
+        except Exception as exc:
+            response.success = False
+            response.message = f"{type(exc).__name__}: {exc}; recording remains paused and motion locked"
+            return response
+        finally:
+            with self._lock:
+                self._inference_busy = False
+
     def _reset_policy_service(self, _request, response):
         with self._lock:
             self._reset_requested = True
@@ -535,6 +743,7 @@ class NavDPGo2Adapter(Node):
             self._last_plan_receipt = {}
             self._terminal_motion_receipt = {}
             self._last_receipt_event = ""
+            self._survey_seal_receipt = {}
             self._arrival_latched = False
             self.pause_memory_recording = self._startup_pause_memory_recording
             self._last_auto_candidate_after_frame = -1
@@ -769,6 +978,13 @@ class NavDPGo2Adapter(Node):
     def _snapshot_inference_input(self):
         now = time.monotonic()
         with self._lock:
+            if (
+                self.two_phase_episode
+                and self._server_initialized
+                and self._phase == "memory_recording"
+                and self.pause_memory_recording
+            ):
+                return None, "memory_recording_paused"
             if self._rgb is None or self._depth_m is None or self._intrinsic is None:
                 return None, "waiting_for_rgbd_or_camera_info"
             if now - self._rgbd_monotonic > self.sensor_timeout_s:

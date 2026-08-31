@@ -30,6 +30,11 @@ AUTO_GOAL_MAX="$CFG_AUTO_GOAL_MAX"
 AUTO_GOAL_GUARD="$CFG_AUTO_GOAL_GUARD"
 AUTO_GOAL_CAPTURE_ENABLED="$CFG_AUTO_GOAL_CAPTURE"
 AUTO_SELECT_GOAL="$CFG_AUTO_SELECT_GOAL"
+SURVEY_DATASET_ID="$CFG_DATASET_ID"
+SURVEY_SEAL_RECEIPT_PATH=""
+if [[ -n "$SURVEY_DATASET_ID" ]]; then
+  SURVEY_SEAL_RECEIPT_PATH="$CFG_JETSON_RUNTIME_ROOT/two_pass_revisit/$SURVEY_DATASET_ID/survey_seal.json"
+fi
 EXTRA_PARAMS=()
 
 if [[ -n "$MAX_LINEAR_MPS" ]]; then
@@ -77,6 +82,12 @@ if [[ -n "$AUTO_GOAL_CAPTURE_ENABLED" ]]; then
 fi
 if [[ -n "$AUTO_SELECT_GOAL" ]]; then
   EXTRA_PARAMS+=(-p auto_select_goal_candidate:="$AUTO_SELECT_GOAL")
+fi
+if [[ -n "$SURVEY_DATASET_ID" ]]; then
+  EXTRA_PARAMS+=(
+    -p survey_dataset_id:="$SURVEY_DATASET_ID"
+    -p survey_seal_receipt_path:="$SURVEY_SEAL_RECEIPT_PATH"
+  )
 fi
 
 if [[ ! -f "$CONFIG" ]]; then
