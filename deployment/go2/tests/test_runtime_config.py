@@ -278,23 +278,34 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
         "direction": "row",
         "first": {
             "direction": "row",
-            "first": "Indicator!mode",
-            "second": "Indicator!activity",
+            "first": "Indicator!workflow",
+            "second": "Indicator!safety",
             "splitPercentage": 50,
         },
         "second": {
             "direction": "row",
-            "first": {
-                "direction": "row",
-                "first": "Indicator!safety",
-                "second": "Indicator!go2",
-                "splitPercentage": 50,
-            },
+            "first": "Indicator!go2",
             "second": "Indicator!arrival",
-            "splitPercentage": 66.6667,
+            "splitPercentage": 50,
         },
-        "splitPercentage": 40,
+        "splitPercentage": 50,
     }
+    indicator_prefixes = {
+        "Indicator!workflow": "WORKFLOW",
+        "Indicator!safety": "SAFETY",
+        "Indicator!go2": "GO2",
+        "Indicator!arrival": "ARRIVAL",
+    }
+    for panel_id, prefix in indicator_prefixes.items():
+        panel = layout["configById"][panel_id]
+        assert panel["fallbackLabel"].startswith(f"{prefix}\n")
+        assert "fontSize" not in panel
+        assert all(
+            rule["label"].startswith(f"{prefix}\n")
+            for rule in panel["rules"]
+        )
+    assert "Indicator!mode" not in layout["configById"]
+    assert "Indicator!activity" not in layout["configById"]
     assert status_and_controls["splitPercentage"] == 40
     controls = status_and_controls["second"]
     assert controls["direction"] == "column"

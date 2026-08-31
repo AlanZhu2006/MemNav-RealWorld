@@ -121,16 +121,18 @@ config-bound Survey 生命周期调用：`survey_start`只开始/恢复RGB记录
 640×360、15 Hz、JPEG质量75，深度被缩放、按200--4000 mm做Turbo着色后以640×360、
 10 Hz、JPEG质量70发布；ImageGoal以2 Hz压缩，arrival debug最多以5 Hz压缩。Match不再
 左右拼接目标和当前图，而是在单幅当前RGB上叠加inlier点、目标投影边界和关键指标。侧车还把
-`/navdp/status`规范化为`/navdp/operator/{mode,activity,safety,go2}`四个只读字符串topic，
+`/navdp/status`规范化为`/navdp/operator/{workflow,mode,activity,safety,go2}`五个只读字符串topic，
 同时把`/navdp/rgb_arrival_status`规范化为`/navdp/operator/arrival`。两类状态都发布标准
 ROS `DiagnosticArray`；完整汇总在`/navdp/operator/diagnostics`，匹配证据单独发布到
 `/navdp/operator/arrival_diagnostics`。旧的720×220 JPEG状态卡
 仍以2 Hz发布用于兼容已有布局，但默认布局不再显示它。
 
-五个状态维度相互独立：`mode`显示`SURVEY / REVISIT / IDLE / STARTING`，`activity`
+Operate页把高度相关的`mode + activity`合并为一个`workflow`色块，例如`SURVEY / RECORDING`
+或`REVISIT / READY`；独立的`mode`仍显示`SURVEY / REVISIT / IDLE / STARTING`，`activity`
 显示`SURVEY_ACTIVE / SURVEY_PAUSED / SURVEY_SEALED / REVISITING / REVISIT_READY /
-NAVIGATING / ARRIVED / FAULT / READY`，另两个分别显示运动锁和Go2连接。因此Go2离线
-不会覆盖当前处于Survey或Revisit的信息。第五个Arrival只显示`STANDBY / CHECKING /
+NAVIGATING / ARRIVED / FAULT / READY`，并继续用于System页时间线和Diagnostics。其余三个
+Operate色块分别显示运动锁、Go2连接和Arrival判定。因此Go2离线不会覆盖当前处于Survey
+或Revisit的信息。Arrival只显示`STANDBY / CHECKING /
 NO MATCH / MATCHING / MATCH / ARRIVED / NO RGB / ERROR`判定；inlier、比例、尺度、覆盖率、
 旋转和重投影误差等证据留在Planning页展开，不挤占Operate页。原始`phase`、RGB-D时延、
 策略状态和电池详情可在System页的原生Diagnostics panel中展开。
@@ -143,7 +145,10 @@ NO MATCH / MATCHING / MATCH / ARRIVED / NO RGB / ERROR`判定；inlier、比例�
 锁停阶段也能看电量；链路恢复后会自动重连，无需重启整栈。
 
 版本化布局把当前RGB降到约40%的画布面积，Match降到约8%；Goal和Depth并排补足主区。
-右侧使用更紧凑的Trajectory，下方用五个内置Indicator组成原生状态条，四个Service Call
+右侧使用更紧凑的Trajectory，下方用四个等宽内置Indicator组成原生状态条；Workflow用
+三行显示类别、阶段和动作，其余色块用两行显示类别和状态，例如`SAFETY / LOCKED`、
+`ARRIVAL / STANDBY`，不依赖可能被
+窄面板裁掉的标题栏。四个Service Call
 按钮组成更高的2×2控制区，避免按钮文字被panel标题遮挡。Foxglove内置panel仍是一项
 service一个panel，因此不引入自定义
 扩展。Match只显示紧凑的单帧匹配叠加，不再用宽幅左右对比抢占横向空间。

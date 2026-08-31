@@ -254,11 +254,31 @@ def derive_operator_state(payload: dict[str, Any]) -> dict[str, str]:
     else:
         activity = "READY"
 
+    workflow_step = {
+        "SURVEY_ACTIVE": "RECORDING",
+        "SURVEY_PAUSED": "PAUSED",
+        "SURVEY_SEALED": "SEALED",
+        "REVISITING": "ACTIVE",
+        "REVISIT_READY": "READY",
+        "NAVIGATING": "ACTIVE",
+        "ARRIVED": "ARRIVED",
+        "FAULT": "FAULT",
+        "READY": "READY",
+        "STARTING": "STARTING",
+    }.get(activity, activity.removeprefix("SURVEY_"))
+    if mode == "STARTING":
+        workflow = "STARTING"
+    elif mode == "IDLE" and workflow_step == "ACTIVE":
+        workflow = "NAVIGATION_ACTIVE"
+    else:
+        workflow = f"{mode}_{workflow_step}"
+
     battery = payload.get("go2_battery")
     if not isinstance(battery, dict):
         battery = {}
     go2 = "ONLINE" if battery.get("online") is True else "OFFLINE"
     return {
+        "workflow": workflow,
         "mode": mode,
         "activity": activity,
         "safety": safety,
@@ -399,6 +419,7 @@ def build_operator_diagnostics(
             values={
                 "mode": state["mode"],
                 "activity": state["activity"],
+                "workflow": state["workflow"],
                 "raw_phase": payload.get("phase"),
                 "survey_state": payload.get("survey_state"),
                 "frames_recorded": payload.get("frames_recorded"),
@@ -775,6 +796,9 @@ class FoxgloveImageRelay(Node):
             CompressedImage, options.status_output, state_qos
         )
         self._operator_publishers = {
+            "workflow": self.create_publisher(
+                String, options.operator_workflow_output, state_qos
+            ),
             "mode": self.create_publisher(
                 String, options.operator_mode_output, state_qos
             ),
@@ -890,8 +914,10 @@ class FoxgloveImageRelay(Node):
             )
         )
         self.get_logger().info(
-            "Native operator state -> %s, %s, %s, %s, %s; diagnostics -> %s, %s"
+            "Native operator state -> %s, %s, %s, %s, %s, %s; "
+            "diagnostics -> %s, %s"
             % (
+                options.operator_workflow_output,
                 options.operator_mode_output,
                 options.operator_activity_output,
                 options.operator_safety_output,
@@ -1095,6 +1121,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--arrival-output", required=True)
     parser.add_argument("--status-output", required=True)
     parser.add_argument("--operator-mode-output", default="/navdp/operator/mode")
+    parser.add_argument(
+        "--operator-workflow-output", default="/navdp/operator/workflow"
+    )
     parser.add_argument(
         "--operator-activity-output", default="/navdp/operator/activity"
     )

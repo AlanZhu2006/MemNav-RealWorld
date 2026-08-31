@@ -201,80 +201,65 @@
       },
       "foxglovePanelTitle": "Status"
     },
-    "Indicator!mode": {
-      "path": "/navdp/operator/mode.data",
+    "Indicator!workflow": {
+      "path": "/navdp/operator/workflow.data",
       "style": "background",
-      "fontSize": 20,
       "fallbackColor": "#4b5563",
-      "fallbackLabel": "UNKNOWN",
+      "fallbackLabel": "WORKFLOW\nUNKNOWN",
       "rules": [
-        {"operator": "=", "rawValue": "SURVEY", "color": "#2563eb", "label": "SURVEY"},
-        {"operator": "=", "rawValue": "REVISIT", "color": "#7c3aed", "label": "REVISIT"},
-        {"operator": "=", "rawValue": "IDLE", "color": "#475569", "label": "IDLE"},
-        {"operator": "=", "rawValue": "STARTING", "color": "#d97706", "label": "STARTING"}
+        {"operator": "=", "rawValue": "SURVEY_RECORDING", "color": "#15803d", "label": "WORKFLOW\nSURVEY\nRECORDING"},
+        {"operator": "=", "rawValue": "SURVEY_PAUSED", "color": "#d97706", "label": "WORKFLOW\nSURVEY\nPAUSED"},
+        {"operator": "=", "rawValue": "SURVEY_SEALED", "color": "#0369a1", "label": "WORKFLOW\nSURVEY\nSEALED"},
+        {"operator": "=", "rawValue": "SURVEY_FAULT", "color": "#b91c1c", "label": "WORKFLOW\nSURVEY\nFAULT"},
+        {"operator": "=", "rawValue": "REVISIT_ACTIVE", "color": "#15803d", "label": "WORKFLOW\nREVISIT\nACTIVE"},
+        {"operator": "=", "rawValue": "REVISIT_READY", "color": "#7c3aed", "label": "WORKFLOW\nREVISIT\nREADY"},
+        {"operator": "=", "rawValue": "REVISIT_ARRIVED", "color": "#047857", "label": "WORKFLOW\nREVISIT\nARRIVED"},
+        {"operator": "=", "rawValue": "REVISIT_FAULT", "color": "#b91c1c", "label": "WORKFLOW\nREVISIT\nFAULT"},
+        {"operator": "=", "rawValue": "NAVIGATION_ACTIVE", "color": "#15803d", "label": "WORKFLOW\nNAVIGATION\nACTIVE"},
+        {"operator": "=", "rawValue": "IDLE_READY", "color": "#475569", "label": "WORKFLOW\nIDLE\nREADY"},
+        {"operator": "=", "rawValue": "IDLE_ARRIVED", "color": "#047857", "label": "WORKFLOW\nIDLE\nARRIVED"},
+        {"operator": "=", "rawValue": "IDLE_FAULT", "color": "#b91c1c", "label": "WORKFLOW\nIDLE\nFAULT"},
+        {"operator": "=", "rawValue": "STARTING", "color": "#d97706", "label": "WORKFLOW\nSTARTING"}
       ],
-      "foxglovePanelTitle": "Mode"
-    },
-    "Indicator!activity": {
-      "path": "/navdp/operator/activity.data",
-      "style": "background",
-      "fontSize": 18,
-      "fallbackColor": "#4b5563",
-      "fallbackLabel": "UNKNOWN",
-      "rules": [
-        {"operator": "=", "rawValue": "SURVEY_ACTIVE", "color": "#15803d", "label": "RECORDING"},
-        {"operator": "=", "rawValue": "SURVEY_PAUSED", "color": "#d97706", "label": "PAUSED"},
-        {"operator": "=", "rawValue": "SURVEY_SEALED", "color": "#0369a1", "label": "SEALED"},
-        {"operator": "=", "rawValue": "REVISITING", "color": "#15803d", "label": "REVISITING"},
-        {"operator": "=", "rawValue": "REVISIT_READY", "color": "#0369a1", "label": "READY"},
-        {"operator": "=", "rawValue": "NAVIGATING", "color": "#15803d", "label": "NAVIGATING"},
-        {"operator": "=", "rawValue": "ARRIVED", "color": "#047857", "label": "ARRIVED"},
-        {"operator": "=", "rawValue": "FAULT", "color": "#b91c1c", "label": "FAULT"},
-        {"operator": "=", "rawValue": "READY", "color": "#475569", "label": "READY"},
-        {"operator": "=", "rawValue": "STARTING", "color": "#d97706", "label": "STARTING"}
-      ],
-      "foxglovePanelTitle": "Activity"
+      "foxglovePanelTitle": "Workflow"
     },
     "Indicator!safety": {
       "path": "/navdp/operator/safety.data",
       "style": "background",
-      "fontSize": 18,
       "fallbackColor": "#4b5563",
-      "fallbackLabel": "UNKNOWN",
+      "fallbackLabel": "SAFETY\nUNKNOWN",
       "rules": [
-        {"operator": "=", "rawValue": "LOCKED", "color": "#475569", "label": "LOCKED"},
-        {"operator": "=", "rawValue": "ENABLED", "color": "#15803d", "label": "MOTION ON"},
-        {"operator": "=", "rawValue": "INCONSISTENT", "color": "#b91c1c", "label": "CHECK STATE"}
+        {"operator": "=", "rawValue": "LOCKED", "color": "#475569", "label": "SAFETY\nLOCKED"},
+        {"operator": "=", "rawValue": "ENABLED", "color": "#15803d", "label": "SAFETY\nMOTION ON"},
+        {"operator": "=", "rawValue": "INCONSISTENT", "color": "#b91c1c", "label": "SAFETY\nCHECK STATE"}
       ],
       "foxglovePanelTitle": "Safety"
     },
     "Indicator!go2": {
       "path": "/navdp/operator/go2.data",
       "style": "background",
-      "fontSize": 18,
       "fallbackColor": "#4b5563",
-      "fallbackLabel": "UNKNOWN",
+      "fallbackLabel": "GO2\nUNKNOWN",
       "rules": [
-        {"operator": "=", "rawValue": "ONLINE", "color": "#15803d", "label": "ONLINE"},
-        {"operator": "=", "rawValue": "OFFLINE", "color": "#475569", "label": "OFFLINE"}
+        {"operator": "=", "rawValue": "ONLINE", "color": "#15803d", "label": "GO2\nONLINE"},
+        {"operator": "=", "rawValue": "OFFLINE", "color": "#475569", "label": "GO2\nOFFLINE"}
       ],
       "foxglovePanelTitle": "Go2"
     },
     "Indicator!arrival": {
       "path": "/navdp/operator/arrival.data",
       "style": "background",
-      "fontSize": 17,
       "fallbackColor": "#4b5563",
-      "fallbackLabel": "UNKNOWN",
+      "fallbackLabel": "ARRIVAL\nUNKNOWN",
       "rules": [
-        {"operator": "=", "rawValue": "STANDBY", "color": "#475569", "label": "STANDBY"},
-        {"operator": "=", "rawValue": "CHECKING", "color": "#0369a1", "label": "CHECKING"},
-        {"operator": "=", "rawValue": "NO_MATCH", "color": "#475569", "label": "NO MATCH"},
-        {"operator": "=", "rawValue": "MATCHING", "color": "#15803d", "label": "MATCHING"},
-        {"operator": "=", "rawValue": "MATCH", "color": "#15803d", "label": "MATCH"},
-        {"operator": "=", "rawValue": "ARRIVED", "color": "#047857", "label": "ARRIVED"},
-        {"operator": "=", "rawValue": "NO_RGB", "color": "#d97706", "label": "NO RGB"},
-        {"operator": "=", "rawValue": "ERROR", "color": "#b91c1c", "label": "ERROR"}
+        {"operator": "=", "rawValue": "STANDBY", "color": "#475569", "label": "ARRIVAL\nSTANDBY"},
+        {"operator": "=", "rawValue": "CHECKING", "color": "#0369a1", "label": "ARRIVAL\nCHECKING"},
+        {"operator": "=", "rawValue": "NO_MATCH", "color": "#475569", "label": "ARRIVAL\nNO MATCH"},
+        {"operator": "=", "rawValue": "MATCHING", "color": "#15803d", "label": "ARRIVAL\nMATCHING"},
+        {"operator": "=", "rawValue": "MATCH", "color": "#15803d", "label": "ARRIVAL\nMATCH"},
+        {"operator": "=", "rawValue": "ARRIVED", "color": "#047857", "label": "ARRIVAL\nARRIVED"},
+        {"operator": "=", "rawValue": "NO_RGB", "color": "#d97706", "label": "ARRIVAL\nNO RGB"},
+        {"operator": "=", "rawValue": "ERROR", "color": "#b91c1c", "label": "ARRIVAL\nERROR"}
       ],
       "foxglovePanelTitle": "Arrival"
     },
@@ -465,22 +450,17 @@
                   "direction": "row",
                   "first": {
                     "direction": "row",
-                    "first": "Indicator!mode",
-                    "second": "Indicator!activity",
+                    "first": "Indicator!workflow",
+                    "second": "Indicator!safety",
                     "splitPercentage": 50
                   },
                   "second": {
                     "direction": "row",
-                    "first": {
-                      "direction": "row",
-                      "first": "Indicator!safety",
-                      "second": "Indicator!go2",
-                      "splitPercentage": 50
-                    },
+                    "first": "Indicator!go2",
                     "second": "Indicator!arrival",
-                    "splitPercentage": 66.6667
+                    "splitPercentage": 50
                   },
-                  "splitPercentage": 40
+                  "splitPercentage": 50
                 },
                 "second": {
                   "direction": "column",

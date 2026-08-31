@@ -185,6 +185,7 @@ def test_battery_state_is_rendered_live_and_offline_without_stale_soc():
                 "estop": True,
             },
             {
+                "workflow": "SURVEY_RECORDING",
                 "mode": "SURVEY",
                 "activity": "SURVEY_ACTIVE",
                 "safety": "LOCKED",
@@ -200,6 +201,7 @@ def test_battery_state_is_rendered_live_and_offline_without_stale_soc():
                 "go2_battery": {"online": True},
             },
             {
+                "workflow": "SURVEY_PAUSED",
                 "mode": "SURVEY",
                 "activity": "SURVEY_PAUSED",
                 "safety": "LOCKED",
@@ -214,6 +216,7 @@ def test_battery_state_is_rendered_live_and_offline_without_stale_soc():
                 "estop": False,
             },
             {
+                "workflow": "REVISIT_ACTIVE",
                 "mode": "REVISIT",
                 "activity": "REVISITING",
                 "safety": "ENABLED",
@@ -228,6 +231,7 @@ def test_battery_state_is_rendered_live_and_offline_without_stale_soc():
                 "estop": True,
             },
             {
+                "workflow": "REVISIT_READY",
                 "mode": "REVISIT",
                 "activity": "REVISIT_READY",
                 "safety": "LOCKED",
@@ -241,6 +245,7 @@ def test_battery_state_is_rendered_live_and_offline_without_stale_soc():
                 "estop": True,
             },
             {
+                "workflow": "IDLE_READY",
                 "mode": "IDLE",
                 "activity": "READY",
                 "safety": "LOCKED",
@@ -282,6 +287,7 @@ def test_operator_diagnostics_expose_raw_phase_and_health_details():
     assert workflow.level == DiagnosticStatus.OK
     assert workflow.message == "REVISITING"
     assert workflow_values["mode"] == "REVISIT"
+    assert workflow_values["workflow"] == "REVISIT_ACTIVE"
     assert workflow_values["raw_phase"] == "revisit_query"
     assert by_name["MemNav/RGB-D"].level == DiagnosticStatus.OK
     assert by_name["MemNav/Go2"].level == DiagnosticStatus.WARN
