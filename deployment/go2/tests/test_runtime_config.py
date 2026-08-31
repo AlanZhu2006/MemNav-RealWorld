@@ -200,8 +200,16 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert "Publish" not in panel_kinds
     assert "ServiceCall" not in panel_kinds
     assert "Teleop" not in panel_kinds
-    assert {"3D", "Image", "CallService"} <= panel_kinds
-    assert "RawMessages" not in panel_kinds
+    assert {
+        "3D",
+        "Image",
+        "CallService",
+        "Plot",
+        "RawMessages",
+        "StateTransitions",
+        "Tab",
+        "TopicGraph",
+    } <= panel_kinds
     service_panels = {
         panel_id: panel
         for panel_id, panel in layout["configById"].items()
@@ -230,7 +238,15 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert survey_seal["serviceName"] == "/navdp_go2_adapter/survey_seal"
     assert survey_seal["requestPayload"] == "{}"
     assert survey_seal["buttonText"] == "SEAL SURVEY"
-    root = layout["layout"]
+    assert layout["layout"] == "Tab!navdp"
+    tab_panel = layout["configById"][layout["layout"]]
+    assert tab_panel["activeTabIdx"] == 0
+    assert [tab["title"] for tab in tab_panel["tabs"]] == [
+        "Operate",
+        "Planning",
+        "System",
+    ]
+    root = tab_panel["tabs"][0]["layout"]
     assert root["direction"] == "row"
     assert root["splitPercentage"] == 65
     main_area = root["first"]
@@ -269,12 +285,13 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
 
 
 def test_foxglove_layout_keeps_rgb_and_match_secondary_on_16_by_9_display():
-    layout = json.loads(
+    document = json.loads(
         (
             REPO
             / "deployment/go2/config/navdp_debug.foxglove-layout.json"
         ).read_text(encoding="utf-8")
-    )["layout"]
+    )
+    layout = document["configById"]["Tab!navdp"]["tabs"][0]["layout"]
     viewport_width, viewport_height = 1920.0, 1080.0
     main_width = viewport_width * layout["splitPercentage"] / 100.0
     side_width = viewport_width - main_width
@@ -297,6 +314,47 @@ def test_foxglove_layout_keeps_rgb_and_match_secondary_on_16_by_9_display():
     assert side_width / status_height == pytest.approx(720 / 220, rel=0.02)
     assert 0.35 < rgb_area_fraction < 0.42
     assert match_area_fraction < 0.08
+
+
+def test_foxglove_debug_tabs_use_only_read_only_builtin_panels():
+    document = json.loads(
+        (
+            REPO
+            / "deployment/go2/config/navdp_debug.foxglove-layout.json"
+        ).read_text(encoding="utf-8")
+    )
+    panels = document["configById"]
+    tabs = {
+        tab["title"]: tab["layout"]
+        for tab in panels["Tab!navdp"]["tabs"]
+    }
+
+    assert tabs["Planning"]["first"] == "3D!planning"
+    assert panels["3D!planning"]["topics"]["/navdp/debug/markers"][
+        "visible"
+    ]
+    assert {
+        path["value"] for path in panels["Plot!commands"]["paths"]
+    } == {
+        "/navdp/cmd_vel.linear.x",
+        "/navdp/cmd_vel.angular.z",
+    }
+    assert panels["RawMessages!arrival-status"]["topicPath"] == (
+        "/navdp/rgb_arrival_status"
+    )
+
+    assert tabs["System"]["first"] == "TopicGraph!navdp"
+    assert {
+        path["value"] for path in panels["StateTransitions!safety"]["paths"]
+    } == {
+        "/navdp/enabled.data",
+        "/navdp/estop.data",
+        "/navdp/arrival.data",
+    }
+    assert panels["RawMessages!status"]["topicPath"] == "/navdp/status"
+    assert panels["RawMessages!battery"]["topicPath"] == (
+        "/navdp/go2/battery"
+    )
 
 
 def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():

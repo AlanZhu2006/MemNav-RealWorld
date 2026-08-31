@@ -70,6 +70,57 @@
       },
       "foxglovePanelTitle": "Trajectory"
     },
+    "3D!planning": {
+      "cameraState": {
+        "distance": 6,
+        "perspective": false,
+        "phi": 0,
+        "target": [0, 0, 0],
+        "targetOffset": [1, 0, 0],
+        "targetOrientation": [0, 0, 0, 1],
+        "thetaOffset": 0,
+        "fovy": 45,
+        "near": 0.01,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "followTf": "navdp_local",
+      "fixedFrame": "navdp_local",
+      "scene": {
+        "backgroundColor": "#1e2024",
+        "labelScaleFactor": 0.7
+      },
+      "transforms": {},
+      "topics": {
+        "/navdp/trajectory": {
+          "visible": true,
+          "type": "line",
+          "lineWidth": 0.05,
+          "gradient": ["#19ff46ff", "#00c8ffff"]
+        },
+        "/navdp/debug/markers": {
+          "visible": true
+        }
+      },
+      "layers": {
+        "navdp-debug-grid": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Local grid (0.5 m)",
+          "instanceId": "navdp-debug-grid",
+          "layerId": "foxglove.Grid",
+          "size": 6,
+          "divisions": 12,
+          "lineWidth": 1,
+          "color": "#6e737d",
+          "position": [0, 0, 0],
+          "rotation": [0, 0, 0],
+          "order": 1,
+          "frameId": "navdp_local"
+        }
+      },
+      "foxglovePanelTitle": "Candidates"
+    },
     "Image!rgb": {
       "scene": {},
       "transforms": {},
@@ -150,6 +201,38 @@
       },
       "foxglovePanelTitle": "Status"
     },
+    "Image!goal-debug": {
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "synchronize": false,
+      "imageMode": {
+        "imageTopic": "/navdp/foxglove/goal/compressed",
+        "rotation": 0,
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rectifyImage": false,
+        "publish": {"clickEnabled": false, "hoverEnabled": false}
+      },
+      "foxglovePanelTitle": "Goal"
+    },
+    "Image!arrival-debug": {
+      "scene": {},
+      "transforms": {},
+      "topics": {},
+      "layers": {},
+      "synchronize": false,
+      "imageMode": {
+        "imageTopic": "/navdp/foxglove/arrival/compressed",
+        "rotation": 0,
+        "flipHorizontal": false,
+        "flipVertical": false,
+        "rectifyImage": false,
+        "publish": {"clickEnabled": false, "hoverEnabled": false}
+      },
+      "foxglovePanelTitle": "Match"
+    },
     "CallService!stop": {
       "serviceName": "/navdp_go2_adapter/operator_stop",
       "requestPayload": "{}",
@@ -189,6 +272,179 @@
       "buttonColor": "#1565c0",
       "editingMode": false,
       "foxglovePanelTitle": "Seal"
+    },
+    "Plot!commands": {
+      "paths": [
+        {
+          "value": "/navdp/cmd_vel.linear.x",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#19c37d",
+          "label": "vx  m/s"
+        },
+        {
+          "value": "/navdp/cmd_vel.angular.z",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#ff9f43",
+          "label": "wz  rad/s"
+        }
+      ],
+      "minYValue": -0.65,
+      "maxYValue": 0.65,
+      "showXAxisLabels": true,
+      "showYAxisLabels": true,
+      "showLegend": true,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": true,
+      "isSynced": true,
+      "xAxisVal": "timestamp",
+      "foxglovePanelTitle": "Command"
+    },
+    "StateTransitions!safety": {
+      "paths": [
+        {
+          "value": "/navdp/enabled.data",
+          "timestampMethod": "receiveTime",
+          "label": "Enabled"
+        },
+        {
+          "value": "/navdp/estop.data",
+          "timestampMethod": "receiveTime",
+          "label": "E-stop"
+        },
+        {
+          "value": "/navdp/arrival.data",
+          "timestampMethod": "receiveTime",
+          "label": "Arrival"
+        }
+      ],
+      "isSynced": true,
+      "foxglovePanelTitle": "Safety timeline"
+    },
+    "RawMessages!status": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/navdp/status",
+      "foxglovePanelTitle": "NavDP status"
+    },
+    "RawMessages!arrival-status": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/navdp/rgb_arrival_status",
+      "foxglovePanelTitle": "Arrival status"
+    },
+    "RawMessages!battery": {
+      "diffEnabled": false,
+      "diffMethod": "custom",
+      "diffTopicPath": "",
+      "showFullMessageForDiff": false,
+      "topicPath": "/navdp/go2/battery",
+      "foxglovePanelTitle": "Go2 battery"
+    },
+    "TopicGraph!navdp": {
+      "foxglovePanelTitle": "ROS graph"
+    },
+    "Tab!navdp": {
+      "activeTabIdx": 0,
+      "tabs": [
+        {
+          "title": "Operate",
+          "layout": {
+            "direction": "row",
+            "first": {
+              "direction": "column",
+              "first": "Image!rgb",
+              "second": {
+                "direction": "row",
+                "first": "Image!arrival",
+                "second": {
+                  "direction": "row",
+                  "first": "Image!goal",
+                  "second": "Image!depth",
+                  "splitPercentage": 50
+                },
+                "splitPercentage": 32
+              },
+              "splitPercentage": 62
+            },
+            "second": {
+              "direction": "column",
+              "first": "3D!navdp",
+              "second": {
+                "direction": "column",
+                "first": "Image!status",
+                "second": {
+                  "direction": "column",
+                  "first": {
+                    "direction": "row",
+                    "first": "CallService!survey-start",
+                    "second": "CallService!survey-seal",
+                    "splitPercentage": 50
+                  },
+                  "second": {
+                    "direction": "row",
+                    "first": "CallService!stop",
+                    "second": "CallService!camera-recovery",
+                    "splitPercentage": 50
+                  },
+                  "splitPercentage": 50
+                },
+                "splitPercentage": 50
+              },
+              "splitPercentage": 62
+            },
+            "splitPercentage": 65
+          }
+        },
+        {
+          "title": "Planning",
+          "layout": {
+            "direction": "row",
+            "first": "3D!planning",
+            "second": {
+              "direction": "column",
+              "first": "Plot!commands",
+              "second": {
+                "direction": "column",
+                "first": {
+                  "direction": "row",
+                  "first": "Image!goal-debug",
+                  "second": "Image!arrival-debug",
+                  "splitPercentage": 50
+                },
+                "second": "RawMessages!arrival-status",
+                "splitPercentage": 58
+              },
+              "splitPercentage": 34
+            },
+            "splitPercentage": 64
+          }
+        },
+        {
+          "title": "System",
+          "layout": {
+            "direction": "row",
+            "first": "TopicGraph!navdp",
+            "second": {
+              "direction": "column",
+              "first": "StateTransitions!safety",
+              "second": {
+                "direction": "row",
+                "first": "RawMessages!status",
+                "second": "RawMessages!battery",
+                "splitPercentage": 68
+              },
+              "splitPercentage": 32
+            },
+            "splitPercentage": 56
+          }
+        }
+      ]
     }
   },
   "globalVariables": {},
@@ -198,50 +454,5 @@
     "speed": 1,
     "messageOrder": "receiveTime"
   },
-  "layout": {
-    "direction": "row",
-    "first": {
-      "direction": "column",
-      "first": "Image!rgb",
-      "second": {
-        "direction": "row",
-        "first": "Image!arrival",
-        "second": {
-          "direction": "row",
-          "first": "Image!goal",
-          "second": "Image!depth",
-          "splitPercentage": 50
-        },
-        "splitPercentage": 32
-      },
-      "splitPercentage": 62
-    },
-    "second": {
-      "direction": "column",
-      "first": "3D!navdp",
-      "second": {
-        "direction": "column",
-        "first": "Image!status",
-        "second": {
-          "direction": "column",
-          "first": {
-            "direction": "row",
-            "first": "CallService!survey-start",
-            "second": "CallService!survey-seal",
-            "splitPercentage": 50
-          },
-          "second": {
-            "direction": "row",
-            "first": "CallService!stop",
-            "second": "CallService!camera-recovery",
-            "splitPercentage": 50
-          },
-          "splitPercentage": 50
-        },
-        "splitPercentage": 50
-      },
-      "splitPercentage": 62
-    },
-    "splitPercentage": 65
-  }
+  "layout": "Tab!navdp"
 }

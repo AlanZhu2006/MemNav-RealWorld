@@ -261,6 +261,9 @@ The tracked Foxglove dashboard is also published as the organization layout
 its JSON changes on `main`. The workflow reads `FOXGLOVE_API_KEY` only from a
 GitHub Actions secret and updates one stable layout ID in place, so operators
 select the cloud layout once instead of repeatedly importing JSON.
+The built-in Tab panel keeps the default `Operate` view terse while separate
+`Planning` and `System` tabs expose candidate markers, command plots, safety
+transitions, the ROS graph, and raw status messages without a custom extension.
 
 Full-Mono formal runs remain separate and start locked:
 

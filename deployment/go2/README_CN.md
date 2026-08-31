@@ -137,6 +137,12 @@ config-bound Survey 生命周期调用：`survey_start`只开始/恢复RGB记录
 `/navdp/trajectory`明确按4 cm
 细折线显示，并用绿到青的渐变区分轨迹起终方向；
 `/navdp/debug/markers`仍保留候选路径和Q值供诊断，但默认关闭，避免与选中轨迹重复叠加。
+
+同一个组织布局使用Foxglove内置Tab分成三页：默认`Operate`保持上述简洁操作视图；
+`Planning`打开候选轨迹/Q值marker，并并列显示vx/wz曲线、Goal、Match与原始arrival状态；
+`System`显示ROS连接图、enabled/estop/arrival状态时间线、原始NavDP状态和Go2电池消息。
+这些页全部只用内置只读panel，不增加扩展，也不扩大Foxglove的控制权限。
+
 完整`/navdp/status`和
 `/navdp/rgb_arrival_status`仍可从Topics侧栏按需查看，不再占用默认dashboard。
 ImageGoal、最后一次arrival对比和状态卡使用transient-local显示QoS，因此Bridge或浏览器

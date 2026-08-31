@@ -1112,6 +1112,12 @@ JPEG。Match不再左右拼接目标与当前图，而是在单幅当前RGB上�
 当前帧、inlier点、目标投影边界和关键指标。debug markers中还包含一份
 selected path、六条候选path、Q值文字、lookahead和状态文字，因此默认关闭；需要策略诊断时
 再从3D panel的Topics列表打开，不能把那一团marker误当成单条实际轨迹。
+
+组织布局用内置Tab分成`Operate`、`Planning`和`System`。`Operate`是默认现场页；
+`Planning`专门显示候选marker、vx/wz曲线、Goal/Match和arrival原始状态；`System`专门显示
+ROS连接图、enabled/estop/arrival时间线、NavDP原始状态和Go2电池消息。后两页只用于诊断，
+没有新增发布topic、解除estop或enable的能力，也不依赖自定义扩展。
+
 ImageGoal、最后一次arrival对比和状态卡为transient-local显示快照，Bridge/Foxglove重连后
 不会因为错过一次发布而长期显示`Waiting for image messages`。其中arrival图只代表最后
 一次实际评估；锁定或未armed时不会伪造新的匹配结果。
