@@ -110,6 +110,13 @@ config-bound Survey 生命周期调用：`survey_start`只开始/恢复RGB记录
 宽幅比例（当前通常为960×272），不会再把左右两幅图强拉成640×360。侧车还把
 `/navdp/status`渲染成720×272、2 Hz的只读操作状态卡。
 
+状态卡标题下方同时显示 Go2 电量和总电压。独立的只读 `battery` 窗口只订阅 Unitree
+`rt/lowstate`中的 BMS/SOC 与供电字段，再发布标准 ROS
+`/navdp/go2/battery`；它不创建运动客户端，也不发布任何控制命令。最后一帧底层状态超过
+2 秒，或机械狗/网线尚未接通，状态卡会明确显示红色 `BATTERY OFFLINE`，并清空百分比、
+电压和电流，不会保留一个看似有效的旧电量。该观察节点随 Foxglove 启动，因此 Survey
+锁停阶段也能看电量；链路恢复后会自动重连，无需重启整栈。
+
 版本化布局左侧优先显示选中轨迹和宽幅arrival对比，右侧显示当前RGB、ImageGoal、深度及
 状态卡。`/navdp/trajectory`明确按4 cm细折线显示，并用绿到青的渐变区分轨迹起终方向；
 `/navdp/debug/markers`仍保留候选路径和Q值供诊断，但默认关闭，避免与选中轨迹重复叠加。

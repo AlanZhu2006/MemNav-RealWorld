@@ -278,6 +278,7 @@ def test_foxglove_bridge_does_not_expose_raw_camera_images():
         REPO / "deployment/go2/config/foxglove_bridge.yaml"
     ).read_text(encoding="utf-8")
     assert '"^/navdp/foxglove/.*"' in parameters
+    assert '"^/navdp/go2/battery$"' in parameters
     assert '"^/camera/camera/color/image_raw$"' not in parameters
     assert '"^/camera/camera/aligned_depth_to_color/image_raw$"' not in parameters
     assert '"^/navdp/.*"' not in parameters

@@ -162,6 +162,8 @@ navdp_start_optional_windows() {
       "exec '$NAVDP_GO2_SCRIPT_DIR/run_go2_bridge.sh' --config '$NAVDP_RUN_CONFIG'"
   fi
   if [[ "$CFG_WITH_FOXGLOVE" == true ]]; then
+    tmux new-window -t "$session" -n battery \
+      "exec '$NAVDP_GO2_SCRIPT_DIR/run_go2_battery_monitor.sh' --config '$NAVDP_RUN_CONFIG'"
     tmux new-window -t "$session" -n fox-preview \
       "exec '$NAVDP_GO2_SCRIPT_DIR/run_foxglove_preview.sh' --config '$NAVDP_RUN_CONFIG'"
     tmux new-window -t "$session" -n foxglove \

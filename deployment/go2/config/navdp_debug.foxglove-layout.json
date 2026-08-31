@@ -148,7 +148,7 @@
         "rectifyImage": false,
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
-      "foxglovePanelTitle": "Operator safety / motion status"
+      "foxglovePanelTitle": "Operator safety / motion / Go2 battery status"
     },
     "CallService!stop": {
       "serviceName": "/navdp_go2_adapter/operator_stop",

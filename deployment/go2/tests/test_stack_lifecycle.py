@@ -123,7 +123,7 @@ tmux() {{
     show-environment) echo MEMNAV_CONFIG_ID=expected-id ;;
     list-windows) printf '%s\n' \
       'policy 0' 'rgbd 0' 'adapter 0' 'camera-recovery 0' \
-      'arrival 0' 'go2 0' 'fox-preview 0' 'foxglove 1' ;;
+      'arrival 0' 'go2 0' 'battery 0' 'fox-preview 0' 'foxglove 1' ;;
   esac
 }}
 if native_session_is_current_and_healthy; then

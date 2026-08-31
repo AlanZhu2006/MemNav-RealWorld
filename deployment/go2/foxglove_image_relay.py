@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 from typing import Any
 
@@ -20,7 +21,7 @@ from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import CompressedImage, Image
+from sensor_msgs.msg import BatteryState, CompressedImage, Image
 from std_msgs.msg import String
 
 
@@ -170,6 +171,30 @@ def _fit_text(value: Any, limit: int) -> str:
     return text[: max(1, limit - 3)] + "..."
 
 
+def battery_payload_from_message(message: BatteryState) -> dict[str, Any]:
+    """Convert ROS BatteryState into status-card values without stale fallback."""
+
+    present = bool(message.present)
+    percentage = _number(message.percentage)
+    voltage = _number(message.voltage)
+    current = _number(message.current)
+    if percentage is not None and not 0.0 <= percentage <= 1.0:
+        percentage = None
+    cells = [
+        float(value)
+        for value in message.cell_voltage
+        if math.isfinite(float(value)) and float(value) > 0.0
+    ]
+    return {
+        "online": present,
+        "soc_pct": None if not present or percentage is None else percentage * 100.0,
+        "voltage_v": None if not present else voltage,
+        "current_a": None if not present else current,
+        "cell_min_v": None if not present or not cells else min(cells),
+        "cell_max_v": None if not present or not cells else max(cells),
+    }
+
+
 def render_status_card(
     payload: dict[str, Any], width: int, height: int
 ) -> np.ndarray:
@@ -197,6 +222,31 @@ def render_status_card(
     survey_visible = survey_state != "INACTIVE" or phase_value == "memory_recording"
     frames_recorded = int(payload.get("frames_recorded") or 0)
     survey_last_success = payload.get("survey_last_success")
+    battery = payload.get("go2_battery")
+    if not isinstance(battery, dict):
+        battery = {}
+    battery_online = battery.get("online") is True
+    battery_soc = _number(battery.get("soc_pct"))
+    battery_voltage = _number(battery.get("voltage_v"))
+    if battery_online:
+        battery_text = (
+            "BATTERY --"
+            if battery_soc is None
+            else f"BATTERY {battery_soc:.0f}%"
+        )
+        if battery_voltage is not None:
+            battery_text += f" | {battery_voltage:.1f} V"
+        if battery_soc is None:
+            battery_color = _WARNING
+        elif battery_soc < 20.0:
+            battery_color = _DANGER
+        elif battery_soc < 40.0:
+            battery_color = _WARNING
+        else:
+            battery_color = _GOOD
+    else:
+        battery_text = "BATTERY OFFLINE"
+        battery_color = _DANGER
     if survey_visible:
         title = "SURVEY CONTROL - MOTION LOCKED"
         state = f"{survey_state} | {frames_recorded} FRAMES"
@@ -223,10 +273,20 @@ def render_status_card(
     cv2.putText(
         canvas,
         title,
-        (pad, 29),
+        (pad, 22),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.53,
         _TEXT_SECONDARY,
+        1,
+        cv2.LINE_AA,
+    )
+    cv2.putText(
+        canvas,
+        battery_text,
+        (pad, 43),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.43,
+        battery_color,
         1,
         cv2.LINE_AA,
     )
@@ -416,6 +476,7 @@ class FoxgloveImageRelay(Node):
         self._next_arrival = 0.0
         self._next_status = 0.0
         self._last_error_log = 0.0
+        self._battery_payload: dict[str, Any] = {"online": False}
         sensor_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
@@ -448,6 +509,7 @@ class FoxgloveImageRelay(Node):
         goal_callbacks = MutuallyExclusiveCallbackGroup()
         arrival_callbacks = MutuallyExclusiveCallbackGroup()
         status_callbacks = MutuallyExclusiveCallbackGroup()
+        battery_callbacks = MutuallyExclusiveCallbackGroup()
         self.create_subscription(
             Image,
             options.rgb_input,
@@ -482,6 +544,13 @@ class FoxgloveImageRelay(Node):
             self._on_status,
             state_qos,
             callback_group=status_callbacks,
+        )
+        self.create_subscription(
+            BatteryState,
+            options.battery_input,
+            self._on_battery,
+            state_qos,
+            callback_group=battery_callbacks,
         )
         self.get_logger().info(
             "Foxglove previews: RGB %dx%d@%.1f Hz q=%d -> %s; "
@@ -606,6 +675,9 @@ class FoxgloveImageRelay(Node):
             resize=not self.options.arrival_preserve_resolution,
         )
 
+    def _on_battery(self, message: BatteryState) -> None:
+        self._battery_payload = battery_payload_from_message(message)
+
     def _on_status(self, message: String) -> None:
         now = time.monotonic()
         if not self._due("status", now, self._status_period):
@@ -614,6 +686,7 @@ class FoxgloveImageRelay(Node):
             payload = json.loads(message.data)
             if not isinstance(payload, dict):
                 raise ValueError("status payload is not a JSON object")
+            payload["go2_battery"] = dict(self._battery_payload)
             image = render_status_card(
                 payload, self.options.status_width, self.options.status_height
             )
@@ -654,6 +727,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--goal-input", required=True)
     parser.add_argument("--arrival-input", required=True)
     parser.add_argument("--status-input", required=True)
+    parser.add_argument("--battery-input", required=True)
     parser.add_argument("--goal-output", required=True)
     parser.add_argument("--arrival-output", required=True)
     parser.add_argument("--status-output", required=True)

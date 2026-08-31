@@ -139,7 +139,8 @@ native_session_is_current_and_healthy() {
   [[ "$CFG_WITH_CAMERA" != true ]] || required+=(rgbd camera-recovery)
   [[ "$CFG_ARRIVAL_MODULE" != rgb-homography ]] || required+=(arrival)
   [[ "$CFG_WITH_GO2" != true ]] || required+=(go2)
-  [[ "$CFG_WITH_FOXGLOVE" != true ]] || required+=(fox-preview foxglove)
+  [[ "$CFG_WITH_FOXGLOVE" != true ]] \
+    || required+=(battery fox-preview foxglove)
   local window
   for window in "${required[@]}"; do
     grep -Fxq "$window" <<<"$windows" || return 1

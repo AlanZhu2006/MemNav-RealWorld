@@ -21,6 +21,7 @@ exec "$CFG_JETSON_PYTHON" "$NAVDP_GO2_DIR/foxglove_image_relay.py" \
   --goal-input /navdp/image_goal \
   --arrival-input /navdp/rgb_arrival_debug \
   --status-input /navdp/status \
+  --battery-input /navdp/go2/battery \
   --goal-output "$CFG_FOXGLOVE_PREVIEW_GOAL_TOPIC" \
   --arrival-output "$CFG_FOXGLOVE_PREVIEW_ARRIVAL_TOPIC" \
   --status-output "$CFG_FOXGLOVE_PREVIEW_STATUS_TOPIC" \

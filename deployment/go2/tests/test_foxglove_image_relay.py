@@ -11,6 +11,7 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / "deployment/go2"))
 
 from foxglove_image_relay import (  # noqa: E402
+    battery_payload_from_message,
     colorize_depth_preview,
     depth_message_to_u16,
     encode_jpeg,
@@ -19,6 +20,7 @@ from foxglove_image_relay import (  # noqa: E402
     resize_rgb_preview,
     rgb_message_to_bgr,
 )
+from sensor_msgs.msg import BatteryState  # noqa: E402
 
 
 def _message(
@@ -132,6 +134,39 @@ def test_survey_status_card_derives_active_and_paused_from_legacy_status():
     assert active.shape == paused.shape
     assert not np.array_equal(paused, active)
     assert np.unique(paused.reshape(-1, 3), axis=0).shape[0] > 10
+
+
+def test_battery_state_is_rendered_live_and_offline_without_stale_soc():
+    message = BatteryState()
+    message.present = True
+    message.percentage = 0.73
+    message.voltage = 28.7
+    message.current = -1.4
+    message.cell_voltage = [4.01, 4.00]
+    live = battery_payload_from_message(message)
+    assert live["online"] is True
+    assert live["soc_pct"] == pytest.approx(73.0)
+    assert live["voltage_v"] == pytest.approx(28.7)
+    assert live["current_a"] == pytest.approx(-1.4)
+    assert live["cell_min_v"] == pytest.approx(4.0)
+    assert live["cell_max_v"] == pytest.approx(4.01)
+
+    payload = {
+        "enabled": False,
+        "estop": True,
+        "phase": "revisit_query",
+        "go2_battery": live,
+    }
+    live_card = render_status_card(payload, 720, 272)
+    offline_card = render_status_card(
+        {**payload, "go2_battery": {"online": False}}, 720, 272
+    )
+    assert not np.array_equal(live_card, offline_card)
+
+    message.present = False
+    offline = battery_payload_from_message(message)
+    assert offline["online"] is False
+    assert offline["soc_pct"] is None
 
 
 def test_depth_preview_preserves_invalid_mask_and_colorizes_range():

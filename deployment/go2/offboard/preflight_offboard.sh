@@ -21,6 +21,9 @@ fail() { printf '[FAIL] %s\n' "$*"; failures=$((failures + 1)); }
 [[ -x "$GO2_DIR/scripts/run_go2_bridge.sh" ]] \
   && pass "existing Go2 watchdog bridge" \
   || fail "missing Go2 bridge"
+[[ -x "$GO2_DIR/scripts/run_go2_battery_monitor.sh" ]] \
+  && pass "observation-only Go2 battery monitor" \
+  || fail "missing Go2 battery monitor"
 ssh -o BatchMode=yes -o ConnectTimeout=5 "$CFG_GPU_HOST" true \
   && pass "passwordless SSH to 4090 hub" \
   || fail "cannot SSH to 4090 hub"
