@@ -68,7 +68,7 @@
           "frameId": "navdp_local"
         }
       },
-      "foxglovePanelTitle": "Path"
+      "foxglovePanelTitle": "Trajectory"
     },
     "Image!rgb": {
       "scene": {},
@@ -199,49 +199,49 @@
     "messageOrder": "receiveTime"
   },
   "layout": {
-    "direction": "column",
+    "direction": "row",
     "first": {
-      "direction": "row",
+      "direction": "column",
       "first": "Image!rgb",
       "second": {
-        "direction": "column",
-        "first": {
-          "direction": "row",
+        "direction": "row",
+        "first": "Image!arrival",
+        "second": {
+          "direction": "column",
           "first": "Image!goal",
           "second": "Image!depth",
           "splitPercentage": 50
         },
-        "second": {
-          "direction": "column",
-          "first": "Image!status",
-          "second": {
-            "direction": "column",
-            "first": {
-              "direction": "row",
-              "first": "CallService!survey-start",
-              "second": "CallService!survey-seal",
-              "splitPercentage": 50
-            },
-            "second": {
-              "direction": "row",
-              "first": "CallService!stop",
-              "second": "CallService!camera-recovery",
-              "splitPercentage": 50
-            },
-            "splitPercentage": 50
-          },
-          "splitPercentage": 70
-        },
-        "splitPercentage": 58
+        "splitPercentage": 72
       },
-      "splitPercentage": 58
+      "splitPercentage": 74
     },
     "second": {
-      "direction": "row",
+      "direction": "column",
       "first": "3D!navdp",
-      "second": "Image!arrival",
-      "splitPercentage": 45
+      "second": {
+        "direction": "column",
+        "first": "Image!status",
+        "second": {
+          "direction": "column",
+          "first": {
+            "direction": "row",
+            "first": "CallService!survey-start",
+            "second": "CallService!survey-seal",
+            "splitPercentage": 50
+          },
+          "second": {
+            "direction": "row",
+            "first": "CallService!stop",
+            "second": "CallService!camera-recovery",
+            "splitPercentage": 50
+          },
+          "splitPercentage": 50
+        },
+        "splitPercentage": 34
+      },
+      "splitPercentage": 50
     },
-    "splitPercentage": 88
+    "splitPercentage": 72
   }
 }

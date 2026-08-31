@@ -1040,14 +1040,16 @@ ws://JETSON_IP:8765
 deployment/go2/config/navdp_debug.foxglove-layout.json
 ```
 
-若机械狗和4090均未连接、只需确认D435i与Foxglove画面，可在Jetson执行：
+机械狗未连接时也使用同一个整栈启动命令：
 
 ```bash
-bash deployment/go2/nav_stack.sh camera-ui start
+bash deployment/go2/nav_stack.sh start \
+  --config deployment/config/experiments/native_imagegoal.json
 ```
 
-该模式只启动RealSense、限流预览和Bridge；Live RGB/Depth可用，其余完整栈panel等待消息是
-预期行为。它不加载策略、adapter或Unitree SDK，也没有运动路径。
+RealSense、策略、adapter、arrival、限流预览和Bridge照常启动并保持锁止。Go2网络离线不再
+使启动失败；命令桥在后台等待并重连，状态卡显示`GO2 OFFLINE`。接上Go2后不需要切换模式
+或重启Foxglove，且任何时候仍须通过独立的现场授权步骤才能运动。
 
 Bridge禁止client publish和参数修改；Service白名单精确限制为`operator_stop`、
 `survey_start`、`survey_seal`与`camera_recovery/restart`。Survey调用只能开始/冻结当前
@@ -1888,7 +1890,7 @@ bash deployment/go2/offboard/preflight_offboard.sh \
 Preflight必须验证protocol version、monocular sensor contract、metric-depth exclusion和terminal
 schema。仅端口可连接或`algo`字段正确不足以通过。
 
-### A.6 Camera-only十分钟验收
+### A.6 离线静态十分钟验收
 
 首次部署、换相机、换支架或更新依赖后，不启动Go2 bridge：
 

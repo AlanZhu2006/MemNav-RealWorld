@@ -15,11 +15,6 @@ if [[ ! -d "$CFG_CYCLONEDDS_HOME/lib" ]]; then
   echo "CycloneDDS installation not found: $CFG_CYCLONEDDS_HOME" >&2
   exit 1
 fi
-ip link show dev "$CFG_UNITREE_NET_IF" >/dev/null 2>&1 || {
-  echo "Unitree network interface is missing: $CFG_UNITREE_NET_IF" >&2
-  exit 1
-}
-
 export CYCLONEDDS_HOME="$CFG_CYCLONEDDS_HOME"
 export CMAKE_PREFIX_PATH="$CFG_CYCLONEDDS_HOME${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
 export LD_LIBRARY_PATH="$CFG_CYCLONEDDS_HOME/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
@@ -27,6 +22,7 @@ export LD_LIBRARY_PATH="$CFG_CYCLONEDDS_HOME/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_
 echo "Starting observation-only Go2 battery monitor"
 echo "  DDS input: rt/lowstate on $CFG_UNITREE_NET_IF"
 echo "  ROS output: /navdp/go2/battery"
+echo "  offline behavior: publish GO2 OFFLINE and wait for the configured link"
 
 exec "$CFG_GO2_PYTHON" "$NAVDP_GO2_DIR/go2_battery_monitor.py" \
   --net-if "$CFG_UNITREE_NET_IF" \

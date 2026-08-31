@@ -91,12 +91,12 @@ if [[ "$CFG_WITH_GO2" == true ]]; then
   if ip -o -4 addr show dev "$net_if" | grep -q '192\.168\.123\.'; then
     pass "$net_if has Go2 subnet address"
   else
-    fail "$net_if has no 192.168.123.x address"
+    warn "$net_if has no 192.168.123.x address; Go2 will remain OFFLINE"
   fi
   if ping -c 1 -W 1 192.168.123.161 >/dev/null 2>&1; then
     pass "Go2 reachable at 192.168.123.161"
   else
-    fail "Go2 not reachable at 192.168.123.161"
+    warn "Go2 not reachable at 192.168.123.161; UI and policy will still start locked"
   fi
 fi
 

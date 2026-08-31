@@ -231,24 +231,33 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert survey_seal["requestPayload"] == "{}"
     assert survey_seal["buttonText"] == "SEAL SURVEY"
     root = layout["layout"]
-    assert root["direction"] == "column"
-    assert root["splitPercentage"] == 88
+    assert root["direction"] == "row"
+    assert root["splitPercentage"] == 72
     main_area = root["first"]
-    assert main_area["direction"] == "row"
-    assert main_area["first"] == "Image!rgb"
-    assert main_area["splitPercentage"] == 58
-    diagnostics = root["second"]
-    assert diagnostics == {
-        "direction": "row",
-        "first": "3D!navdp",
-        "second": "Image!arrival",
-        "splitPercentage": 45,
+    assert main_area == {
+        "direction": "column",
+        "first": "Image!rgb",
+        "second": {
+            "direction": "row",
+            "first": "Image!arrival",
+            "second": {
+                "direction": "column",
+                "first": "Image!goal",
+                "second": "Image!depth",
+                "splitPercentage": 50,
+            },
+            "splitPercentage": 72,
+        },
+        "splitPercentage": 74,
     }
-    operator_area = main_area["second"]["second"]
+    operator_area = root["second"]
     assert operator_area["direction"] == "column"
-    assert operator_area["first"] == "Image!status"
-    assert operator_area["splitPercentage"] == 70
-    controls = operator_area["second"]
+    assert operator_area["first"] == "3D!navdp"
+    assert operator_area["splitPercentage"] == 50
+    status_and_controls = operator_area["second"]
+    assert status_and_controls["first"] == "Image!status"
+    assert status_and_controls["splitPercentage"] == 34
+    controls = status_and_controls["second"]
     assert controls["direction"] == "column"
     survey_button_row = controls["first"]
     assert survey_button_row == {
@@ -257,6 +266,32 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
         "second": "CallService!survey-seal",
         "splitPercentage": 50,
     }
+
+
+def test_foxglove_layout_respects_native_panel_aspects_on_16_by_9_display():
+    layout = json.loads(
+        (
+            REPO
+            / "deployment/go2/config/navdp_debug.foxglove-layout.json"
+        ).read_text(encoding="utf-8")
+    )["layout"]
+    viewport_width, viewport_height = 1920.0, 1080.0
+    main_width = viewport_width * layout["splitPercentage"] / 100.0
+    side_width = viewport_width - main_width
+    main_height = viewport_height * layout["first"]["splitPercentage"] / 100.0
+    diagnostics_height = viewport_height - main_height
+    match_width = (
+        main_width
+        * layout["first"]["second"]["splitPercentage"]
+        / 100.0
+    )
+    trajectory_height = (
+        viewport_height * layout["second"]["splitPercentage"] / 100.0
+    )
+
+    assert main_width / main_height == pytest.approx(16 / 9, rel=0.04)
+    assert side_width / trajectory_height == pytest.approx(1.0, rel=0.02)
+    assert match_width / diagnostics_height == pytest.approx(960 / 272, rel=0.02)
 
 
 def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():

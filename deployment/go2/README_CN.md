@@ -98,18 +98,17 @@ Foxglove。合同变化、窗口缺失、进程死亡或无法确认锁止时才
 `NavDP_Agent.step_imagegoal()`，当前 RGB-D 进入策略，配置中的目标 RGB 作为
 ImageGoal。
 
-只连接D435i、没有连接机械狗且只想查看相机时，不要使用`go2_bridge=true`的默认整栈
-配置；直接启动轻量相机UI：
+只连接D435i、没有连接机械狗时仍使用同一个整栈入口：
 
 ```bash
-bash deployment/go2/nav_stack.sh camera-ui start
-# 查看/关闭：camera-ui status / camera-ui stop
+bash deployment/go2/nav_stack.sh start \
+  --config deployment/config/experiments/native_imagegoal.json
 ```
 
-该入口只创建`rgbd`、`fox-preview`和`foxglove`三个窗口，不加载NavDP/CEC模型，不启动
-adapter、arrival、battery或Unitree SDK，也不存在运动路径。Foxglove仍连接
-`ws://JETSON_IP:8765`，此模式只有Live RGB和Depth有数据；状态、轨迹、match与service
-按钮等待完整栈是预期行为。启动完整栈时会自动关闭这个独立相机会话以避免相机和端口冲突。
+启动器不再为这种情况提供单独模式。相机、NavDP、adapter、arrival、
+battery、预览和Foxglove都正常启动并保持`disabled + estop`；Go2网络不可用只会让命令桥
+留在等待/重连状态，Status明确显示`GO2 OFFLINE`。接上配置好的Go2网络后，桥自动连接，
+不需要换入口或重启UI。离线状态绝不等于取得运动权限。
 
 `launch.foxglove=true`只在Jetson启动无界面、观察为主的Bridge。操作电脑打开Foxglove，
 连接`ws://JETSON_IP:8765`并选择组织 Layout `MemNav Go2 Navigation`；组织同步尚未配置时，

@@ -14,7 +14,6 @@ Usage:
   nav_stack.sh list
   nav_stack.sh describe PROFILE
   nav_stack.sh resolve --config EXPERIMENT.json
-  nav_stack.sh camera-ui {start|status|stop} [--config EXPERIMENT.json]
   nav_stack.sh start --config EXPERIMENT.json [--refresh] [--dry-run]
   nav_stack.sh run [--config EXPERIMENT.json] [--timeout-s SECONDS]
   nav_stack.sh status [--config EXPERIMENT.json]
@@ -120,10 +119,12 @@ start_stack() {
     fi
     echo "Existing stack could not prove motion lock; replacing it fail-closed." >&2
   fi
-  local camera_ui_session="${CFG_NATIVE_SESSION}-camera-ui"
-  if tmux has-session -t "$camera_ui_session" 2>/dev/null; then
-    tmux kill-session -t "$camera_ui_session"
-    echo "Stopped camera-only UI before full-stack startup: $camera_ui_session"
+  # Retire the former observation-only session transparently.  The normal
+  # stack now stays available while the Go2 network is offline.
+  local legacy_ui_session="${CFG_NATIVE_SESSION}-camera-ui"
+  if tmux has-session -t "$legacy_ui_session" 2>/dev/null; then
+    tmux kill-session -t "$legacy_ui_session"
+    echo "Stopped legacy UI session before normal stack startup: $legacy_ui_session"
   fi
   case "$CFG_PROFILE" in
     native-navdp-rgbd)
@@ -334,7 +335,6 @@ main() {
     list) [[ $# -eq 0 ]] || die "list takes no arguments"; python3 "$PROFILE_TOOL" list ;;
     describe) [[ $# -eq 1 ]] || die "describe requires PROFILE"; python3 "$PROFILE_TOOL" show "$1" ;;
     resolve) resolve_only "$@" ;;
-    camera-ui) bash "$GO2_DIR/scripts/camera_ui.sh" "$@" ;;
     start) start_stack "$@" ;;
     run) run_navigation "$@" ;;
     status) status_stack "$@" ;;
