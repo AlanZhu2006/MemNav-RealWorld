@@ -204,8 +204,11 @@ Formal 会自动设置选中历史目标的输出路径并启动 Go2 bridge，�
 双机栈后重新加载同一段历史做 CEC Revisit，使用独立的 engineering 入口：
 
 ```bash
-bash deployment/go2/offboard/revisit_debug.sh record-start m_route_01 \
+bash deployment/go2/offboard/revisit_debug.sh record-prepare m_route_01 \
   --goal /absolute/path/to/revisit_m.png --point-label M
+
+# 在 Foxglove 确认 PAUSED / 0 FRAMES 后点击 START SURVEY。
+# 若不需要等待人工起始边界，也可直接使用 record-start。
 
 # 只用 Unitree 手柄开动；策略运动保持 disabled + estop，Go2 bridge 不启动。
 bash deployment/go2/offboard/revisit_debug.sh status

@@ -21,11 +21,17 @@ ACTIVE_STATE="$DEBUG_ROOT/active.json"
 usage() {
   cat <<'EOF'
 Usage:
+  revisit_debug.sh record-prepare DATASET_ID --goal FROZEN_M_IMAGE [--point-label M]
   revisit_debug.sh record-start DATASET_ID --goal FROZEN_M_IMAGE [--point-label M]
   revisit_debug.sh status
   revisit_debug.sh record-stop
   revisit_debug.sh revisit-prepare [--run-id RUN_ID]
   revisit_debug.sh stop
+
+record-prepare:
+  Prepares the same one-way Survey but leaves recording PAUSED at zero frames.
+  Start it later with Foxglove's START SURVEY button so the first saved frame
+  has an explicit operator boundary.
 
 record-start:
   Starts MemNav + LingBot + CEC in an engineering one-way Survey. Autonomous
@@ -71,9 +77,10 @@ PY
 
 write_start_state() {
   local dataset_id="$1" goal="$2" goal_sha="$3" point_label="$4" experiment="$5"
+  local mode="${6:-recording}"
   mkdir -p "$DEBUG_ROOT"
   python3 - "$ACTIVE_STATE" "$dataset_id" "$goal" "$goal_sha" \
-      "$point_label" "$experiment" <<'PY'
+      "$point_label" "$experiment" "$mode" <<'PY'
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -84,7 +91,7 @@ payload = {
     "schema": "memnav_revisit_debug_state_v1",
     "created_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     "updated_utc": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-    "mode": "recording",
+    "mode": sys.argv[7],
     "dataset_id": sys.argv[2],
     "goal_path": sys.argv[3],
     "goal_sha256": sys.argv[4],
@@ -202,8 +209,12 @@ PY
     || die "observation-only M match monitor did not become ready; see $log"
 }
 
-record_start() {
-  [[ $# -ge 1 ]] || die "record-start requires DATASET_ID"
+record_begin() {
+  local start_immediately="$1"
+  shift
+  local action="record-start"
+  [[ "$start_immediately" == true ]] || action="record-prepare"
+  [[ $# -ge 1 ]] || die "$action requires DATASET_ID"
   local dataset_id="$1" goal="" point_label="M"
   shift
   validate_id "$dataset_id"
@@ -229,22 +240,40 @@ record_start() {
 
   make_debug_experiment "$dataset_id" "$goal" "$experiment"
   stop_native_if_running
-  bash "$REVISIT" --config "$experiment" survey-start "$dataset_id" \
-    --collection-mode manual_one_way_external_goal_debug
-  write_start_state "$dataset_id" "$goal" "$goal_sha" "$point_label" "$experiment"
+  local state_mode="prepared"
+  if [[ "$start_immediately" == true ]]; then
+    bash "$REVISIT" --config "$experiment" survey-start "$dataset_id" \
+      --collection-mode manual_one_way_external_goal_debug
+    state_mode="recording"
+  else
+    bash "$REVISIT" --config "$experiment" survey-prepare "$dataset_id" \
+      --collection-mode manual_one_way_external_goal_debug
+  fi
+  write_start_state "$dataset_id" "$goal" "$goal_sha" "$point_label" \
+    "$experiment" "$state_mode"
 
   launch_match_monitor "$survey_config" "$goal" "$point_label"
 
   echo
-  echo "M-point history recording is READY."
+  if [[ "$start_immediately" == true ]]; then
+    echo "M-point history recording is ACTIVE."
+  else
+    echo "M-point history recording is PREPARED and PAUSED."
+  fi
   echo "  dataset:       $dataset_id"
   echo "  frozen goal:   $goal"
   echo "  goal sha256:   $goal_sha"
   echo "  policy input:  causal RGB -> LingBot/MemNav/CEC on RTX"
   echo "  robot control: Unitree hand controller only (Go2 bridge absent)"
   echo "  Foxglove:      goal panel=M; match panel updates continuously"
+  [[ "$start_immediately" == true ]] \
+    || echo "  start:          click START SURVEY in Foxglove"
   echo "  finish:        $0 record-stop"
 }
+
+record_prepare() { record_begin false "$@"; }
+
+record_start() { record_begin true "$@"; }
 
 show_status() {
   local mode experiment
@@ -253,7 +282,7 @@ show_status() {
   echo "Debug state: mode=$mode dataset=$(state_value dataset_id) point=$(state_value point_label)"
   echo "Goal SHA-256: $(state_value goal_sha256)"
   case "$mode" in
-    recording)
+    prepared|recording)
       bash "$REVISIT" --config "$experiment" survey-status
       echo
       echo "Live M match (observation-only):"
@@ -274,7 +303,8 @@ show_status() {
 record_stop() {
   local mode dataset_id experiment receipt manifest_sha
   mode="$(state_value mode)"
-  [[ "$mode" == recording ]] || die "record-stop requires mode=recording, got $mode"
+  [[ "$mode" == prepared || "$mode" == recording ]] \
+    || die "record-stop requires mode=prepared|recording, got $mode"
   dataset_id="$(state_value dataset_id)"
   experiment="$(state_value experiment_path)"
 
@@ -364,6 +394,7 @@ stop_debug() {
 command="${1:-}"
 [[ $# -eq 0 ]] || shift
 case "$command" in
+  record-prepare) record_prepare "$@" ;;
   record-start) record_start "$@" ;;
   status) [[ $# -eq 0 ]] || die "status takes no arguments"; show_status ;;
   record-stop) [[ $# -eq 0 ]] || die "record-stop takes no arguments"; record_stop ;;
