@@ -131,8 +131,9 @@ config-bound Survey 生命周期调用：`survey_start`只开始/恢复RGB记录
 锁停阶段也能看电量；链路恢复后会自动重连，无需重启整栈。
 
 版本化布局把当前RGB降到约40%的画布面积，Match降到约8%；Goal和Depth并排补足主区。
-右侧让Trajectory保持接近正方形，下方状态卡保持接近其原始宽高比，四个内置Service Call
-按钮继续组成2×2控制区。Foxglove内置panel仍是一项service一个panel，因此不引入自定义
+右侧使用更紧凑的Trajectory，下方状态卡保持接近其原始宽高比，四个内置Service Call
+按钮组成更高的2×2控制区，避免按钮文字被panel标题遮挡。Foxglove内置panel仍是一项
+service一个panel，因此不引入自定义
 扩展。Match只显示紧凑的单帧匹配叠加，不再用宽幅左右对比抢占横向空间。
 `/navdp/trajectory`明确按4 cm
 细折线显示，并用绿到青的渐变区分轨迹起终方向；

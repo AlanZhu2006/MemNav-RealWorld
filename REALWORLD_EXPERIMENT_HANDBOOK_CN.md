@@ -1108,7 +1108,8 @@ JPEG。Match不再左右拼接目标与当前图，而是在单幅当前RGB上�
 | Local grid | `navdp_local` robot-local frame |
 
 默认布局把当前RGB降到约40%的画布面积，Match降到约8%；Goal和Depth在主区并排。
-右侧Trajectory保持接近正方形，状态卡保持接近原始宽高比，下方是2×2按钮区。Match仅保留
+右侧Trajectory保持紧凑，状态卡保持接近原始宽高比，下方是加高的2×2按钮区，避免文字被
+panel标题遮挡。Match仅保留
 当前帧、inlier点、目标投影边界和关键指标。debug markers中还包含一份
 selected path、六条候选path、Q值文字、lookahead和状态文字，因此默认关闭；需要策略诊断时
 再从3D panel的Topics列表打开，不能把那一团marker误当成单条实际轨迹。

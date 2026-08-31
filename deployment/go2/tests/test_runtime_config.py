@@ -269,10 +269,10 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     operator_area = root["second"]
     assert operator_area["direction"] == "column"
     assert operator_area["first"] == "3D!navdp"
-    assert operator_area["splitPercentage"] == 62
+    assert operator_area["splitPercentage"] == 52
     status_and_controls = operator_area["second"]
     assert status_and_controls["first"] == "Image!status"
-    assert status_and_controls["splitPercentage"] == 50
+    assert status_and_controls["splitPercentage"] == 40
     controls = status_and_controls["second"]
     assert controls["direction"] == "column"
     survey_button_row = controls["first"]
@@ -305,13 +305,21 @@ def test_foxglove_layout_keeps_rgb_and_match_secondary_on_16_by_9_display():
     trajectory_height = (
         viewport_height * layout["second"]["splitPercentage"] / 100.0
     )
-    status_height = (viewport_height - trajectory_height) * 0.5
+    status_height = (
+        (viewport_height - trajectory_height)
+        * layout["second"]["second"]["splitPercentage"]
+        / 100.0
+    )
+    button_row_height = (
+        viewport_height - trajectory_height - status_height
+    ) / 2.0
     viewport_area = viewport_width * viewport_height
     rgb_area_fraction = main_width * main_height / viewport_area
     match_area_fraction = match_width * diagnostics_height / viewport_area
 
-    assert side_width / trajectory_height == pytest.approx(1.0, rel=0.02)
+    assert 1.15 < side_width / trajectory_height < 1.25
     assert side_width / status_height == pytest.approx(720 / 220, rel=0.02)
+    assert button_row_height > 145
     assert 0.35 < rgb_area_fraction < 0.42
     assert match_area_fraction < 0.08
 
