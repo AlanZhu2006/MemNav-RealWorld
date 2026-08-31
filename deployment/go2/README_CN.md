@@ -121,17 +121,25 @@ config-bound Survey 生命周期调用：`survey_start`只开始/恢复RGB记录
 640×360、15 Hz、JPEG质量75，深度被缩放、按200--4000 mm做Turbo着色后以640×360、
 10 Hz、JPEG质量70发布；ImageGoal以2 Hz压缩，arrival debug最多以5 Hz压缩。Match不再
 左右拼接目标和当前图，而是在单幅当前RGB上叠加inlier点、目标投影边界和关键指标。侧车还把
-`/navdp/status`渲染成720×220、2 Hz的只读操作状态卡。
+`/navdp/status`规范化为`/navdp/operator/{mode,activity,safety,go2}`四个只读字符串topic，
+并发布标准ROS `DiagnosticArray`到`/navdp/operator/diagnostics`。旧的720×220 JPEG状态卡
+仍以2 Hz发布用于兼容已有布局，但默认布局不再显示它。
 
-状态卡标题下方同时显示 Go2 电量和总电压。独立的只读 `battery` 窗口只订阅 Unitree
+四个状态维度相互独立：`mode`显示`SURVEY / REVISIT / IDLE / STARTING`，`activity`
+显示`SURVEY_ACTIVE / SURVEY_PAUSED / SURVEY_SEALED / REVISITING / REVISIT_READY /
+NAVIGATING / ARRIVED / FAULT / READY`，另两个分别显示运动锁和Go2连接。因此Go2离线
+不会覆盖当前处于Survey或Revisit的信息。原始`phase`、RGB-D时延、策略状态和电池详情
+可在System页的原生Diagnostics panel中展开。
+
+独立的只读 `battery` 窗口只订阅 Unitree
 `rt/lowstate`中的 BMS/SOC 与供电字段，再发布标准 ROS
 `/navdp/go2/battery`；它不创建运动客户端，也不发布任何控制命令。最后一帧底层状态超过
-2 秒，或机械狗/网线尚未接通，状态卡会明确显示红色 `GO2 OFFLINE`，并清空百分比、
+2 秒，或机械狗/网线尚未接通，Go2 Indicator会显示`OFFLINE`，并清空百分比、
 电压和电流，不会保留一个看似有效的旧电量。该观察节点随 Foxglove 启动，因此 Survey
 锁停阶段也能看电量；链路恢复后会自动重连，无需重启整栈。
 
 版本化布局把当前RGB降到约40%的画布面积，Match降到约8%；Goal和Depth并排补足主区。
-右侧使用更紧凑的Trajectory，下方状态卡保持接近其原始宽高比，四个内置Service Call
+右侧使用更紧凑的Trajectory，下方用四个内置Indicator组成原生状态条，四个Service Call
 按钮组成更高的2×2控制区，避免按钮文字被panel标题遮挡。Foxglove内置panel仍是一项
 service一个panel，因此不引入自定义
 扩展。Match只显示紧凑的单帧匹配叠加，不再用宽幅左右对比抢占横向空间。
@@ -141,21 +149,22 @@ service一个panel，因此不引入自定义
 
 同一个组织布局使用Foxglove内置Tab分成三页：默认`Operate`保持上述简洁操作视图；
 `Planning`打开候选轨迹/Q值marker，并并列显示vx/wz曲线、Goal、Match与原始arrival状态；
-`System`显示ROS连接图、enabled/estop/arrival状态时间线、原始NavDP状态和Go2电池消息。
+`System`显示ROS连接图、模式/动作/安全/Go2状态时间线、标准Diagnostics和原始NavDP状态。
 这些页全部只用内置只读panel，不增加扩展，也不扩大Foxglove的控制权限。
 
 完整`/navdp/status`和
 `/navdp/rgb_arrival_status`仍可从Topics侧栏按需查看，不再占用默认dashboard。
-ImageGoal、最后一次arrival对比和状态卡使用transient-local显示QoS，因此Bridge或浏览器
+ImageGoal、最后一次arrival对比和原生状态topic使用transient-local显示QoS，因此Bridge或浏览器
 重连后仍能立即取得最近快照；arrival panel表示“最后一次评估”，不是锁定期间的新判断。
-状态卡下方的绿色`START SURVEY`与蓝色`SEAL SURVEY`只在`survey-prepare`生成的Survey
-栈中可用。前者建立第一帧记录边界，后者等待当前帧提交完成后冻结dataset。状态卡会用
-紧凑显示`ACTIVE / PAUSED / SEALED`、已保存帧数和最近一次按钮结果。按钮关闭编辑模式，
+状态条下方的绿色`START SURVEY`与蓝色`SEAL SURVEY`只在`survey-prepare`生成的Survey
+栈中可用。前者建立第一帧记录边界，后者等待当前帧提交完成后冻结dataset。
+Activity Indicator会显示`RECORDING / PAUSED / SEALED`；已保存帧数和最近一次按钮结果
+可在Diagnostics中展开。按钮关闭编辑模式，
 默认不铺开request/response文字；seal失败时保持记录暂停，已有帧不会丢失，可再次Start
 继续采集。红色
 `STOP NAVIGATION`按钮只执行
 `enabled=false + estop=true + zero command`；
-它不能启动机器人，重复点击也安全。调用成功后应在状态卡看到`E-STOP / LOCKED`和零命令。
+它不能启动机器人，重复点击也安全。调用成功后应在Safety Indicator看到`LOCKED`。
 橙色`CAMERA RESET`会先执行相同的运动锁止，再只重启`rgbd`窗口，并等待RGB与aligned
 depth各至少10幅新帧后才返回成功；无论成功或失败都不自动解除estop或恢复导航。
 这些topic有损且只用于显示；NavDP、arrival和`--profile full`采集仍读取原始

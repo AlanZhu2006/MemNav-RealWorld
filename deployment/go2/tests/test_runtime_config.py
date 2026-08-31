@@ -202,7 +202,9 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert "Teleop" not in panel_kinds
     assert {
         "3D",
+        "DiagnosticSummary",
         "Image",
+        "Indicator",
         "CallService",
         "Plot",
         "RawMessages",
@@ -271,7 +273,23 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert operator_area["first"] == "3D!navdp"
     assert operator_area["splitPercentage"] == 52
     status_and_controls = operator_area["second"]
-    assert status_and_controls["first"] == "Image!status"
+    status_strip = status_and_controls["first"]
+    assert status_strip == {
+        "direction": "row",
+        "first": {
+            "direction": "row",
+            "first": "Indicator!mode",
+            "second": "Indicator!activity",
+            "splitPercentage": 50,
+        },
+        "second": {
+            "direction": "row",
+            "first": "Indicator!safety",
+            "second": "Indicator!go2",
+            "splitPercentage": 50,
+        },
+        "splitPercentage": 50,
+    }
     assert status_and_controls["splitPercentage"] == 40
     controls = status_and_controls["second"]
     assert controls["direction"] == "column"
@@ -355,10 +373,14 @@ def test_foxglove_debug_tabs_use_only_read_only_builtin_panels():
     assert {
         path["value"] for path in panels["StateTransitions!safety"]["paths"]
     } == {
-        "/navdp/enabled.data",
-        "/navdp/estop.data",
-        "/navdp/arrival.data",
+        "/navdp/operator/mode.data",
+        "/navdp/operator/activity.data",
+        "/navdp/operator/safety.data",
+        "/navdp/operator/go2.data",
     }
+    assert panels["DiagnosticSummary!operator"]["topicToRender"] == (
+        "/navdp/operator/diagnostics"
+    )
     assert panels["RawMessages!status"]["topicPath"] == "/navdp/status"
     assert panels["RawMessages!battery"]["topicPath"] == (
         "/navdp/go2/battery"
@@ -402,6 +424,7 @@ def test_foxglove_bridge_does_not_expose_raw_camera_images():
     ).read_text(encoding="utf-8")
     assert '"^/navdp/foxglove/.*"' in parameters
     assert '"^/navdp/go2/battery$"' in parameters
+    assert '"^/navdp/operator/.*$"' in parameters
     assert '"^/camera/camera/color/image_raw$"' not in parameters
     assert '"^/camera/camera/aligned_depth_to_color/image_raw$"' not in parameters
     assert '"^/navdp/.*"' not in parameters

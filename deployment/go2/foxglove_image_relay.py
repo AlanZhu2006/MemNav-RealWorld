@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Publish bandwidth-bounded RGB and colorized-depth previews for Foxglove.
+"""Publish bandwidth-bounded previews and native operator state for Foxglove.
 
 The relay is deliberately observation-only.  NavDP and safety consumers keep
 subscribing to the original RealSense topics; only the Foxglove layout uses
-these lossy JPEG previews.
+the lossy JPEG previews and read-only derived status topics.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from typing import Any
 import cv2
 import numpy as np
 import rclpy
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
@@ -193,6 +194,220 @@ def battery_payload_from_message(message: BatteryState) -> dict[str, Any]:
         "cell_min_v": None if not present or not cells else min(cells),
         "cell_max_v": None if not present or not cells else max(cells),
     }
+
+
+def derive_operator_state(payload: dict[str, Any]) -> dict[str, str]:
+    """Normalize protocol details into independent operator-facing states.
+
+    Workflow, activity, safety and robot connectivity are deliberately kept
+    separate. For example, an offline Go2 must not hide that the policy is in
+    the Revisit phase.
+    """
+
+    phase = str(payload.get("phase") or "").strip()
+    survey_state = str(payload.get("survey_state") or "").strip().upper()
+    if not survey_state:
+        if payload.get("stop_reason") == "survey_sealed":
+            survey_state = "SEALED"
+        elif phase == "memory_recording":
+            survey_state = (
+                "PAUSED" if payload.get("pause_memory_recording") else "ACTIVE"
+            )
+        else:
+            survey_state = "INACTIVE"
+
+    if phase == "memory_recording" or survey_state in {
+        "ACTIVE",
+        "PAUSED",
+        "SEALED",
+    }:
+        mode = "SURVEY"
+    elif phase == "revisit_query":
+        mode = "REVISIT"
+    elif not payload.get("server_initialized"):
+        mode = "STARTING"
+    else:
+        mode = "IDLE"
+
+    enabled = bool(payload.get("enabled"))
+    estop = bool(payload.get("estop"))
+    if enabled and not estop:
+        safety = "ENABLED"
+    elif not enabled and estop:
+        safety = "LOCKED"
+    else:
+        safety = "INCONSISTENT"
+
+    last_error = str(payload.get("last_error") or "").strip()
+    if last_error:
+        activity = "FAULT"
+    elif payload.get("arrival_latched"):
+        activity = "ARRIVED"
+    elif mode == "SURVEY":
+        activity = f"SURVEY_{survey_state}"
+    elif mode == "REVISIT":
+        activity = "REVISITING" if safety == "ENABLED" else "REVISIT_READY"
+    elif mode == "STARTING":
+        activity = "STARTING"
+    elif safety == "ENABLED":
+        activity = "NAVIGATING"
+    else:
+        activity = "READY"
+
+    battery = payload.get("go2_battery")
+    if not isinstance(battery, dict):
+        battery = {}
+    go2 = "ONLINE" if battery.get("online") is True else "OFFLINE"
+    return {
+        "mode": mode,
+        "activity": activity,
+        "safety": safety,
+        "go2": go2,
+    }
+
+
+def _diagnostic_value(value: Any) -> str:
+    if value is None or value == "":
+        return "-"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, float):
+        return f"{value:.3f}"
+    return str(value)
+
+
+def _diagnostic_status(
+    *,
+    name: str,
+    hardware_id: str,
+    level: bytes,
+    message: str,
+    values: dict[str, Any],
+) -> DiagnosticStatus:
+    status = DiagnosticStatus()
+    status.name = name
+    status.hardware_id = hardware_id
+    status.level = level
+    status.message = message
+    status.values = [
+        KeyValue(key=key, value=_diagnostic_value(value))
+        for key, value in values.items()
+    ]
+    return status
+
+
+def build_operator_diagnostics(
+    payload: dict[str, Any], *, stamp: Any | None = None
+) -> DiagnosticArray:
+    """Build standard ROS diagnostics consumed by Foxglove's native panel."""
+
+    state = derive_operator_state(payload)
+    diagnostic_array = DiagnosticArray()
+    if stamp is not None:
+        diagnostic_array.header.stamp = stamp
+
+    last_error = str(payload.get("last_error") or "").strip()
+    workflow_level = DiagnosticStatus.ERROR if last_error else DiagnosticStatus.OK
+    if state["mode"] == "STARTING" and not last_error:
+        workflow_level = DiagnosticStatus.WARN
+    diagnostic_array.status.append(
+        _diagnostic_status(
+            name="MemNav/Workflow",
+            hardware_id="navdp",
+            level=workflow_level,
+            message=last_error or state["activity"],
+            values={
+                "mode": state["mode"],
+                "activity": state["activity"],
+                "raw_phase": payload.get("phase"),
+                "survey_state": payload.get("survey_state"),
+                "frames_recorded": payload.get("frames_recorded"),
+                "goal_candidates": payload.get("goal_candidates_captured"),
+                "active_goal_id": payload.get("active_goal_id"),
+                "stop_reason": payload.get("stop_reason"),
+            },
+        )
+    )
+
+    rgbd_age = _number(payload.get("rgbd_age_s"))
+    rgbd_skew = _number(payload.get("rgb_depth_skew_s"))
+    if rgbd_age is None:
+        sensor_level, sensor_message = DiagnosticStatus.STALE, "No RGB-D sample"
+    elif rgbd_age > 0.75:
+        sensor_level, sensor_message = DiagnosticStatus.ERROR, "RGB-D stale"
+    elif rgbd_age > 0.25 or (rgbd_skew is not None and rgbd_skew > 0.12):
+        sensor_level, sensor_message = DiagnosticStatus.WARN, "RGB-D delayed"
+    else:
+        sensor_level, sensor_message = DiagnosticStatus.OK, "RGB-D fresh"
+    diagnostic_array.status.append(
+        _diagnostic_status(
+            name="MemNav/RGB-D",
+            hardware_id="realsense_d435i",
+            level=sensor_level,
+            message=sensor_message,
+            values={
+                "age_s": rgbd_age,
+                "rgb_depth_skew_s": rgbd_skew,
+                "clearance_m": payload.get("clearance_m"),
+            },
+        )
+    )
+
+    initialized = bool(payload.get("server_initialized"))
+    inference_busy = bool(payload.get("inference_busy"))
+    if last_error:
+        policy_level, policy_message = DiagnosticStatus.ERROR, last_error
+    elif not initialized:
+        policy_level, policy_message = DiagnosticStatus.WARN, "Starting"
+    elif inference_busy:
+        policy_level, policy_message = DiagnosticStatus.OK, "Inference busy"
+    else:
+        policy_level, policy_message = DiagnosticStatus.OK, "Ready"
+    diagnostic_array.status.append(
+        _diagnostic_status(
+            name="MemNav/Policy",
+            hardware_id="jetson",
+            level=policy_level,
+            message=policy_message,
+            values={
+                "initialized": initialized,
+                "inference_busy": inference_busy,
+                "last_inference_s": payload.get("last_inference_s"),
+                "plan_age_s": payload.get("plan_age_s"),
+                "candidate_count": payload.get("candidate_count"),
+                "backend": payload.get("backend"),
+            },
+        )
+    )
+
+    battery = payload.get("go2_battery")
+    if not isinstance(battery, dict):
+        battery = {}
+    battery_soc = _number(battery.get("soc_pct"))
+    if state["go2"] == "OFFLINE":
+        go2_level, go2_message = DiagnosticStatus.WARN, "Offline"
+    elif battery_soc is not None and battery_soc < 15.0:
+        go2_level, go2_message = DiagnosticStatus.WARN, "Battery low"
+    else:
+        go2_level, go2_message = DiagnosticStatus.OK, "Online"
+    diagnostic_array.status.append(
+        _diagnostic_status(
+            name="MemNav/Go2",
+            hardware_id="unitree_go2",
+            level=go2_level,
+            message=go2_message,
+            values={
+                "connection": state["go2"],
+                "safety": state["safety"],
+                "soc_pct": battery_soc,
+                "voltage_v": battery.get("voltage_v"),
+                "current_a": battery.get("current_a"),
+                "enabled": payload.get("enabled"),
+                "estop": payload.get("estop"),
+            },
+        )
+    )
+    return diagnostic_array
 
 
 def render_status_card(
@@ -448,6 +663,7 @@ class FoxgloveImageRelay(Node):
         self._next_status = 0.0
         self._last_error_log = 0.0
         self._battery_payload: dict[str, Any] = {"online": False}
+        self._last_status_payload: dict[str, Any] | None = None
         sensor_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
@@ -474,6 +690,23 @@ class FoxgloveImageRelay(Node):
         )
         self._status_publisher = self.create_publisher(
             CompressedImage, options.status_output, state_qos
+        )
+        self._operator_publishers = {
+            "mode": self.create_publisher(
+                String, options.operator_mode_output, state_qos
+            ),
+            "activity": self.create_publisher(
+                String, options.operator_activity_output, state_qos
+            ),
+            "safety": self.create_publisher(
+                String, options.operator_safety_output, state_qos
+            ),
+            "go2": self.create_publisher(
+                String, options.operator_go2_output, state_qos
+            ),
+        }
+        self._diagnostics_publisher = self.create_publisher(
+            DiagnosticArray, options.operator_diagnostics_output, state_qos
         )
         rgb_callbacks = MutuallyExclusiveCallbackGroup()
         depth_callbacks = MutuallyExclusiveCallbackGroup()
@@ -557,6 +790,16 @@ class FoxgloveImageRelay(Node):
                 options.status_fps,
                 options.status_jpeg_quality,
                 options.status_output,
+            )
+        )
+        self.get_logger().info(
+            "Native operator state -> %s, %s, %s, %s; diagnostics -> %s"
+            % (
+                options.operator_mode_output,
+                options.operator_activity_output,
+                options.operator_safety_output,
+                options.operator_go2_output,
+                options.operator_diagnostics_output,
             )
         )
 
@@ -648,16 +891,33 @@ class FoxgloveImageRelay(Node):
 
     def _on_battery(self, message: BatteryState) -> None:
         self._battery_payload = battery_payload_from_message(message)
+        if self._last_status_payload is not None:
+            payload = dict(self._last_status_payload)
+            payload["go2_battery"] = dict(self._battery_payload)
+            self._publish_native_status(payload)
+
+    def _publish_native_status(self, payload: dict[str, Any]) -> None:
+        state = derive_operator_state(payload)
+        for key, publisher in self._operator_publishers.items():
+            message = String()
+            message.data = state[key]
+            publisher.publish(message)
+        stamp = self.get_clock().now().to_msg()
+        self._diagnostics_publisher.publish(
+            build_operator_diagnostics(payload, stamp=stamp)
+        )
 
     def _on_status(self, message: String) -> None:
-        now = time.monotonic()
-        if not self._due("status", now, self._status_period):
-            return
         try:
             payload = json.loads(message.data)
             if not isinstance(payload, dict):
                 raise ValueError("status payload is not a JSON object")
+            self._last_status_payload = dict(payload)
             payload["go2_battery"] = dict(self._battery_payload)
+            self._publish_native_status(payload)
+            now = time.monotonic()
+            if not self._due("status", now, self._status_period):
+                return
             image = render_status_card(
                 payload, self.options.status_width, self.options.status_height
             )
@@ -702,6 +962,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--goal-output", required=True)
     parser.add_argument("--arrival-output", required=True)
     parser.add_argument("--status-output", required=True)
+    parser.add_argument("--operator-mode-output", default="/navdp/operator/mode")
+    parser.add_argument(
+        "--operator-activity-output", default="/navdp/operator/activity"
+    )
+    parser.add_argument(
+        "--operator-safety-output", default="/navdp/operator/safety"
+    )
+    parser.add_argument("--operator-go2-output", default="/navdp/operator/go2")
+    parser.add_argument(
+        "--operator-diagnostics-output", default="/navdp/operator/diagnostics"
+    )
     parser.add_argument("--width", type=int, required=True)
     parser.add_argument("--height", type=int, required=True)
     parser.add_argument("--rgb-fps", type=float, required=True)

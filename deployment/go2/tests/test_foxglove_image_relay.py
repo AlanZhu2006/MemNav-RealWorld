@@ -12,14 +12,17 @@ sys.path.insert(0, str(REPO / "deployment/go2"))
 
 from foxglove_image_relay import (  # noqa: E402
     battery_payload_from_message,
+    build_operator_diagnostics,
     colorize_depth_preview,
     depth_message_to_u16,
+    derive_operator_state,
     encode_jpeg,
     prepare_color_preview,
     render_status_card,
     resize_rgb_preview,
     rgb_message_to_bgr,
 )
+from diagnostic_msgs.msg import DiagnosticStatus  # noqa: E402
 from sensor_msgs.msg import BatteryState  # noqa: E402
 
 
@@ -167,6 +170,139 @@ def test_battery_state_is_rendered_live_and_offline_without_stale_soc():
     offline = battery_payload_from_message(message)
     assert offline["online"] is False
     assert offline["soc_pct"] is None
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        (
+            {
+                "phase": "memory_recording",
+                "survey_state": "ACTIVE",
+                "enabled": False,
+                "estop": True,
+            },
+            {
+                "mode": "SURVEY",
+                "activity": "SURVEY_ACTIVE",
+                "safety": "LOCKED",
+                "go2": "OFFLINE",
+            },
+        ),
+        (
+            {
+                "phase": "memory_recording",
+                "survey_state": "PAUSED",
+                "enabled": False,
+                "estop": True,
+                "go2_battery": {"online": True},
+            },
+            {
+                "mode": "SURVEY",
+                "activity": "SURVEY_PAUSED",
+                "safety": "LOCKED",
+                "go2": "ONLINE",
+            },
+        ),
+        (
+            {
+                "phase": "revisit_query",
+                "survey_state": "INACTIVE",
+                "enabled": True,
+                "estop": False,
+            },
+            {
+                "mode": "REVISIT",
+                "activity": "REVISITING",
+                "safety": "ENABLED",
+                "go2": "OFFLINE",
+            },
+        ),
+        (
+            {
+                "phase": "revisit_query",
+                "server_initialized": True,
+                "enabled": False,
+                "estop": True,
+            },
+            {
+                "mode": "REVISIT",
+                "activity": "REVISIT_READY",
+                "safety": "LOCKED",
+                "go2": "OFFLINE",
+            },
+        ),
+        (
+            {
+                "server_initialized": True,
+                "enabled": False,
+                "estop": True,
+            },
+            {
+                "mode": "IDLE",
+                "activity": "READY",
+                "safety": "LOCKED",
+                "go2": "OFFLINE",
+            },
+        ),
+    ],
+)
+def test_operator_state_keeps_workflow_safety_and_connection_independent(
+    payload, expected
+):
+    assert derive_operator_state(payload) == expected
+
+
+def test_operator_diagnostics_expose_raw_phase_and_health_details():
+    payload = {
+        "phase": "revisit_query",
+        "survey_state": "INACTIVE",
+        "server_initialized": True,
+        "enabled": True,
+        "estop": False,
+        "rgbd_age_s": 0.08,
+        "rgb_depth_skew_s": 0.01,
+        "plan_age_s": 0.3,
+        "candidate_count": 5,
+        "go2_battery": {"online": False},
+    }
+    diagnostics = build_operator_diagnostics(payload)
+    by_name = {status.name: status for status in diagnostics.status}
+
+    assert set(by_name) == {
+        "MemNav/Workflow",
+        "MemNav/RGB-D",
+        "MemNav/Policy",
+        "MemNav/Go2",
+    }
+    workflow = by_name["MemNav/Workflow"]
+    workflow_values = {value.key: value.value for value in workflow.values}
+    assert workflow.level == DiagnosticStatus.OK
+    assert workflow.message == "REVISITING"
+    assert workflow_values["mode"] == "REVISIT"
+    assert workflow_values["raw_phase"] == "revisit_query"
+    assert by_name["MemNav/RGB-D"].level == DiagnosticStatus.OK
+    assert by_name["MemNav/Go2"].level == DiagnosticStatus.WARN
+
+
+def test_operator_fault_has_error_diagnostic_without_hiding_mode():
+    payload = {
+        "phase": "revisit_query",
+        "server_initialized": True,
+        "enabled": False,
+        "estop": True,
+        "last_error": "policy timeout",
+    }
+    state = derive_operator_state(payload)
+    diagnostics = build_operator_diagnostics(payload)
+    workflow = next(
+        status for status in diagnostics.status if status.name == "MemNav/Workflow"
+    )
+
+    assert state["mode"] == "REVISIT"
+    assert state["activity"] == "FAULT"
+    assert workflow.level == DiagnosticStatus.ERROR
+    assert workflow.message == "policy timeout"
 
 
 def test_depth_preview_preserves_invalid_mask_and_colorizes_range():

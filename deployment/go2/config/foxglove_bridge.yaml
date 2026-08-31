@@ -20,6 +20,7 @@ foxglove_bridge:
       - "^/navdp/(arrival|cec_receipt|cmd_vel|enabled|estop|experiment_event|rgb_arrival_status|status|trajectory)$"
       - "^/navdp/debug/markers$"
       - "^/navdp/go2/battery$"
+      - "^/navdp/operator/.*$"
       - "^/navdp/foxglove/.*"
       - "^/navdp/gt/.*"
       - "^/camera/camera/color/camera_info$"

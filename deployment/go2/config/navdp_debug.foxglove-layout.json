@@ -201,6 +201,65 @@
       },
       "foxglovePanelTitle": "Status"
     },
+    "Indicator!mode": {
+      "path": "/navdp/operator/mode.data",
+      "style": "background",
+      "fontSize": 20,
+      "fallbackColor": "#4b5563",
+      "fallbackLabel": "UNKNOWN",
+      "rules": [
+        {"operator": "=", "rawValue": "SURVEY", "color": "#2563eb", "label": "SURVEY"},
+        {"operator": "=", "rawValue": "REVISIT", "color": "#7c3aed", "label": "REVISIT"},
+        {"operator": "=", "rawValue": "IDLE", "color": "#475569", "label": "IDLE"},
+        {"operator": "=", "rawValue": "STARTING", "color": "#d97706", "label": "STARTING"}
+      ],
+      "foxglovePanelTitle": "Mode"
+    },
+    "Indicator!activity": {
+      "path": "/navdp/operator/activity.data",
+      "style": "background",
+      "fontSize": 18,
+      "fallbackColor": "#4b5563",
+      "fallbackLabel": "UNKNOWN",
+      "rules": [
+        {"operator": "=", "rawValue": "SURVEY_ACTIVE", "color": "#15803d", "label": "RECORDING"},
+        {"operator": "=", "rawValue": "SURVEY_PAUSED", "color": "#d97706", "label": "PAUSED"},
+        {"operator": "=", "rawValue": "SURVEY_SEALED", "color": "#0369a1", "label": "SEALED"},
+        {"operator": "=", "rawValue": "REVISITING", "color": "#15803d", "label": "REVISITING"},
+        {"operator": "=", "rawValue": "REVISIT_READY", "color": "#0369a1", "label": "READY"},
+        {"operator": "=", "rawValue": "NAVIGATING", "color": "#15803d", "label": "NAVIGATING"},
+        {"operator": "=", "rawValue": "ARRIVED", "color": "#047857", "label": "ARRIVED"},
+        {"operator": "=", "rawValue": "FAULT", "color": "#b91c1c", "label": "FAULT"},
+        {"operator": "=", "rawValue": "READY", "color": "#475569", "label": "READY"},
+        {"operator": "=", "rawValue": "STARTING", "color": "#d97706", "label": "STARTING"}
+      ],
+      "foxglovePanelTitle": "Activity"
+    },
+    "Indicator!safety": {
+      "path": "/navdp/operator/safety.data",
+      "style": "background",
+      "fontSize": 18,
+      "fallbackColor": "#4b5563",
+      "fallbackLabel": "UNKNOWN",
+      "rules": [
+        {"operator": "=", "rawValue": "LOCKED", "color": "#475569", "label": "LOCKED"},
+        {"operator": "=", "rawValue": "ENABLED", "color": "#15803d", "label": "MOTION ON"},
+        {"operator": "=", "rawValue": "INCONSISTENT", "color": "#b91c1c", "label": "CHECK STATE"}
+      ],
+      "foxglovePanelTitle": "Safety"
+    },
+    "Indicator!go2": {
+      "path": "/navdp/operator/go2.data",
+      "style": "background",
+      "fontSize": 18,
+      "fallbackColor": "#4b5563",
+      "fallbackLabel": "UNKNOWN",
+      "rules": [
+        {"operator": "=", "rawValue": "ONLINE", "color": "#15803d", "label": "ONLINE"},
+        {"operator": "=", "rawValue": "OFFLINE", "color": "#475569", "label": "OFFLINE"}
+      ],
+      "foxglovePanelTitle": "Go2"
+    },
     "Image!goal-debug": {
       "scene": {},
       "transforms": {},
@@ -304,23 +363,28 @@
     "StateTransitions!safety": {
       "paths": [
         {
-          "value": "/navdp/enabled.data",
+          "value": "/navdp/operator/mode.data",
           "timestampMethod": "receiveTime",
-          "label": "Enabled"
+          "label": "Mode"
         },
         {
-          "value": "/navdp/estop.data",
+          "value": "/navdp/operator/activity.data",
           "timestampMethod": "receiveTime",
-          "label": "E-stop"
+          "label": "Activity"
         },
         {
-          "value": "/navdp/arrival.data",
+          "value": "/navdp/operator/safety.data",
           "timestampMethod": "receiveTime",
-          "label": "Arrival"
+          "label": "Safety"
+        },
+        {
+          "value": "/navdp/operator/go2.data",
+          "timestampMethod": "receiveTime",
+          "label": "Go2"
         }
       ],
       "isSynced": true,
-      "foxglovePanelTitle": "Safety timeline"
+      "foxglovePanelTitle": "Operator state timeline"
     },
     "RawMessages!status": {
       "diffEnabled": false,
@@ -348,6 +412,13 @@
     },
     "TopicGraph!navdp": {
       "foxglovePanelTitle": "ROS graph"
+    },
+    "DiagnosticSummary!operator": {
+      "pinnedIds": [],
+      "hardwareIdFilter": "",
+      "topicToRender": "/navdp/operator/diagnostics",
+      "sortByLevel": true,
+      "foxglovePanelTitle": "Diagnostics"
     },
     "Tab!navdp": {
       "activeTabIdx": 0,
@@ -377,7 +448,22 @@
               "first": "3D!navdp",
               "second": {
                 "direction": "column",
-                "first": "Image!status",
+                "first": {
+                  "direction": "row",
+                  "first": {
+                    "direction": "row",
+                    "first": "Indicator!mode",
+                    "second": "Indicator!activity",
+                    "splitPercentage": 50
+                  },
+                  "second": {
+                    "direction": "row",
+                    "first": "Indicator!safety",
+                    "second": "Indicator!go2",
+                    "splitPercentage": 50
+                  },
+                  "splitPercentage": 50
+                },
                 "second": {
                   "direction": "column",
                   "first": {
@@ -435,11 +521,11 @@
               "first": "StateTransitions!safety",
               "second": {
                 "direction": "row",
-                "first": "RawMessages!status",
-                "second": "RawMessages!battery",
-                "splitPercentage": 68
+                "first": "DiagnosticSummary!operator",
+                "second": "RawMessages!status",
+                "splitPercentage": 58
               },
-              "splitPercentage": 32
+              "splitPercentage": 34
             },
             "splitPercentage": 56
           }
