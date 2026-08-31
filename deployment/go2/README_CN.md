@@ -117,9 +117,11 @@ config-bound Survey 生命周期调用：`survey_start`只开始/恢复RGB记录
 `/navdp/rgb_arrival_status`仍可从Topics侧栏按需查看，不再占用默认dashboard。
 ImageGoal、最后一次arrival对比和状态卡使用transient-local显示QoS，因此Bridge或浏览器
 重连后仍能立即取得最近快照；arrival panel表示“最后一次评估”，不是锁定期间的新判断。
-状态卡右侧的绿色`START SURVEY`与蓝色`SEAL SURVEY`只在`survey-prepare`生成的Survey
-栈中可用。前者建立第一帧记录边界，后者等待当前帧提交完成后冻结dataset；seal失败时
-保持记录暂停，可再次Start继续采集。红色`STOP NAVIGATION`按钮只执行
+状态卡下方的绿色`START SURVEY`与蓝色`SEAL SURVEY`只在`survey-prepare`生成的Survey
+栈中可用。前者建立第一帧记录边界，后者等待当前帧提交完成后冻结dataset。状态卡会用
+大字显示`ACTIVE / PAUSED / SEALED`、已保存帧数和最近一次按钮结果；每个按钮面板也保留
+完整response。seal失败时保持记录暂停，已有帧不会丢失，可再次Start继续采集。红色
+`STOP NAVIGATION`按钮只执行
 `enabled=false + estop=true + zero command`；
 它不能启动机器人，重复点击也安全。调用成功后应在状态卡看到`E-STOP / LOCKED`和零命令。
 橙色`RECOVER CAMERA`会先执行相同的运动锁止，再只重启`rgbd`窗口，并等待RGB与aligned

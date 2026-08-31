@@ -175,20 +175,20 @@
       "requestPayload": "{}",
       "layout": "vertical",
       "buttonText": "START SURVEY",
-      "buttonTooltip": "Start or resume RGB Survey recording for the config-bound dataset; motion stays disabled + estop",
+      "buttonTooltip": "Start or resume RGB Survey recording; verify ACTIVE in the large status card and the result below this button",
       "buttonColor": "#2e7d32",
       "editingMode": false,
-      "foxglovePanelTitle": "Survey recording only — no motion authority"
+      "foxglovePanelTitle": "START / RESUME — result appears below"
     },
     "CallService!survey-seal": {
       "serviceName": "/navdp_go2_adapter/survey_seal",
       "requestPayload": "{}",
       "layout": "vertical",
       "buttonText": "SEAL SURVEY",
-      "buttonTooltip": "Pause recording, lock motion, validate and immutably seal the config-bound Survey dataset",
+      "buttonTooltip": "Pause and validate the Survey; verify SEALED or PAUSED/FAILED in the large status card and the result below",
       "buttonColor": "#1565c0",
       "editingMode": false,
-      "foxglovePanelTitle": "Seal dataset — motion stays locked"
+      "foxglovePanelTitle": "SEAL — result appears below"
     }
   },
   "globalVariables": {},
@@ -218,7 +218,7 @@
           "splitPercentage": 50
         },
         "second": {
-          "direction": "row",
+          "direction": "column",
           "first": "Image!status",
           "second": {
             "direction": "column",
@@ -236,12 +236,12 @@
             },
             "splitPercentage": 50
           },
-          "splitPercentage": 66
+          "splitPercentage": 38
         },
-        "splitPercentage": 54
+        "splitPercentage": 36
       },
-      "splitPercentage": 42
+      "splitPercentage": 35
     },
-    "splitPercentage": 60
+    "splitPercentage": 55
   }
 }

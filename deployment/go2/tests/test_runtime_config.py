@@ -230,6 +230,16 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert survey_seal["serviceName"] == "/navdp_go2_adapter/survey_seal"
     assert survey_seal["requestPayload"] == "{}"
     assert survey_seal["buttonText"] == "SEAL SURVEY"
+    operator_area = layout["layout"]["second"]["second"]["second"]
+    assert operator_area["direction"] == "column"
+    assert operator_area["first"] == "Image!status"
+    survey_button_row = operator_area["second"]["first"]
+    assert survey_button_row == {
+        "direction": "row",
+        "first": "CallService!survey-start",
+        "second": "CallService!survey-seal",
+        "splitPercentage": 50,
+    }
 
 
 def test_foxglove_layout_maps_every_legacy_rviz_display_to_current_panels():

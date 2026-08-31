@@ -101,6 +101,16 @@ def _survey_adapter(client):
     adapter._target_command = None
     adapter._stop_reason = "memory_recording_paused"
     adapter._survey_seal_receipt = {}
+    adapter._survey_last_action = ""
+    adapter._survey_last_success = None
+    adapter._survey_last_message = ""
+    adapter._survey_recording_active = None
+    adapter.published_survey_receipts = []
+    adapter._publish_receipt = (
+        lambda event, receipt: adapter.published_survey_receipts.append(
+            (event, receipt)
+        )
+    )
     adapter.survey_dataset_id = "survey_01"
     adapter.survey_seal_receipt_path = ""
     adapter.request_timeout_s = 1.0
@@ -201,6 +211,9 @@ def test_survey_start_unpauses_only_the_config_bound_dataset():
     assert adapter._estop is True
     assert adapter._inference_busy is False
     assert '"recording_active": true' in response.message
+    assert "SURVEY STARTED" in response.message
+    assert adapter._survey_last_success is True
+    assert adapter.published_survey_receipts[-1][0] == "survey_start"
 
 
 def test_survey_start_rejects_a_different_active_dataset():
@@ -216,6 +229,8 @@ def test_survey_start_rejects_a_different_active_dataset():
     assert adapter._enabled is False
     assert adapter._estop is True
     assert "identity/recording state" in response.message
+    assert adapter._survey_last_success is False
+    assert adapter.published_survey_receipts[-1][0] == "survey_start_rejected"
 
 
 def test_survey_seal_locks_motion_and_is_idempotent():
@@ -236,6 +251,8 @@ def test_survey_seal_locks_motion_and_is_idempotent():
     assert adapter._estop is True
     assert adapter._stop_reason == "survey_sealed"
     assert '"manifest_sha256": "' in first.message
+    assert adapter._survey_last_success is True
+    assert adapter.published_survey_receipts[-1][0] == "survey_seal"
 
 
 def test_failed_survey_seal_remains_paused_and_start_can_resume():
@@ -249,6 +266,9 @@ def test_failed_survey_seal_remains_paused_and_start_can_resume():
     assert seal_response.success is False
     assert adapter.pause_memory_recording is True
     assert adapter._inference_busy is False
+    assert "click START SURVEY to resume" in seal_response.message
+    assert adapter._survey_last_success is False
+    assert adapter.published_survey_receipts[-1][0] == "survey_seal_rejected"
 
     start_response = _Response()
     adapter._survey_start_service(object(), start_response)

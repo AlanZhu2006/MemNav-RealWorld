@@ -102,6 +102,10 @@ class NavDPGo2Adapter(Node):
         self._terminal_motion_receipt: dict = {}
         self._last_receipt_event = ""
         self._survey_seal_receipt: dict = {}
+        self._survey_last_action = ""
+        self._survey_last_success: Optional[bool] = None
+        self._survey_last_message = ""
+        self._survey_recording_active: Optional[bool] = None
         self._arrival_latched = False
         self._client_lock = threading.Lock()
 
@@ -542,6 +546,46 @@ class NavDPGo2Adapter(Node):
             self.pause_memory_recording = bool(pause)
         self._publish_zero(reason)
 
+    def _finish_survey_action(
+        self,
+        response,
+        *,
+        action: str,
+        success: bool,
+        summary: str,
+        recording_active: bool,
+        receipt: Optional[dict] = None,
+    ):
+        """Make every Survey button result visible in status and receipts."""
+
+        payload = {
+            "operator_summary": str(summary),
+            **dict(receipt or {}),
+            "dataset_id": self.survey_dataset_id,
+            "action": str(action),
+            "success": bool(success),
+            "recording_active": bool(recording_active),
+            "motion_enabled": False,
+            "estop": True,
+            "motion_authority_changed": False,
+        }
+        with self._lock:
+            self._survey_last_action = str(action)
+            self._survey_last_success = bool(success)
+            self._survey_last_message = str(summary)
+            self._survey_recording_active = bool(recording_active)
+            if "memory_frames" in payload:
+                self._frames_recorded = max(
+                    self._frames_recorded, int(payload["memory_frames"])
+                )
+        event = action if success else f"{action}_rejected"
+        self._publish_receipt(event, payload)
+        log = self.get_logger().info if success else self.get_logger().warning
+        log(summary)
+        response.success = bool(success)
+        response.message = json.dumps(payload, ensure_ascii=False)
+        return response
+
     def _survey_start_service(self, _request, response):
         """Start or resume an already prepared Survey without arming motion.
 
@@ -565,17 +609,20 @@ class NavDPGo2Adapter(Node):
         )
         if active_recording:
             receipt = {
-                "dataset_id": self.survey_dataset_id,
-                "recording_active": True,
                 "resumed": True,
                 "memory_frames": frames,
-                "motion_enabled": False,
-                "estop": True,
-                "motion_authority_changed": False,
             }
-            response.success = True
-            response.message = json.dumps(receipt, ensure_ascii=False)
-            return response
+            return self._finish_survey_action(
+                response,
+                action="survey_start",
+                success=True,
+                summary=(
+                    f"SURVEY ALREADY ACTIVE | {self.survey_dataset_id} | "
+                    f"frames={frames} | motion LOCKED"
+                ),
+                recording_active=True,
+                receipt=receipt,
+            )
 
         reserved = False
         with self._lock:
@@ -583,17 +630,32 @@ class NavDPGo2Adapter(Node):
                 self._inference_busy = True
                 reserved = True
         if not initialized:
-            response.success = False
-            response.message = "Survey policy is not initialized; retry after PREPARE"
-            return response
+            return self._finish_survey_action(
+                response,
+                action="survey_start",
+                success=False,
+                summary="START REJECTED | policy is not initialized; retry after PREPARE",
+                recording_active=False,
+                receipt={"memory_frames": frames},
+            )
         if phase != "memory_recording":
-            response.success = False
-            response.message = f"Survey start requires memory_recording, not {phase}"
-            return response
+            return self._finish_survey_action(
+                response,
+                action="survey_start",
+                success=False,
+                summary=f"START REJECTED | requires memory_recording, not {phase}",
+                recording_active=False,
+                receipt={"memory_frames": frames},
+            )
         if busy:
-            response.success = False
-            response.message = "Survey transition is busy; retry"
-            return response
+            return self._finish_survey_action(
+                response,
+                action="survey_start",
+                success=False,
+                summary="START REJECTED | Survey transition is busy; retry",
+                recording_active=False,
+                receipt={"memory_frames": frames},
+            )
 
         try:
             with self._client_lock:
@@ -608,28 +670,37 @@ class NavDPGo2Adapter(Node):
                 )
             frames = int(status.get("memory_frames", frames))
             receipt = {
-                "dataset_id": self.survey_dataset_id,
-                "recording_active": True,
                 "resumed": bool(frames > 0),
                 "memory_frames": frames,
-                "motion_enabled": False,
-                "estop": True,
-                "motion_authority_changed": False,
             }
             with self._lock:
                 self.pause_memory_recording = False
                 self._stop_reason = "memory_recording"
-            self._publish_receipt("survey_start", receipt)
-            self.get_logger().info(f"Survey recording started: {receipt}")
-            response.success = True
-            response.message = json.dumps(receipt, ensure_ascii=False)
-            return response
+            return self._finish_survey_action(
+                response,
+                action="survey_start",
+                success=True,
+                summary=(
+                    f"SURVEY {'RESUMED' if frames > 0 else 'STARTED'} | "
+                    f"{self.survey_dataset_id} | frames={frames} | motion LOCKED"
+                ),
+                recording_active=True,
+                receipt=receipt,
+            )
         except Exception as exc:
             with self._lock:
                 self.pause_memory_recording = True
-            response.success = False
-            response.message = f"{type(exc).__name__}: {exc}; recording remains paused"
-            return response
+            return self._finish_survey_action(
+                response,
+                action="survey_start",
+                success=False,
+                summary=(
+                    f"START REJECTED | {type(exc).__name__}: {exc} | "
+                    "recording PAUSED; motion LOCKED"
+                ),
+                recording_active=False,
+                receipt={"memory_frames": frames},
+            )
         finally:
             if reserved:
                 with self._lock:
@@ -643,18 +714,37 @@ class NavDPGo2Adapter(Node):
             initialized = self._server_initialized
             phase = self._phase
             cached = dict(self._survey_seal_receipt)
+            frames = self._frames_recorded
         if cached:
-            response.success = True
-            response.message = json.dumps(cached, ensure_ascii=False)
-            return response
+            return self._finish_survey_action(
+                response,
+                action="survey_seal",
+                success=True,
+                summary=(
+                    f"SURVEY ALREADY SEALED | {self.survey_dataset_id} | "
+                    f"frames={cached.get('memory_frames', frames)} | motion LOCKED"
+                ),
+                recording_active=False,
+                receipt=cached,
+            )
         if not initialized:
-            response.success = False
-            response.message = "Survey policy is not initialized"
-            return response
+            return self._finish_survey_action(
+                response,
+                action="survey_seal",
+                success=False,
+                summary="SEAL REJECTED | Survey policy is not initialized",
+                recording_active=False,
+                receipt={"memory_frames": frames},
+            )
         if phase != "memory_recording":
-            response.success = False
-            response.message = f"Survey seal requires memory_recording, not {phase}"
-            return response
+            return self._finish_survey_action(
+                response,
+                action="survey_seal",
+                success=False,
+                summary=f"SEAL REJECTED | requires memory_recording, not {phase}",
+                recording_active=False,
+                receipt={"memory_frames": frames},
+            )
 
         # Pausing above prevents a new memory transaction from starting.  Let
         # the one already in flight finish, then reserve the same slot used by
@@ -669,13 +759,22 @@ class NavDPGo2Adapter(Node):
                     break
             time.sleep(0.01)
         if not reserved:
-            response.success = False
-            response.message = "Timed out waiting for the current Survey frame; recording remains paused"
-            return response
+            return self._finish_survey_action(
+                response,
+                action="survey_seal",
+                success=False,
+                summary=(
+                    "SEAL REJECTED | timed out waiting for the current Survey "
+                    "frame | recording PAUSED; click START SURVEY to resume"
+                ),
+                recording_active=False,
+                receipt={"memory_frames": frames},
+            )
 
         try:
             with self._client_lock:
                 status = self._client.dataset_status()
+                frames = int(status.get("memory_frames", frames))
                 if status.get("recording") is True:
                     if status.get("dataset_id") != self.survey_dataset_id:
                         raise RuntimeError(
@@ -715,15 +814,29 @@ class NavDPGo2Adapter(Node):
             with self._lock:
                 self._survey_seal_receipt = dict(receipt)
                 self._stop_reason = "survey_sealed"
-            self._publish_receipt("survey_seal", receipt)
-            self.get_logger().warning(f"Survey dataset sealed: {receipt}")
-            response.success = True
-            response.message = json.dumps(receipt, ensure_ascii=False)
-            return response
+            return self._finish_survey_action(
+                response,
+                action="survey_seal",
+                success=True,
+                summary=(
+                    f"SURVEY SEALED | {self.survey_dataset_id} | "
+                    f"frames={receipt.get('memory_frames', frames)} | motion LOCKED"
+                ),
+                recording_active=False,
+                receipt=receipt,
+            )
         except Exception as exc:
-            response.success = False
-            response.message = f"{type(exc).__name__}: {exc}; recording remains paused and motion locked"
-            return response
+            return self._finish_survey_action(
+                response,
+                action="survey_seal",
+                success=False,
+                summary=(
+                    f"SEAL REJECTED | {type(exc).__name__}: {exc} | recording "
+                    "PAUSED; click START SURVEY to resume; motion LOCKED"
+                ),
+                recording_active=False,
+                receipt={"memory_frames": frames},
+            )
         finally:
             with self._lock:
                 self._inference_busy = False
@@ -744,6 +857,10 @@ class NavDPGo2Adapter(Node):
             self._terminal_motion_receipt = {}
             self._last_receipt_event = ""
             self._survey_seal_receipt = {}
+            self._survey_last_action = ""
+            self._survey_last_success = None
+            self._survey_last_message = ""
+            self._survey_recording_active = None
             self._arrival_latched = False
             self.pause_memory_recording = self._startup_pause_memory_recording
             self._last_auto_candidate_after_frame = -1
@@ -1044,6 +1161,11 @@ class NavDPGo2Adapter(Node):
                         self._last_plan_receipt = {}
                         self._terminal_motion_receipt = {}
                         self._last_receipt_event = ""
+                        self._survey_seal_receipt = {}
+                        self._survey_last_action = ""
+                        self._survey_last_success = None
+                        self._survey_last_message = ""
+                        self._survey_recording_active = None
                         self._image_goal = (
                             None
                             if self._startup_image_goal is None
@@ -1563,6 +1685,14 @@ class NavDPGo2Adapter(Node):
                 if self._depth_m is None
                 else front_clearance(self._depth_m, self.depth_safety_config)
             )
+            if self._survey_seal_receipt:
+                survey_state = "SEALED"
+            elif self._phase == "memory_recording":
+                survey_state = (
+                    "PAUSED" if self.pause_memory_recording else "ACTIVE"
+                )
+            else:
+                survey_state = "INACTIVE"
             payload = {
                 "backend": self.backend,
                 "mode": self.mode,
@@ -1596,6 +1726,12 @@ class NavDPGo2Adapter(Node):
                     self.navigate_during_memory_recording
                 ),
                 "pause_memory_recording": self.pause_memory_recording,
+                "survey_dataset_id": self.survey_dataset_id,
+                "survey_state": survey_state,
+                "survey_last_action": self._survey_last_action,
+                "survey_last_success": self._survey_last_success,
+                "survey_last_message": self._survey_last_message,
+                "survey_recording_active": self._survey_recording_active,
                 "arrival_latched": self._arrival_latched,
                 "goal_candidates_captured": self._goal_candidates_captured,
                 "auto_goal_candidate_interval_frames": (

@@ -108,6 +108,32 @@ def test_operator_status_card_is_readable_jpeg_at_configured_size():
     assert np.unique(card.reshape(-1, 3), axis=0).shape[0] > 10
 
 
+def test_survey_status_card_derives_active_and_paused_from_legacy_status():
+    payload = {
+        "enabled": False,
+        "estop": True,
+        "rgbd_age_s": 0.08,
+        "phase": "memory_recording",
+        "pause_memory_recording": True,
+        "frames_recorded": 40,
+        "goal_candidates_captured": 0,
+        "last_receipt_event": "survey_start",
+        "stop_reason": "memory_recording",
+    }
+
+    paused = render_status_card(payload, 720, 272)
+    active = render_status_card(
+        {**payload, "pause_memory_recording": False, "frames_recorded": 41},
+        720,
+        272,
+    )
+
+    assert paused.shape == (272, 720, 3)
+    assert active.shape == paused.shape
+    assert not np.array_equal(paused, active)
+    assert np.unique(paused.reshape(-1, 3), axis=0).shape[0] > 10
+
+
 def test_depth_preview_preserves_invalid_mask_and_colorizes_range():
     depth = np.array([[0, 200], [1000, 4000]], dtype=np.uint16)
     decoded = depth_message_to_u16(_message(depth, "16UC1"))

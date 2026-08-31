@@ -183,18 +183,46 @@ def render_status_card(
     enabled = bool(payload.get("enabled"))
     estop = bool(payload.get("estop"))
     arrived = bool(payload.get("arrival_latched"))
-    if arrived:
+    phase_value = str(payload.get("phase") or "")
+    survey_state = str(payload.get("survey_state") or "").upper()
+    if not survey_state:
+        if payload.get("stop_reason") == "survey_sealed":
+            survey_state = "SEALED"
+        elif phase_value == "memory_recording":
+            survey_state = (
+                "PAUSED" if payload.get("pause_memory_recording") else "ACTIVE"
+            )
+        else:
+            survey_state = "INACTIVE"
+    survey_visible = survey_state != "INACTIVE" or phase_value == "memory_recording"
+    frames_recorded = int(payload.get("frames_recorded") or 0)
+    survey_last_success = payload.get("survey_last_success")
+    if survey_visible:
+        title = "SURVEY CONTROL - MOTION LOCKED"
+        state = f"{survey_state} | {frames_recorded} FRAMES"
+        state_color = {
+            "ACTIVE": _GOOD,
+            "PAUSED": _WARNING,
+            "SEALED": _GOOD,
+        }.get(survey_state, _NEUTRAL)
+        if survey_last_success is False:
+            state_color = _DANGER
+    elif arrived:
+        title = "NAVDP OPERATOR STATUS"
         state, state_color = "ARRIVED / LOCKED", _GOOD
     elif estop:
+        title = "NAVDP OPERATOR STATUS"
         state, state_color = "E-STOP / LOCKED", _DANGER
     elif enabled:
+        title = "NAVDP OPERATOR STATUS"
         state, state_color = "NAVIGATING", _GOOD
     else:
+        title = "NAVDP OPERATOR STATUS"
         state, state_color = "READY / DISABLED", _WARNING
 
     cv2.putText(
         canvas,
-        "NAVDP OPERATOR STATUS",
+        title,
         (pad, 29),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.53,
@@ -223,32 +251,69 @@ def render_status_card(
     clearance = _number(payload.get("clearance_m"))
     cmd_vx = _number(payload.get("cmd_vx"))
     cmd_wz = _number(payload.get("cmd_wz"))
-    metrics = (
-        (
-            "RGB-D AGE",
-            "n/a" if rgbd_age is None else f"{rgbd_age:.2f} s",
-            _metric_color(rgbd_age, good_max=0.25, danger_max=0.75),
-        ),
-        (
-            "PLAN AGE",
-            "n/a" if plan_age is None else f"{plan_age:.2f} s",
-            _metric_color(plan_age, good_max=1.5, danger_max=2.5),
-        ),
-        (
-            "CLEARANCE",
-            "n/a" if clearance is None else f"{clearance:.2f} m",
-            _metric_color(clearance, danger_min=0.45, good_min=0.80),
-        ),
-        (
-            "COMMAND",
+    if survey_visible:
+        last_action = str(
+            payload.get("survey_last_action")
+            or payload.get("last_receipt_event")
+            or "-"
+        ).replace("survey_", "").replace("_", " ").upper()
+        if survey_last_success is True:
+            last_action = f"{last_action} OK"
+        elif survey_last_success is False:
+            last_action = f"{last_action} FAILED"
+        metrics = (
             (
-                "n/a"
-                if cmd_vx is None or cmd_wz is None
-                else f"{cmd_vx:+.2f} / {cmd_wz:+.2f}"
+                "RECORDING",
+                survey_state,
+                state_color,
             ),
-            _GOOD if enabled and not estop else _NEUTRAL,
-        ),
-    )
+            (
+                "FRAMES SAVED",
+                str(frames_recorded),
+                _GOOD if frames_recorded > 0 else _WARNING,
+            ),
+            (
+                "GOAL CANDIDATES",
+                str(int(payload.get("goal_candidates_captured") or 0)),
+                _NEUTRAL,
+            ),
+            (
+                "LAST BUTTON RESULT",
+                _fit_text(last_action, 18),
+                (
+                    _DANGER
+                    if survey_last_success is False
+                    else _GOOD if survey_last_success is True else _NEUTRAL
+                ),
+            ),
+        )
+    else:
+        metrics = (
+            (
+                "RGB-D AGE",
+                "n/a" if rgbd_age is None else f"{rgbd_age:.2f} s",
+                _metric_color(rgbd_age, good_max=0.25, danger_max=0.75),
+            ),
+            (
+                "PLAN AGE",
+                "n/a" if plan_age is None else f"{plan_age:.2f} s",
+                _metric_color(plan_age, good_max=1.5, danger_max=2.5),
+            ),
+            (
+                "CLEARANCE",
+                "n/a" if clearance is None else f"{clearance:.2f} m",
+                _metric_color(clearance, danger_min=0.45, good_min=0.80),
+            ),
+            (
+                "COMMAND",
+                (
+                    "n/a"
+                    if cmd_vx is None or cmd_wz is None
+                    else f"{cmd_vx:+.2f} / {cmd_wz:+.2f}"
+                ),
+                _GOOD if enabled and not estop else _NEUTRAL,
+            ),
+        )
     gap = 8
     card_top, card_bottom = 57, min(height - 82, 164)
     card_width = (width - 2 * pad - 3 * gap) // 4
@@ -279,13 +344,25 @@ def render_status_card(
         )
 
     footer_top = card_bottom + 25
-    phase = _fit_text(payload.get("phase"), 18)
-    stop_reason = _fit_text(payload.get("stop_reason"), 28)
-    goal = "LOADED" if payload.get("image_goal_loaded") else "MISSING"
-    arrival = "YES" if arrived else "NO"
+    if survey_visible:
+        dataset = _fit_text(payload.get("survey_dataset_id"), 35)
+        receipt_event = _fit_text(payload.get("last_receipt_event"), 24)
+        footer = (
+            f"DATASET  {dataset}     LAST EVENT  {receipt_event}     "
+            "MOTION  LOCKED"
+        )
+    else:
+        phase = _fit_text(payload.get("phase"), 18)
+        stop_reason = _fit_text(payload.get("stop_reason"), 28)
+        goal = "LOADED" if payload.get("image_goal_loaded") else "MISSING"
+        arrival = "YES" if arrived else "NO"
+        footer = (
+            f"PHASE  {phase}     GOAL  {goal}     ARRIVAL  {arrival}     "
+            f"STOP  {stop_reason}"
+        )
     cv2.putText(
         canvas,
-        f"PHASE  {phase}     GOAL  {goal}     ARRIVAL  {arrival}     STOP  {stop_reason}",
+        footer,
         (pad, footer_top),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.47,
@@ -293,15 +370,31 @@ def render_status_card(
         1,
         cv2.LINE_AA,
     )
-    error = _fit_text(payload.get("last_error"), 84)
-    error_color = _DANGER if error != "-" else _TEXT_SECONDARY
+    if survey_visible:
+        survey_message = payload.get("survey_last_message")
+        if not survey_message and survey_state == "PAUSED":
+            survey_message = (
+                f"PAUSED | {frames_recorded} frames are safe | click START SURVEY "
+                "to resume"
+            )
+        feedback = _fit_text(survey_message, 92)
+        feedback_color = (
+            _DANGER
+            if survey_last_success is False
+            else _GOOD if survey_state == "ACTIVE" else _WARNING
+        )
+        feedback_label = "RESULT"
+    else:
+        feedback = _fit_text(payload.get("last_error"), 84)
+        feedback_color = _DANGER if feedback != "-" else _TEXT_SECONDARY
+        feedback_label = "ERROR"
     cv2.putText(
         canvas,
-        f"ERROR  {error}",
+        f"{feedback_label}  {feedback}",
         (pad, min(height - 18, footer_top + 34)),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.45,
-        error_color,
+        feedback_color,
         1,
         cv2.LINE_AA,
     )
