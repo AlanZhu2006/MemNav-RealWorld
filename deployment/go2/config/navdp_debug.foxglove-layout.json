@@ -201,68 +201,6 @@
       },
       "foxglovePanelTitle": "Status"
     },
-    "Indicator!workflow": {
-      "path": "/navdp/operator/workflow.data",
-      "style": "background",
-      "fallbackColor": "#4b5563",
-      "fallbackLabel": "WORKFLOW\nUNKNOWN",
-      "rules": [
-        {"operator": "=", "rawValue": "SURVEY_RECORDING", "color": "#15803d", "label": "WORKFLOW\nSURVEY\nRECORDING"},
-        {"operator": "=", "rawValue": "SURVEY_PAUSED", "color": "#d97706", "label": "WORKFLOW\nSURVEY\nPAUSED"},
-        {"operator": "=", "rawValue": "SURVEY_SEALED", "color": "#0369a1", "label": "WORKFLOW\nSURVEY\nSEALED"},
-        {"operator": "=", "rawValue": "SURVEY_FAULT", "color": "#b91c1c", "label": "WORKFLOW\nSURVEY\nFAULT"},
-        {"operator": "=", "rawValue": "REVISIT_ACTIVE", "color": "#15803d", "label": "WORKFLOW\nREVISIT\nACTIVE"},
-        {"operator": "=", "rawValue": "REVISIT_READY", "color": "#7c3aed", "label": "WORKFLOW\nREVISIT\nREADY"},
-        {"operator": "=", "rawValue": "REVISIT_ARRIVED", "color": "#047857", "label": "WORKFLOW\nREVISIT\nARRIVED"},
-        {"operator": "=", "rawValue": "REVISIT_FAULT", "color": "#b91c1c", "label": "WORKFLOW\nREVISIT\nFAULT"},
-        {"operator": "=", "rawValue": "NAVIGATION_ACTIVE", "color": "#15803d", "label": "WORKFLOW\nNAVIGATION\nACTIVE"},
-        {"operator": "=", "rawValue": "IDLE_READY", "color": "#475569", "label": "WORKFLOW\nIDLE\nREADY"},
-        {"operator": "=", "rawValue": "IDLE_ARRIVED", "color": "#047857", "label": "WORKFLOW\nIDLE\nARRIVED"},
-        {"operator": "=", "rawValue": "IDLE_FAULT", "color": "#b91c1c", "label": "WORKFLOW\nIDLE\nFAULT"},
-        {"operator": "=", "rawValue": "STARTING", "color": "#d97706", "label": "WORKFLOW\nSTARTING"}
-      ],
-      "foxglovePanelTitle": "Workflow"
-    },
-    "Indicator!safety": {
-      "path": "/navdp/operator/safety.data",
-      "style": "background",
-      "fallbackColor": "#4b5563",
-      "fallbackLabel": "SAFETY\nUNKNOWN",
-      "rules": [
-        {"operator": "=", "rawValue": "LOCKED", "color": "#475569", "label": "SAFETY\nLOCKED"},
-        {"operator": "=", "rawValue": "ENABLED", "color": "#15803d", "label": "SAFETY\nMOTION ON"},
-        {"operator": "=", "rawValue": "INCONSISTENT", "color": "#b91c1c", "label": "SAFETY\nCHECK STATE"}
-      ],
-      "foxglovePanelTitle": "Safety"
-    },
-    "Indicator!go2": {
-      "path": "/navdp/operator/go2.data",
-      "style": "background",
-      "fallbackColor": "#4b5563",
-      "fallbackLabel": "GO2\nUNKNOWN",
-      "rules": [
-        {"operator": "=", "rawValue": "ONLINE", "color": "#15803d", "label": "GO2\nONLINE"},
-        {"operator": "=", "rawValue": "OFFLINE", "color": "#475569", "label": "GO2\nOFFLINE"}
-      ],
-      "foxglovePanelTitle": "Go2"
-    },
-    "Indicator!arrival": {
-      "path": "/navdp/operator/arrival.data",
-      "style": "background",
-      "fallbackColor": "#4b5563",
-      "fallbackLabel": "ARRIVAL\nUNKNOWN",
-      "rules": [
-        {"operator": "=", "rawValue": "STANDBY", "color": "#475569", "label": "ARRIVAL\nSTANDBY"},
-        {"operator": "=", "rawValue": "CHECKING", "color": "#0369a1", "label": "ARRIVAL\nCHECKING"},
-        {"operator": "=", "rawValue": "NO_MATCH", "color": "#475569", "label": "ARRIVAL\nNO MATCH"},
-        {"operator": "=", "rawValue": "MATCHING", "color": "#15803d", "label": "ARRIVAL\nMATCHING"},
-        {"operator": "=", "rawValue": "MATCH", "color": "#15803d", "label": "ARRIVAL\nMATCH"},
-        {"operator": "=", "rawValue": "ARRIVED", "color": "#047857", "label": "ARRIVAL\nARRIVED"},
-        {"operator": "=", "rawValue": "NO_RGB", "color": "#d97706", "label": "ARRIVAL\nNO RGB"},
-        {"operator": "=", "rawValue": "ERROR", "color": "#b91c1c", "label": "ARRIVAL\nERROR"}
-      ],
-      "foxglovePanelTitle": "Arrival"
-    },
     "Image!goal-debug": {
       "scene": {},
       "transforms": {},
@@ -404,6 +342,13 @@
       "sortByLevel": true,
       "foxglovePanelTitle": "Diagnostics"
     },
+    "DiagnosticSummary!operate": {
+      "pinnedIds": [],
+      "hardwareIdFilter": "",
+      "topicToRender": "/navdp/operator/diagnostics",
+      "sortByLevel": true,
+      "foxglovePanelTitle": "Status · Battery · Clearance"
+    },
     "DiagnosticStatusPanel!workflow": {
       "topicToRender": "/navdp/operator/diagnostics",
       "selectedHardwareId": "navdp",
@@ -446,22 +391,7 @@
               "first": "3D!navdp",
               "second": {
                 "direction": "column",
-                "first": {
-                  "direction": "row",
-                  "first": {
-                    "direction": "row",
-                    "first": "Indicator!workflow",
-                    "second": "Indicator!safety",
-                    "splitPercentage": 50
-                  },
-                  "second": {
-                    "direction": "row",
-                    "first": "Indicator!go2",
-                    "second": "Indicator!arrival",
-                    "splitPercentage": 50
-                  },
-                  "splitPercentage": 50
-                },
+                "first": "DiagnosticSummary!operate",
                 "second": {
                   "direction": "column",
                   "first": {

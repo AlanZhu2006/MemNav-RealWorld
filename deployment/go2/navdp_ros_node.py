@@ -1718,6 +1718,8 @@ class NavDPGo2Adapter(Node):
                 "last_inference_s": round(self._last_inference_s, 3),
                 "candidate_count": int(self._candidate_trajectories.shape[0]),
                 "clearance_m": None if clearance is None else round(clearance, 3),
+                "depth_hard_stop_m": self.depth_safety_config.hard_stop_m,
+                "depth_slow_distance_m": self.depth_safety_config.slow_distance_m,
                 "stop_reason": self._stop_reason,
                 "last_error": self._last_error,
                 "phase": self._phase,

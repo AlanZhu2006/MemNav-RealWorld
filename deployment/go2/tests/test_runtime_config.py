@@ -205,7 +205,6 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
         "DiagnosticStatusPanel",
         "DiagnosticSummary",
         "Image",
-        "Indicator",
         "CallService",
         "Plot",
         "StateTransitions",
@@ -274,38 +273,17 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert operator_area["splitPercentage"] == 52
     status_and_controls = operator_area["second"]
     status_strip = status_and_controls["first"]
-    assert status_strip == {
-        "direction": "row",
-        "first": {
-            "direction": "row",
-            "first": "Indicator!workflow",
-            "second": "Indicator!safety",
-            "splitPercentage": 50,
-        },
-        "second": {
-            "direction": "row",
-            "first": "Indicator!go2",
-            "second": "Indicator!arrival",
-            "splitPercentage": 50,
-        },
-        "splitPercentage": 50,
-    }
-    indicator_prefixes = {
-        "Indicator!workflow": "WORKFLOW",
-        "Indicator!safety": "SAFETY",
-        "Indicator!go2": "GO2",
-        "Indicator!arrival": "ARRIVAL",
-    }
-    for panel_id, prefix in indicator_prefixes.items():
-        panel = layout["configById"][panel_id]
-        assert panel["fallbackLabel"].startswith(f"{prefix}\n")
-        assert "fontSize" not in panel
-        assert all(
-            rule["label"].startswith(f"{prefix}\n")
-            for rule in panel["rules"]
-        )
-    assert "Indicator!mode" not in layout["configById"]
-    assert "Indicator!activity" not in layout["configById"]
+    assert status_strip == "DiagnosticSummary!operate"
+    compact_status = layout["configById"][status_strip]
+    assert compact_status["topicToRender"] == "/navdp/operator/diagnostics"
+    assert compact_status["sortByLevel"] is True
+    assert compact_status["foxglovePanelTitle"] == (
+        "Status · Battery · Clearance"
+    )
+    assert not any(
+        panel_id.startswith("Indicator!")
+        for panel_id in layout["configById"]
+    )
     assert status_and_controls["splitPercentage"] == 40
     controls = status_and_controls["second"]
     assert controls["direction"] == "column"
@@ -318,7 +296,7 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     }
 
 
-def test_foxglove_layout_keeps_rgb_and_match_secondary_on_16_by_9_display():
+def test_foxglove_layout_keeps_status_readable_on_small_16_by_9_display():
     document = json.loads(
         (
             REPO
@@ -326,7 +304,7 @@ def test_foxglove_layout_keeps_rgb_and_match_secondary_on_16_by_9_display():
         ).read_text(encoding="utf-8")
     )
     layout = document["configById"]["Tab!navdp"]["tabs"][0]["layout"]
-    viewport_width, viewport_height = 1920.0, 1080.0
+    viewport_width, viewport_height = 1280.0, 720.0
     main_width = viewport_width * layout["splitPercentage"] / 100.0
     side_width = viewport_width - main_width
     main_height = viewport_height * layout["first"]["splitPercentage"] / 100.0
@@ -352,8 +330,10 @@ def test_foxglove_layout_keeps_rgb_and_match_secondary_on_16_by_9_display():
     match_area_fraction = match_width * diagnostics_height / viewport_area
 
     assert 1.15 < side_width / trajectory_height < 1.25
-    assert side_width / status_height == pytest.approx(720 / 220, rel=0.02)
-    assert button_row_height > 145
+    assert side_width > 400
+    assert status_height > 130
+    assert side_width / status_height > 3.0
+    assert button_row_height > 95
     assert 0.35 < rgb_area_fraction < 0.42
     assert match_area_fraction < 0.08
 

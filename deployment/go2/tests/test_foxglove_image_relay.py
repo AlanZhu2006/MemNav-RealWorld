@@ -270,8 +270,15 @@ def test_operator_diagnostics_expose_raw_phase_and_health_details():
         "rgbd_age_s": 0.08,
         "rgb_depth_skew_s": 0.01,
         "plan_age_s": 0.3,
+        "clearance_m": 1.42,
+        "depth_hard_stop_m": 0.45,
+        "depth_slow_distance_m": 0.80,
         "candidate_count": 5,
-        "go2_battery": {"online": False},
+        "go2_battery": {
+            "online": True,
+            "soc_pct": 73.0,
+            "voltage_v": 28.7,
+        },
     }
     diagnostics = build_operator_diagnostics(payload)
     by_name = {status.name: status for status in diagnostics.status}
@@ -279,18 +286,24 @@ def test_operator_diagnostics_expose_raw_phase_and_health_details():
     assert set(by_name) == {
         "MemNav/Workflow",
         "MemNav/RGB-D",
+        "MemNav/Clearance",
         "MemNav/Policy",
         "MemNav/Go2",
     }
     workflow = by_name["MemNav/Workflow"]
     workflow_values = {value.key: value.value for value in workflow.values}
     assert workflow.level == DiagnosticStatus.OK
-    assert workflow.message == "REVISITING"
+    assert workflow.message == "Revisit navigating · motion on"
     assert workflow_values["mode"] == "REVISIT"
     assert workflow_values["workflow"] == "REVISIT_ACTIVE"
     assert workflow_values["raw_phase"] == "revisit_query"
     assert by_name["MemNav/RGB-D"].level == DiagnosticStatus.OK
-    assert by_name["MemNav/Go2"].level == DiagnosticStatus.WARN
+    assert by_name["MemNav/RGB-D"].message == "Fresh · 0.08 s old"
+    assert by_name["MemNav/Clearance"].level == DiagnosticStatus.OK
+    assert by_name["MemNav/Clearance"].message == "1.42 m · clear"
+    assert by_name["MemNav/Policy"].message == "Ready · plan 0.30 s old"
+    assert by_name["MemNav/Go2"].level == DiagnosticStatus.OK
+    assert by_name["MemNav/Go2"].message == "Online · battery 73%"
 
 
 def test_operator_fault_has_error_diagnostic_without_hiding_mode():
@@ -310,7 +323,40 @@ def test_operator_fault_has_error_diagnostic_without_hiding_mode():
     assert state["mode"] == "REVISIT"
     assert state["activity"] == "FAULT"
     assert workflow.level == DiagnosticStatus.ERROR
-    assert workflow.message == "policy timeout"
+    assert workflow.message == "Fault · policy timeout"
+
+
+@pytest.mark.parametrize(
+    ("clearance_m", "expected_level", "expected_message"),
+    [
+        (None, DiagnosticStatus.STALE, "Unavailable · motion stops if needed"),
+        (0.40, DiagnosticStatus.ERROR, "0.40 m · STOP zone"),
+        (0.60, DiagnosticStatus.WARN, "0.60 m · SLOW zone"),
+        (0.90, DiagnosticStatus.OK, "0.90 m · clear"),
+    ],
+)
+def test_clearance_diagnostic_explains_safety_thresholds(
+    clearance_m, expected_level, expected_message
+):
+    diagnostics = build_operator_diagnostics(
+        {
+            "server_initialized": True,
+            "enabled": False,
+            "estop": True,
+            "clearance_m": clearance_m,
+            "depth_hard_stop_m": 0.45,
+            "depth_slow_distance_m": 0.80,
+            "go2_battery": {"online": False},
+        }
+    )
+    clearance = next(
+        status
+        for status in diagnostics.status
+        if status.name == "MemNav/Clearance"
+    )
+
+    assert clearance.level == expected_level
+    assert clearance.message == expected_message
 
 
 @pytest.mark.parametrize(
@@ -383,7 +429,7 @@ def test_arrival_diagnostics_keep_match_evidence_without_marking_no_match_faulty
     assert status.name == "MemNav/Arrival"
     assert status.hardware_id == "rgb_arrival"
     assert status.level == DiagnosticStatus.OK
-    assert status.message == "NO_MATCH"
+    assert status.message == "No goal match"
     assert values["reason"] == "low_inlier_ratio"
     assert values["inliers"] == "19"
     assert values["inlier_ratio"] == "0.396"
@@ -406,7 +452,7 @@ def test_operator_diagnostics_can_include_latest_arrival_diagnostic():
     )
 
     assert diagnostics.status[-1].name == "MemNav/Arrival"
-    assert diagnostics.status[-1].message == "STANDBY"
+    assert diagnostics.status[-1].message == "Waiting for goal check"
 
 
 def test_depth_preview_preserves_invalid_mask_and_colorizes_range():
