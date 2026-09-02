@@ -85,10 +85,12 @@ stop_existing_local_stack() {
   echo "  new_config=$resolved"
   case "$profile" in
     native-navdp-rgbd)
-      bash "$GO2_DIR/scripts/stop_stack.sh" --config "$stop_config"
+      NAVDP_OBSERVER_RESUME=false \
+        bash "$GO2_DIR/scripts/stop_stack.sh" --config "$stop_config"
       ;;
     fullmono-lingbot-cec)
-      bash "$GO2_DIR/offboard/fullmono.sh" stop --config "$stop_config"
+      NAVDP_OBSERVER_RESUME=false \
+        bash "$GO2_DIR/offboard/fullmono.sh" stop --config "$stop_config"
       ;;
     *) die "profile has no stop path: $profile" ;;
   esac
@@ -272,10 +274,21 @@ status_one() {
   fi
 }
 
+status_observer() {
+  if systemctl --user is-active --quiet memnav-observer.target 2>/dev/null; then
+    echo "OBSERVER RUNNING camera + Foxglove + diagnostics + battery (navigation off)"
+  elif systemctl --user is-enabled --quiet memnav-observer.target 2>/dev/null; then
+    echo "OBSERVER STOPPED (enabled for boot; navigation may currently own devices)"
+  else
+    echo "OBSERVER NOT INSTALLED"
+  fi
+}
+
 status_stack() {
   if [[ $# -eq 0 ]]; then
     status_one "$(resolve_config "$DEFAULT_NATIVE")"
     status_one "$(resolve_config "$DEFAULT_FULLMONO")"
+    status_observer
     echo "Motion authority must be checked from /navdp/status; startup is locked."
     return
   fi
@@ -288,6 +301,7 @@ status_stack() {
   else
     status_one "$resolved"
   fi
+  status_observer
 }
 
 stop_one() {
@@ -320,6 +334,10 @@ stop_stack() {
       echo "Stopped RTX tmux session: $CFG_GPU_HOST:$CFG_GPU_SESSION"
     else
       echo "RTX session absent or host unreachable: $CFG_GPU_HOST:$CFG_GPU_SESSION" >&2
+    fi
+    if systemctl --user is-enabled --quiet memnav-observer.target 2>/dev/null; then
+      systemctl --user start memnav-observer.target
+      echo "Restored the always-on camera and Foxglove observer."
     fi
     return
   fi

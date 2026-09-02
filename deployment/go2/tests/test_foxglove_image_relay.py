@@ -13,12 +13,14 @@ sys.path.insert(0, str(REPO / "deployment/go2"))
 from foxglove_image_relay import (  # noqa: E402
     battery_payload_from_message,
     build_arrival_diagnostics,
+    build_observer_payload,
     build_operator_diagnostics,
     colorize_depth_preview,
     depth_message_to_u16,
     derive_arrival_state,
     derive_operator_state,
     encode_jpeg,
+    image_stamp_seconds,
     prepare_color_preview,
     render_status_card,
     resize_rgb_preview,
@@ -299,6 +301,57 @@ def test_operator_diagnostics_are_fixed_glanceable_six_row_summary():
     assert by_name["MemNav/Battery"].message == "73%"
     assert by_name["MemNav/Image refresh"].message == "FRESH · 0.08 s"
     assert by_name["MemNav/Policy refresh"].message == "FRESH · 0.30 s"
+
+
+def test_camera_only_observer_reports_ready_without_claiming_policy_online():
+    payload = build_observer_payload(
+        now=12.0,
+        last_rgb_received=11.96,
+        last_depth_received=11.94,
+        last_rgb_stamp_s=101.000,
+        last_depth_stamp_s=100.985,
+        clearance_m=1.24,
+        battery={"online": True, "soc_pct": 68.0},
+    )
+    diagnostics = build_operator_diagnostics(payload)
+    by_name = {status.name: status for status in diagnostics.status}
+
+    assert payload["enabled"] is False
+    assert payload["estop"] is True
+    assert payload["rgbd_age_s"] == pytest.approx(0.06)
+    assert payload["rgb_depth_skew_s"] == pytest.approx(0.015)
+    assert by_name["MemNav/Overall"].message == "OK · LOCKED"
+    assert by_name["MemNav/Mode"].message == "READY · CAMERA ONLY"
+    assert by_name["MemNav/Front depth"].message == "1.24 m · CLEAR"
+    assert by_name["MemNav/Policy refresh"].message == "OFF · NOT STARTED"
+    assert by_name["MemNav/Policy refresh"].level == DiagnosticStatus.STALE
+
+
+def test_observer_hides_old_clearance_when_depth_stream_is_stale():
+    payload = build_observer_payload(
+        now=12.0,
+        last_rgb_received=11.95,
+        last_depth_received=10.0,
+        last_rgb_stamp_s=None,
+        last_depth_stamp_s=None,
+        clearance_m=1.24,
+        battery={"online": False},
+    )
+
+    assert payload["rgbd_age_s"] == pytest.approx(2.0)
+    assert payload["clearance_m"] is None
+
+
+def test_image_stamp_ignores_zero_sentinel_and_converts_nanoseconds():
+    zero = SimpleNamespace(
+        header=SimpleNamespace(stamp=SimpleNamespace(sec=0, nanosec=0))
+    )
+    stamped = SimpleNamespace(
+        header=SimpleNamespace(stamp=SimpleNamespace(sec=4, nanosec=250_000_000))
+    )
+
+    assert image_stamp_seconds(zero) is None
+    assert image_stamp_seconds(stamped) == pytest.approx(4.25)
 
 
 @pytest.mark.parametrize(

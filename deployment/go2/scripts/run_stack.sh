@@ -34,6 +34,18 @@ adapter_log="$LOG_ROOT/adapter.log"
 camera_recovery_log="$LOG_ROOT/camera_recovery.log"
 : >"$policy_log"
 
+start_complete=false
+rollback_partial_start() {
+  local status=$?
+  if [[ "$start_complete" != true ]]; then
+    tmux kill-session -t "$SESSION" 2>/dev/null || true
+    navdp_resume_boot_observer || true
+  fi
+  return "$status"
+}
+trap rollback_partial_start EXIT
+
+navdp_pause_boot_observer
 tmux new-session -d -s "$SESSION" -n policy \
   "exec '$SCRIPT_DIR/run_base_navdp_server.sh' --config '$NAVDP_RUN_CONFIG' >'$policy_log' 2>&1"
 if [[ "$CFG_WITH_CAMERA" == true ]]; then
@@ -44,16 +56,6 @@ fi
 # The dashboard is observation-only, so it can become connectable while the
 # model and camera finish their independent readiness checks.
 navdp_start_foxglove_windows "$SESSION"
-
-start_complete=false
-rollback_partial_start() {
-  local status=$?
-  if [[ "$start_complete" != true ]]; then
-    tmux kill-session -t "$SESSION" 2>/dev/null || true
-  fi
-  return "$status"
-}
-trap rollback_partial_start EXIT
 
 policy_ready=false
 for _ in $(seq 1 "$CFG_NATIVE_READY_TIMEOUT_S"); do

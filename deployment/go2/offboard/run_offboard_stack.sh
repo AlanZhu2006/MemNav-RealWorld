@@ -23,6 +23,18 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   exit 1
 fi
 
+start_complete=false
+rollback_partial_start() {
+  local status=$?
+  if [[ "$start_complete" != true ]]; then
+    tmux kill-session -t "$SESSION" 2>/dev/null || true
+    navdp_resume_boot_observer || true
+  fi
+  return "$status"
+}
+trap rollback_partial_start EXIT
+
+navdp_pause_boot_observer
 tmux new-session -d -s "$SESSION" -n tunnel \
   "exec '$OFFBOARD_DIR/run_policy_tunnel.sh' --config '$NAVDP_RUN_CONFIG'"
 
@@ -83,6 +95,8 @@ if [[ "$CFG_WITH_CAMERA" == true ]]; then
 fi
 navdp_start_optional_windows "$SESSION"
 navdp_stamp_session_contract "$SESSION"
+start_complete=true
+trap - EXIT
 
 echo "Offboard CEC/NavDP stack started: session=$SESSION"
 echo "  config=$NAVDP_RUN_CONFIG"

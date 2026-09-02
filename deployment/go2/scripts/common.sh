@@ -249,3 +249,25 @@ navdp_lock_motion_before_shutdown() {
   # process teardown, whose watchdog and process exit also remove commands.
   navdp_assert_motion_locked >/dev/null 2>&1 || true
 }
+
+navdp_pause_boot_observer() {
+  command -v systemctl >/dev/null 2>&1 || return 0
+  systemctl --user cat memnav-observer.target >/dev/null 2>&1 || return 0
+  if systemctl --user is-active --quiet memnav-observer.target; then
+    systemctl --user stop memnav-observer.target
+    echo "Paused the boot observer for exclusive navigation-stack ownership."
+  fi
+}
+
+navdp_resume_boot_observer() {
+  [[ "${NAVDP_OBSERVER_RESUME:-true}" == true ]] || return 0
+  command -v systemctl >/dev/null 2>&1 || return 0
+  systemctl --user is-enabled --quiet memnav-observer.target || return 0
+  if command -v tmux >/dev/null 2>&1; then
+    tmux has-session -t "${CFG_NATIVE_SESSION:-navdp-go2}" 2>/dev/null && return 0
+    tmux has-session -t "${CFG_FULLMONO_SESSION:-navdp-go2-offboard}" 2>/dev/null \
+      && return 0
+  fi
+  systemctl --user start memnav-observer.target
+  echo "Restored the always-on camera and Foxglove observer."
+}

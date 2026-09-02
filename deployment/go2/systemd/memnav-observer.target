@@ -1,0 +1,10 @@
+[Unit]
+Description=MemNav always-on camera and Foxglove observer
+Wants=memnav-observer-camera.service
+Wants=memnav-observer-battery.service
+Wants=memnav-observer-preview.service
+Wants=memnav-observer-foxglove.service
+After=network-online.target
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=MemNav observer Go2 battery telemetry
+PartOf=memnav-observer.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash %h/MemNav-RealWorld/deployment/go2/scripts/run_observer_component.sh battery
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+KillMode=control-group
+
+[Install]
+WantedBy=memnav-observer.target

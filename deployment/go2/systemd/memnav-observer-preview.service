@@ -1,0 +1,15 @@
+[Unit]
+Description=MemNav observer Foxglove image and diagnostic relay
+PartOf=memnav-observer.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash %h/MemNav-RealWorld/deployment/go2/scripts/run_observer_component.sh preview
+Restart=always
+RestartSec=3
+TimeoutStopSec=15
+KillMode=control-group
+
+[Install]
+WantedBy=memnav-observer.target

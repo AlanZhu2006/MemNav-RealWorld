@@ -7,7 +7,7 @@ watchdog、Go2 bridge 和独立到达模块。
 ## 1. 唯一配置入口
 
 ```bash
-cd /home/nvidia/twork/MemNav-RealWorld
+cd /home/unitree/MemNav-RealWorld
 
 bash deployment/go2/nav_stack.sh start \
   --config deployment/config/experiments/native_imagegoal.json \
@@ -207,6 +207,21 @@ STOP和fail-closed相机恢复，因此只应在可信实验局域网或Tailscal
 数据链路是`ROS publisher -> Foxglove Bridge广告白名单topic -> 可见panel按需订阅`。
 Bridge不会把所有高带宽图像无条件推给浏览器；如果Topics侧栏能看到topic但panel没有画面，
 应先重新导入版本化布局并确认该panel已选择对应topic，而不是重启导航。
+
+### 3.1 开机常驻观察层
+
+相机、限流图像预览、六行Operator诊断、Go2电量和Foxglove Bridge可以作为用户级
+systemd target随Jetson开机启动；它不会启动policy、adapter、arrival或Go2命令桥，
+所以此时只能观察，不能产生运动。首次安装并立即启动：
+
+```bash
+bash deployment/go2/scripts/install_boot_observer.sh
+systemctl --user status memnav-observer.target
+```
+
+导航栈启动前会自动暂停该target并接管相机和Bridge，失败回滚或正常停止后自动恢复，
+因此不会出现两套RealSense深度流。四个组件独立重启：相机暂时掉线不会让8765端口和
+OFFLINE诊断一起消失。日志可用`journalctl --user -u 'memnav-observer-*' -f`查看。
 
 首次部署由`setup_jetson.sh`安装`ros-humble-foxglove-bridge`和
 `ros-humble-rosbag2-storage-mcap`。Foxglove Desktop/Web运行在操作电脑，不需要安装在

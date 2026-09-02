@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import threading
 import time
 from typing import Any
 
@@ -24,6 +25,8 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import BatteryState, CompressedImage, Image
 from std_msgs.msg import String
+
+from trajectory_control import DepthSafetyConfig, front_clearance
 
 
 def _rows(message: Any, bytes_per_pixel: int) -> np.ndarray:
@@ -216,7 +219,9 @@ def derive_operator_state(payload: dict[str, Any]) -> dict[str, str]:
         else:
             survey_state = "INACTIVE"
 
-    if phase == "memory_recording" or survey_state in {
+    if payload.get("observer_only"):
+        mode = "OBSERVER"
+    elif phase == "memory_recording" or survey_state in {
         "ACTIVE",
         "PAUSED",
         "SEALED",
@@ -249,6 +254,8 @@ def derive_operator_state(payload: dict[str, Any]) -> dict[str, str]:
         activity = "REVISITING" if safety == "ENABLED" else "REVISIT_READY"
     elif mode == "STARTING":
         activity = "STARTING"
+    elif mode == "OBSERVER":
+        activity = "READY"
     elif safety == "ENABLED":
         activity = "NAVIGATING"
     else:
@@ -449,6 +456,7 @@ def build_operator_diagnostics(
         diagnostic_array.header.stamp = stamp
 
     last_error = str(payload.get("last_error") or "").strip()
+    observer_only = bool(payload.get("observer_only"))
     initialized = bool(payload.get("server_initialized"))
     arrived = bool(payload.get("arrival_latched"))
     rgbd_age = _number(payload.get("rgbd_age_s"))
@@ -500,7 +508,9 @@ def build_operator_diagnostics(
             f"{clearance:.2f} m · CLEAR",
         )
 
-    if arrived:
+    if observer_only:
+        policy_level, policy_message = DiagnosticStatus.STALE, "OFF · NOT STARTED"
+    elif arrived:
         policy_level, policy_message = DiagnosticStatus.OK, "DONE"
     elif not initialized:
         policy_level, policy_message = DiagnosticStatus.ERROR, "OFFLINE"
@@ -542,7 +552,12 @@ def build_operator_diagnostics(
     survey_state = str(payload.get("survey_state") or "").upper()
     if not survey_state and state["activity"].startswith("SURVEY_"):
         survey_state = state["activity"].removeprefix("SURVEY_")
-    if not initialized:
+    if observer_only:
+        if image_level in {DiagnosticStatus.ERROR, DiagnosticStatus.STALE}:
+            mode_level, mode_message = DiagnosticStatus.WARN, "OFFLINE · CAMERA"
+        else:
+            mode_level, mode_message = DiagnosticStatus.OK, "READY · CAMERA ONLY"
+    elif not initialized:
         mode_level, mode_message = DiagnosticStatus.WARN, "OFFLINE"
     elif arrived:
         mode_level, mode_message = DiagnosticStatus.OK, "ARRIVED"
@@ -578,11 +593,16 @@ def build_operator_diagnostics(
         overall_level, overall_message = DiagnosticStatus.ERROR, "STOP"
     elif image_level in {DiagnosticStatus.ERROR, DiagnosticStatus.STALE}:
         overall_level, overall_message = DiagnosticStatus.ERROR, "IMAGE OFFLINE"
-    elif policy_level == DiagnosticStatus.ERROR:
+    elif not observer_only and policy_level == DiagnosticStatus.ERROR:
         overall_level, overall_message = DiagnosticStatus.ERROR, "POLICY STALE"
     elif any(
         level in warning_levels
-        for level in (depth_level, image_level, policy_level, battery_level)
+        for level in (
+            depth_level,
+            image_level,
+            battery_level,
+            *(() if observer_only else (policy_level,)),
+        )
     ):
         overall_level, overall_message = DiagnosticStatus.WARN, "ATTENTION"
     else:
@@ -608,6 +628,60 @@ def build_operator_diagnostics(
             )
         )
     return diagnostic_array
+
+
+def build_observer_payload(
+    *,
+    now: float,
+    last_rgb_received: float | None,
+    last_depth_received: float | None,
+    last_rgb_stamp_s: float | None,
+    last_depth_stamp_s: float | None,
+    clearance_m: float | None,
+    battery: dict[str, Any],
+) -> dict[str, Any]:
+    """Build a locked camera-only status when the navigation adapter is absent."""
+
+    rgbd_age_s = None
+    rgb_depth_skew_s = None
+    visible_clearance = None
+    if last_rgb_received is not None and last_depth_received is not None:
+        rgb_age = max(0.0, now - last_rgb_received)
+        depth_age = max(0.0, now - last_depth_received)
+        rgbd_age_s = max(rgb_age, depth_age)
+        if last_rgb_stamp_s is not None and last_depth_stamp_s is not None:
+            rgb_depth_skew_s = abs(last_rgb_stamp_s - last_depth_stamp_s)
+        else:
+            rgb_depth_skew_s = abs(last_rgb_received - last_depth_received)
+        if depth_age <= 0.75:
+            visible_clearance = clearance_m
+
+    depth_config = DepthSafetyConfig()
+    return {
+        "observer_only": True,
+        "server_initialized": False,
+        "phase": "observer",
+        "enabled": False,
+        "estop": True,
+        "arrival_latched": False,
+        "rgbd_age_s": rgbd_age_s,
+        "rgb_depth_skew_s": rgb_depth_skew_s,
+        "clearance_m": visible_clearance,
+        "depth_hard_stop_m": depth_config.hard_stop_m,
+        "depth_slow_distance_m": depth_config.slow_distance_m,
+        "plan_age_s": None,
+        "go2_battery": dict(battery),
+    }
+
+
+def image_stamp_seconds(message: Image) -> float | None:
+    """Return a usable ROS image timestamp, ignoring the all-zero sentinel."""
+
+    seconds = int(message.header.stamp.sec)
+    nanoseconds = int(message.header.stamp.nanosec)
+    if seconds == 0 and nanoseconds == 0:
+        return None
+    return seconds + nanoseconds * 1e-9
 
 
 def render_status_card(
@@ -658,7 +732,13 @@ def render_status_card(
     else:
         battery_text = "GO2 OFFLINE"
         battery_color = _DANGER
-    if survey_visible:
+    if payload.get("observer_only"):
+        rgbd_age = _number(payload.get("rgbd_age_s"))
+        state = "CAMERA ONLY | LOCKED"
+        state_color = (
+            _GOOD if rgbd_age is not None and rgbd_age <= 0.75 else _WARNING
+        )
+    elif survey_visible:
         state = f"SURVEY {survey_state}"
         state_color = {
             "ACTIVE": _GOOD,
@@ -848,6 +928,8 @@ def render_status_card(
 
 
 class FoxgloveImageRelay(Node):
+    _NAV_STATUS_TIMEOUT_S = 1.5
+
     def __init__(self, options: argparse.Namespace) -> None:
         super().__init__("navdp_foxglove_image_relay")
         self.options = options
@@ -862,9 +944,16 @@ class FoxgloveImageRelay(Node):
         self._next_arrival = 0.0
         self._next_status = 0.0
         self._last_error_log = 0.0
+        self._state_lock = threading.Lock()
         self._battery_payload: dict[str, Any] = {"online": False}
         self._last_status_payload: dict[str, Any] | None = None
         self._last_arrival_status_payload: dict[str, Any] | None = None
+        self._last_status_received: float | None = None
+        self._last_rgb_received: float | None = None
+        self._last_depth_received: float | None = None
+        self._last_rgb_stamp_s: float | None = None
+        self._last_depth_stamp_s: float | None = None
+        self._observer_clearance_m: float | None = None
         sensor_qos = QoSProfile(
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
@@ -974,6 +1063,9 @@ class FoxgloveImageRelay(Node):
             state_qos,
             callback_group=battery_callbacks,
         )
+        self._state_timer = self.create_timer(
+            0.25, self._publish_current_status, callback_group=status_callbacks
+        )
         self.get_logger().info(
             "Foxglove previews: RGB %dx%d@%.1f Hz q=%d -> %s; "
             "depth %dx%d@%.1f Hz q=%d range=%.0f..%.0f mm -> %s"
@@ -1055,6 +1147,9 @@ class FoxgloveImageRelay(Node):
 
     def _on_rgb(self, message: Image) -> None:
         now = time.monotonic()
+        with self._state_lock:
+            self._last_rgb_received = now
+            self._last_rgb_stamp_s = image_stamp_seconds(message)
         if not self._due("rgb", now, self._rgb_period):
             return
         try:
@@ -1112,11 +1207,64 @@ class FoxgloveImageRelay(Node):
         )
 
     def _on_battery(self, message: BatteryState) -> None:
-        self._battery_payload = battery_payload_from_message(message)
-        if self._last_status_payload is not None:
-            payload = dict(self._last_status_payload)
-            payload["go2_battery"] = dict(self._battery_payload)
+        with self._state_lock:
+            self._battery_payload = battery_payload_from_message(message)
+        self._publish_current_status()
+
+    def _current_status_payload(self, now: float) -> dict[str, Any]:
+        with self._state_lock:
+            if (
+                self._last_status_payload is not None
+                and self._last_status_received is not None
+                and now - self._last_status_received <= self._NAV_STATUS_TIMEOUT_S
+            ):
+                payload = dict(self._last_status_payload)
+                payload["go2_battery"] = dict(self._battery_payload)
+                return payload
+            fallback = build_observer_payload(
+                now=now,
+                last_rgb_received=self._last_rgb_received,
+                last_depth_received=self._last_depth_received,
+                last_rgb_stamp_s=self._last_rgb_stamp_s,
+                last_depth_stamp_s=self._last_depth_stamp_s,
+                clearance_m=self._observer_clearance_m,
+                battery=self._battery_payload,
+            )
+            if self.options.observer_only:
+                return fallback
+            fallback["observer_only"] = False
+            fallback["phase"] = ""
+            if self._last_status_payload is not None:
+                payload = dict(self._last_status_payload)
+                payload["go2_battery"] = dict(self._battery_payload)
+                payload["last_error"] = (
+                    str(payload.get("last_error") or "").strip()
+                    or "navigation status offline"
+                )
+                return payload
+            return fallback
+
+    def _publish_status_card(self, payload: dict[str, Any], now: float) -> None:
+        if not self._due("status", now, self._status_period):
+            return
+        image = render_status_card(
+            payload, self.options.status_width, self.options.status_height
+        )
+        preview = CompressedImage()
+        preview.header.stamp = self.get_clock().now().to_msg()
+        preview.header.frame_id = "navdp_operator_status"
+        preview.format = "jpeg"
+        preview.data = encode_jpeg(image, self.options.status_jpeg_quality)
+        self._status_publisher.publish(preview)
+
+    def _publish_current_status(self) -> None:
+        now = time.monotonic()
+        payload = self._current_status_payload(now)
+        try:
             self._publish_native_status(payload)
+            self._publish_status_card(payload, now)
+        except (ValueError, RuntimeError, cv2.error) as error:
+            self._report_error("status", error)
 
     def _publish_native_status(self, payload: dict[str, Any]) -> None:
         state = derive_operator_state(payload)
@@ -1125,10 +1273,12 @@ class FoxgloveImageRelay(Node):
             message.data = state[key]
             publisher.publish(message)
         stamp = self.get_clock().now().to_msg()
+        with self._state_lock:
+            arrival_payload = self._last_arrival_status_payload
         self._diagnostics_publisher.publish(
             build_operator_diagnostics(
                 payload,
-                arrival_payload=self._last_arrival_status_payload,
+                arrival_payload=arrival_payload,
                 stamp=stamp,
             )
         )
@@ -1138,7 +1288,8 @@ class FoxgloveImageRelay(Node):
             payload = json.loads(message.data)
             if not isinstance(payload, dict):
                 raise ValueError("arrival status payload is not a JSON object")
-            self._last_arrival_status_payload = dict(payload)
+            with self._state_lock:
+                self._last_arrival_status_payload = dict(payload)
             state_message = String()
             state_message.data = derive_arrival_state(payload)
             self._arrival_state_publisher.publish(state_message)
@@ -1146,16 +1297,7 @@ class FoxgloveImageRelay(Node):
             self._arrival_diagnostics_publisher.publish(
                 build_arrival_diagnostics(payload, stamp=stamp)
             )
-            if self._last_status_payload is not None:
-                status_payload = dict(self._last_status_payload)
-                status_payload["go2_battery"] = dict(self._battery_payload)
-                self._diagnostics_publisher.publish(
-                    build_operator_diagnostics(
-                        status_payload,
-                        arrival_payload=payload,
-                        stamp=stamp,
-                    )
-                )
+            self._publish_current_status()
         except (json.JSONDecodeError, ValueError) as error:
             self._report_error("arrival status", error)
 
@@ -1164,30 +1306,28 @@ class FoxgloveImageRelay(Node):
             payload = json.loads(message.data)
             if not isinstance(payload, dict):
                 raise ValueError("status payload is not a JSON object")
-            self._last_status_payload = dict(payload)
-            payload["go2_battery"] = dict(self._battery_payload)
-            self._publish_native_status(payload)
             now = time.monotonic()
-            if not self._due("status", now, self._status_period):
-                return
-            image = render_status_card(
-                payload, self.options.status_width, self.options.status_height
-            )
-            preview = CompressedImage()
-            preview.header.stamp = self.get_clock().now().to_msg()
-            preview.header.frame_id = "navdp_operator_status"
-            preview.format = "jpeg"
-            preview.data = encode_jpeg(image, self.options.status_jpeg_quality)
-            self._status_publisher.publish(preview)
+            with self._state_lock:
+                self._last_status_payload = dict(payload)
+                self._last_status_received = now
+            self._publish_current_status()
         except (json.JSONDecodeError, ValueError, RuntimeError, cv2.error) as error:
             self._report_error("status", error)
 
     def _on_depth(self, message: Image) -> None:
         now = time.monotonic()
+        with self._state_lock:
+            self._last_depth_received = now
+            self._last_depth_stamp_s = image_stamp_seconds(message)
         if not self._due("depth", now, self._depth_period):
             return
         try:
             depth = depth_message_to_u16(message)
+            clearance = front_clearance(
+                depth.astype(np.float32) * 0.001, DepthSafetyConfig()
+            )
+            with self._state_lock:
+                self._observer_clearance_m = clearance
             image = colorize_depth_preview(
                 depth,
                 self.options.width,
@@ -1198,6 +1338,8 @@ class FoxgloveImageRelay(Node):
             data = encode_jpeg(image, self.options.depth_jpeg_quality)
             self._depth_publisher.publish(self._compressed(message, data))
         except (ValueError, RuntimeError, cv2.error) as error:
+            with self._state_lock:
+                self._observer_clearance_m = None
             self._report_error("depth", error)
 
 
@@ -1214,6 +1356,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--status-input", required=True)
     parser.add_argument("--battery-input", required=True)
+    parser.add_argument(
+        "--observer-only",
+        action="store_true",
+        help="publish a locked camera-only state while the navigation adapter is absent",
+    )
     parser.add_argument("--goal-output", required=True)
     parser.add_argument("--arrival-output", required=True)
     parser.add_argument("--status-output", required=True)

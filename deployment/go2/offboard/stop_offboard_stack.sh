@@ -17,3 +17,4 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 else
   echo "No tmux session named $SESSION"
 fi
+navdp_resume_boot_observer
