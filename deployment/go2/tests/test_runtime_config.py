@@ -270,7 +270,7 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     operator_area = root["second"]
     assert operator_area["direction"] == "column"
     assert operator_area["first"] == "3D!navdp"
-    assert operator_area["splitPercentage"] == 52
+    assert operator_area["splitPercentage"] == 46
     status_and_controls = operator_area["second"]
     status_strip = status_and_controls["first"]
     assert status_strip == "DiagnosticSummary!operate"
@@ -284,7 +284,7 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
         panel_id.startswith("Indicator!")
         for panel_id in layout["configById"]
     )
-    assert status_and_controls["splitPercentage"] == 40
+    assert status_and_controls["splitPercentage"] == 50
     controls = status_and_controls["second"]
     assert controls["direction"] == "column"
     survey_button_row = controls["first"]
@@ -329,10 +329,10 @@ def test_foxglove_layout_keeps_status_readable_on_small_16_by_9_display():
     rgb_area_fraction = main_width * main_height / viewport_area
     match_area_fraction = match_width * diagnostics_height / viewport_area
 
-    assert 1.15 < side_width / trajectory_height < 1.25
+    assert 1.30 < side_width / trajectory_height < 1.40
     assert side_width > 400
-    assert status_height > 130
-    assert side_width / status_height > 3.0
+    assert status_height > 185
+    assert 2.2 < side_width / status_height < 2.4
     assert button_row_height > 95
     assert 0.35 < rgb_area_fraction < 0.42
     assert match_area_fraction < 0.08
