@@ -218,7 +218,6 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     }
     assert set(service_panels) == {
         "CallService!stop",
-        "CallService!camera-recovery",
         "CallService!survey-start",
         "CallService!survey-seal",
     }
@@ -227,10 +226,6 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     )
     assert service_panels["CallService!stop"]["requestPayload"] == "{}"
     assert service_panels["CallService!stop"]["buttonText"] == "STOP NAVIGATION"
-    camera_panel = service_panels["CallService!camera-recovery"]
-    assert camera_panel["serviceName"] == "/navdp_camera_recovery/restart"
-    assert camera_panel["requestPayload"] == "{}"
-    assert camera_panel["buttonText"] == "CAMERA RESET"
     survey_start = service_panels["CallService!survey-start"]
     assert survey_start["serviceName"] == "/navdp_go2_adapter/survey_start"
     assert survey_start["requestPayload"] == "{}"
@@ -276,10 +271,8 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     assert status_strip == "DiagnosticSummary!operate"
     compact_status = layout["configById"][status_strip]
     assert compact_status["topicToRender"] == "/navdp/operator/diagnostics"
-    assert compact_status["sortByLevel"] is True
-    assert compact_status["foxglovePanelTitle"] == (
-        "Status · Battery · Clearance"
-    )
+    assert compact_status["sortByLevel"] is False
+    assert compact_status["foxglovePanelTitle"] == "Operator"
     assert not any(
         panel_id.startswith("Indicator!")
         for panel_id in layout["configById"]
@@ -294,6 +287,7 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
         "second": "CallService!survey-seal",
         "splitPercentage": 50,
     }
+    assert controls["second"] == "CallService!stop"
 
 
 def test_foxglove_layout_keeps_status_readable_on_small_16_by_9_display():
@@ -386,7 +380,7 @@ def test_foxglove_debug_tabs_use_only_read_only_builtin_panels():
     assert panels[workflow_detail]["topicToRender"] == (
         "/navdp/operator/diagnostics"
     )
-    assert panels[workflow_detail]["selectedName"] == "MemNav/Workflow"
+    assert panels[workflow_detail]["selectedName"] == "MemNav/Overall"
     assert not any(panel_id.startswith("RawMessages!") for panel_id in panels)
 
 

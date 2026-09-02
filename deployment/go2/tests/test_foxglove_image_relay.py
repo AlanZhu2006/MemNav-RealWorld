@@ -260,7 +260,7 @@ def test_operator_state_keeps_workflow_safety_and_connection_independent(
     assert derive_operator_state(payload) == expected
 
 
-def test_operator_diagnostics_expose_raw_phase_and_health_details():
+def test_operator_diagnostics_are_fixed_glanceable_six_row_summary():
     payload = {
         "phase": "revisit_query",
         "survey_state": "INACTIVE",
@@ -283,27 +283,78 @@ def test_operator_diagnostics_expose_raw_phase_and_health_details():
     diagnostics = build_operator_diagnostics(payload)
     by_name = {status.name: status for status in diagnostics.status}
 
-    assert set(by_name) == {
-        "MemNav/Workflow",
-        "MemNav/RGB-D",
-        "MemNav/Clearance",
-        "MemNav/Policy",
-        "MemNav/Go2",
-    }
-    workflow = by_name["MemNav/Workflow"]
-    workflow_values = {value.key: value.value for value in workflow.values}
-    assert workflow.level == DiagnosticStatus.OK
-    assert workflow.message == "Revisit navigating · motion on"
-    assert workflow_values["mode"] == "REVISIT"
-    assert workflow_values["workflow"] == "REVISIT_ACTIVE"
-    assert workflow_values["raw_phase"] == "revisit_query"
-    assert by_name["MemNav/RGB-D"].level == DiagnosticStatus.OK
-    assert by_name["MemNav/RGB-D"].message == "Fresh · 0.08 s old"
-    assert by_name["MemNav/Clearance"].level == DiagnosticStatus.OK
-    assert by_name["MemNav/Clearance"].message == "1.42 m · clear"
-    assert by_name["MemNav/Policy"].message == "Ready · plan 0.30 s old"
-    assert by_name["MemNav/Go2"].level == DiagnosticStatus.OK
-    assert by_name["MemNav/Go2"].message == "Online · battery 73%"
+    expected_names = [
+        "MemNav/Overall",
+        "MemNav/Mode",
+        "MemNav/Front depth",
+        "MemNav/Battery",
+        "MemNav/Image refresh",
+        "MemNav/Policy refresh",
+    ]
+    assert list(by_name) == expected_names
+    assert all(not status.values for status in diagnostics.status)
+    assert by_name["MemNav/Overall"].message == "OK · MOTION ON"
+    assert by_name["MemNav/Mode"].message == "REVISIT · RUNNING"
+    assert by_name["MemNav/Front depth"].message == "1.42 m · CLEAR"
+    assert by_name["MemNav/Battery"].message == "73%"
+    assert by_name["MemNav/Image refresh"].message == "FRESH · 0.08 s"
+    assert by_name["MemNav/Policy refresh"].message == "FRESH · 0.30 s"
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_message"),
+    [
+        ({"server_initialized": False}, "OFFLINE"),
+        (
+            {"server_initialized": True, "enabled": False, "estop": True},
+            "READY",
+        ),
+        (
+            {
+                "phase": "memory_recording",
+                "survey_state": "ACTIVE",
+                "server_initialized": True,
+                "enabled": False,
+                "estop": True,
+            },
+            "SURVEY · RECORDING",
+        ),
+        (
+            {
+                "phase": "revisit_query",
+                "server_initialized": True,
+                "enabled": True,
+                "estop": False,
+            },
+            "REVISIT · RUNNING",
+        ),
+        (
+            {
+                "server_initialized": True,
+                "enabled": True,
+                "estop": False,
+            },
+            "NAVIGATION · RUNNING",
+        ),
+        (
+            {
+                "phase": "revisit_query",
+                "server_initialized": True,
+                "arrival_latched": True,
+                "enabled": False,
+                "estop": True,
+            },
+            "ARRIVED",
+        ),
+    ],
+)
+def test_operator_mode_is_one_readable_stage(payload, expected_message):
+    diagnostics = build_operator_diagnostics(payload)
+    mode = next(
+        status for status in diagnostics.status if status.name == "MemNav/Mode"
+    )
+
+    assert mode.message == expected_message
 
 
 def test_operator_fault_has_error_diagnostic_without_hiding_mode():
@@ -316,23 +367,23 @@ def test_operator_fault_has_error_diagnostic_without_hiding_mode():
     }
     state = derive_operator_state(payload)
     diagnostics = build_operator_diagnostics(payload)
-    workflow = next(
-        status for status in diagnostics.status if status.name == "MemNav/Workflow"
+    overall = next(
+        status for status in diagnostics.status if status.name == "MemNav/Overall"
     )
 
     assert state["mode"] == "REVISIT"
     assert state["activity"] == "FAULT"
-    assert workflow.level == DiagnosticStatus.ERROR
-    assert workflow.message == "Fault · policy timeout"
+    assert overall.level == DiagnosticStatus.ERROR
+    assert overall.message == "FAULT"
 
 
 @pytest.mark.parametrize(
     ("clearance_m", "expected_level", "expected_message"),
     [
-        (None, DiagnosticStatus.STALE, "Unavailable · motion stops if needed"),
-        (0.40, DiagnosticStatus.ERROR, "0.40 m · STOP zone"),
-        (0.60, DiagnosticStatus.WARN, "0.60 m · SLOW zone"),
-        (0.90, DiagnosticStatus.OK, "0.90 m · clear"),
+        (None, DiagnosticStatus.STALE, "OFFLINE"),
+        (0.40, DiagnosticStatus.ERROR, "0.40 m · STOP"),
+        (0.60, DiagnosticStatus.WARN, "0.60 m · DANGER"),
+        (0.90, DiagnosticStatus.OK, "0.90 m · CLEAR"),
     ],
 )
 def test_clearance_diagnostic_explains_safety_thresholds(
@@ -352,7 +403,7 @@ def test_clearance_diagnostic_explains_safety_thresholds(
     clearance = next(
         status
         for status in diagnostics.status
-        if status.name == "MemNav/Clearance"
+        if status.name == "MemNav/Front depth"
     )
 
     assert clearance.level == expected_level
@@ -435,7 +486,7 @@ def test_arrival_diagnostics_keep_match_evidence_without_marking_no_match_faulty
     assert values["inlier_ratio"] == "0.396"
 
 
-def test_operator_diagnostics_can_include_latest_arrival_diagnostic():
+def test_operator_diagnostics_keep_arrival_detail_out_of_compact_summary():
     operator = {
         "phase": "revisit_query",
         "server_initialized": True,
@@ -451,8 +502,8 @@ def test_operator_diagnostics_can_include_latest_arrival_diagnostic():
         operator, arrival_payload=arrival
     )
 
-    assert diagnostics.status[-1].name == "MemNav/Arrival"
-    assert diagnostics.status[-1].message == "Waiting for goal check"
+    assert len(diagnostics.status) == 6
+    assert all(status.name != "MemNav/Arrival" for status in diagnostics.status)
 
 
 def test_depth_preview_preserves_invalid_mask_and_colorizes_range():

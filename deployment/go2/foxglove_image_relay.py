@@ -438,164 +438,175 @@ def build_operator_diagnostics(
     arrival_payload: dict[str, Any] | None = None,
     stamp: Any | None = None,
 ) -> DiagnosticArray:
-    """Build standard ROS diagnostics consumed by Foxglove's native panel."""
+    """Build a fixed six-row, glanceable operator summary for Foxglove."""
 
+    # Arrival detail remains available in the Match panel and on the dedicated
+    # diagnostics topic.  The Operate summary deliberately stays fixed-size.
+    _ = arrival_payload
     state = derive_operator_state(payload)
     diagnostic_array = DiagnosticArray()
     if stamp is not None:
         diagnostic_array.header.stamp = stamp
 
     last_error = str(payload.get("last_error") or "").strip()
-    workflow_level = DiagnosticStatus.ERROR if last_error else DiagnosticStatus.OK
-    if state["mode"] == "STARTING" and not last_error:
-        workflow_level = DiagnosticStatus.WARN
-    diagnostic_array.status.append(
-        _diagnostic_status(
-            name="MemNav/Workflow",
-            hardware_id="navdp",
-            level=workflow_level,
-            message=_operator_workflow_message(state, last_error),
-            values={
-                "mode": state["mode"],
-                "activity": state["activity"],
-                "workflow": state["workflow"],
-                "safety": state["safety"],
-                "enabled": payload.get("enabled"),
-                "estop": payload.get("estop"),
-                "raw_phase": payload.get("phase"),
-                "survey_state": payload.get("survey_state"),
-                "frames_recorded": payload.get("frames_recorded"),
-                "goal_candidates": payload.get("goal_candidates_captured"),
-                "active_goal_id": payload.get("active_goal_id"),
-                "stop_reason": payload.get("stop_reason"),
-            },
-        )
-    )
-
+    initialized = bool(payload.get("server_initialized"))
+    arrived = bool(payload.get("arrival_latched"))
     rgbd_age = _number(payload.get("rgbd_age_s"))
     rgbd_skew = _number(payload.get("rgb_depth_skew_s"))
-    if rgbd_age is None:
-        sensor_level, sensor_message = DiagnosticStatus.STALE, "No RGB-D sample"
-    elif rgbd_age > 0.75:
-        sensor_level = DiagnosticStatus.ERROR
-        sensor_message = f"Stale · {rgbd_age:.2f} s old"
-    elif rgbd_age > 0.25 or (rgbd_skew is not None and rgbd_skew > 0.12):
-        sensor_level = DiagnosticStatus.WARN
-        sensor_message = f"Delayed · {rgbd_age:.2f} s old"
-    else:
-        sensor_level = DiagnosticStatus.OK
-        sensor_message = f"Fresh · {rgbd_age:.2f} s old"
-    diagnostic_array.status.append(
-        _diagnostic_status(
-            name="MemNav/RGB-D",
-            hardware_id="realsense_d435i",
-            level=sensor_level,
-            message=sensor_message,
-            values={
-                "age_s": rgbd_age,
-                "rgb_depth_skew_s": rgbd_skew,
-                "clearance_m": payload.get("clearance_m"),
-            },
-        )
-    )
-
     clearance = _number(payload.get("clearance_m"))
     hard_stop_m = _number(payload.get("depth_hard_stop_m"))
     slow_distance_m = _number(payload.get("depth_slow_distance_m"))
     hard_stop_m = 0.45 if hard_stop_m is None else hard_stop_m
     slow_distance_m = 0.80 if slow_distance_m is None else slow_distance_m
-    if clearance is None:
-        clearance_level = DiagnosticStatus.STALE
-        clearance_message = "Unavailable · motion stops if needed"
-    elif clearance <= hard_stop_m:
-        clearance_level = DiagnosticStatus.ERROR
-        clearance_message = f"{clearance:.2f} m · STOP zone"
-    elif clearance < slow_distance_m:
-        clearance_level = DiagnosticStatus.WARN
-        clearance_message = f"{clearance:.2f} m · SLOW zone"
-    else:
-        clearance_level = DiagnosticStatus.OK
-        clearance_message = f"{clearance:.2f} m · clear"
-    diagnostic_array.status.append(
-        _diagnostic_status(
-            name="MemNav/Clearance",
-            hardware_id="realsense_d435i",
-            level=clearance_level,
-            message=clearance_message,
-            values={
-                "clearance_m": clearance,
-                "hard_stop_m": hard_stop_m,
-                "slow_distance_m": slow_distance_m,
-                "meaning": "front depth safety region",
-            },
-        )
-    )
-
-    initialized = bool(payload.get("server_initialized"))
-    inference_busy = bool(payload.get("inference_busy"))
     plan_age = _number(payload.get("plan_age_s"))
-    if last_error:
-        policy_level, policy_message = DiagnosticStatus.ERROR, last_error
-    elif not initialized:
-        policy_level, policy_message = DiagnosticStatus.WARN, "Starting"
-    elif inference_busy:
-        policy_level, policy_message = DiagnosticStatus.OK, "Inference busy"
-    else:
-        policy_level, policy_message = DiagnosticStatus.OK, "Ready"
-    if plan_age is not None:
-        policy_message += f" · plan {plan_age:.2f} s old"
-    diagnostic_array.status.append(
-        _diagnostic_status(
-            name="MemNav/Policy",
-            hardware_id="jetson",
-            level=policy_level,
-            message=policy_message,
-            values={
-                "initialized": initialized,
-                "inference_busy": inference_busy,
-                "last_inference_s": payload.get("last_inference_s"),
-                "plan_age_s": payload.get("plan_age_s"),
-                "candidate_count": payload.get("candidate_count"),
-                "backend": payload.get("backend"),
-            },
-        )
-    )
-
     battery = payload.get("go2_battery")
     if not isinstance(battery, dict):
         battery = {}
     battery_soc = _number(battery.get("soc_pct"))
-    if state["go2"] == "OFFLINE":
-        go2_level = DiagnosticStatus.WARN
-        go2_message = "Offline · battery unavailable"
-    elif battery_soc is None:
-        go2_level = DiagnosticStatus.WARN
-        go2_message = "Online · battery unavailable"
-    elif battery_soc is not None and battery_soc < 15.0:
-        go2_level = DiagnosticStatus.WARN
-        go2_message = f"Battery low · {battery_soc:.0f}%"
-    else:
-        go2_level = DiagnosticStatus.OK
-        go2_message = f"Online · battery {battery_soc:.0f}%"
-    diagnostic_array.status.append(
-        _diagnostic_status(
-            name="MemNav/Go2",
-            hardware_id="unitree_go2",
-            level=go2_level,
-            message=go2_message,
-            values={
-                "connection": state["go2"],
-                "safety": state["safety"],
-                "soc_pct": battery_soc,
-                "voltage_v": battery.get("voltage_v"),
-                "current_a": battery.get("current_a"),
-                "enabled": payload.get("enabled"),
-                "estop": payload.get("estop"),
-            },
+
+    if rgbd_age is None:
+        image_level, image_message = DiagnosticStatus.STALE, "OFFLINE"
+    elif rgbd_age > 0.75:
+        image_level, image_message = (
+            DiagnosticStatus.ERROR,
+            f"STALE · {rgbd_age:.2f} s",
         )
+    elif rgbd_age > 0.25 or (rgbd_skew is not None and rgbd_skew > 0.12):
+        image_level, image_message = (
+            DiagnosticStatus.WARN,
+            f"DELAYED · {rgbd_age:.2f} s",
+        )
+    else:
+        image_level, image_message = (
+            DiagnosticStatus.OK,
+            f"FRESH · {rgbd_age:.2f} s",
+        )
+
+    if clearance is None:
+        depth_level, depth_message = DiagnosticStatus.STALE, "OFFLINE"
+    elif clearance <= hard_stop_m:
+        depth_level, depth_message = (
+            DiagnosticStatus.ERROR,
+            f"{clearance:.2f} m · STOP",
+        )
+    elif clearance < slow_distance_m:
+        depth_level, depth_message = (
+            DiagnosticStatus.WARN,
+            f"{clearance:.2f} m · DANGER",
+        )
+    else:
+        depth_level, depth_message = (
+            DiagnosticStatus.OK,
+            f"{clearance:.2f} m · CLEAR",
+        )
+
+    if arrived:
+        policy_level, policy_message = DiagnosticStatus.OK, "DONE"
+    elif not initialized:
+        policy_level, policy_message = DiagnosticStatus.ERROR, "OFFLINE"
+    elif plan_age is None and state["mode"] == "SURVEY":
+        policy_level, policy_message = DiagnosticStatus.OK, "STANDBY"
+    elif plan_age is None:
+        policy_level, policy_message = DiagnosticStatus.WARN, "WAITING"
+    elif plan_age <= 1.5:
+        policy_level, policy_message = (
+            DiagnosticStatus.OK,
+            f"FRESH · {plan_age:.2f} s",
+        )
+    elif plan_age <= 5.0:
+        policy_level, policy_message = (
+            DiagnosticStatus.WARN,
+            f"AGING · {plan_age:.2f} s",
+        )
+    else:
+        policy_level, policy_message = (
+            DiagnosticStatus.ERROR,
+            f"STALE · {plan_age:.2f} s",
+        )
+
+    if state["go2"] == "OFFLINE":
+        battery_level, battery_message = DiagnosticStatus.WARN, "OFFLINE"
+    elif battery_soc is None:
+        battery_level, battery_message = DiagnosticStatus.WARN, "--%"
+    elif battery_soc < 15.0:
+        battery_level, battery_message = (
+            DiagnosticStatus.WARN,
+            f"LOW · {battery_soc:.0f}%",
+        )
+    else:
+        battery_level, battery_message = (
+            DiagnosticStatus.OK,
+            f"{battery_soc:.0f}%",
+        )
+
+    survey_state = str(payload.get("survey_state") or "").upper()
+    if not survey_state and state["activity"].startswith("SURVEY_"):
+        survey_state = state["activity"].removeprefix("SURVEY_")
+    if not initialized:
+        mode_level, mode_message = DiagnosticStatus.WARN, "OFFLINE"
+    elif arrived:
+        mode_level, mode_message = DiagnosticStatus.OK, "ARRIVED"
+    elif state["mode"] == "SURVEY":
+        survey_step = {
+            "ACTIVE": "RECORDING",
+            "PAUSED": "PAUSED",
+            "SEALED": "SEALED",
+        }.get(survey_state, "READY")
+        mode_level, mode_message = (
+            DiagnosticStatus.OK,
+            f"SURVEY · {survey_step}",
+        )
+    elif state["mode"] == "REVISIT":
+        revisit_step = "RUNNING" if state["safety"] == "ENABLED" else "READY"
+        mode_level, mode_message = (
+            DiagnosticStatus.OK,
+            f"REVISIT · {revisit_step}",
+        )
+    elif state["safety"] == "ENABLED":
+        mode_level, mode_message = DiagnosticStatus.OK, "NAVIGATION · RUNNING"
+    else:
+        mode_level, mode_message = DiagnosticStatus.OK, "READY"
+    if last_error or state["safety"] == "INCONSISTENT":
+        mode_level = DiagnosticStatus.ERROR
+
+    warning_levels = {DiagnosticStatus.WARN, DiagnosticStatus.STALE}
+    if last_error:
+        overall_level, overall_message = DiagnosticStatus.ERROR, "FAULT"
+    elif state["safety"] == "INCONSISTENT":
+        overall_level, overall_message = DiagnosticStatus.ERROR, "CHECK SAFETY"
+    elif depth_level == DiagnosticStatus.ERROR:
+        overall_level, overall_message = DiagnosticStatus.ERROR, "STOP"
+    elif image_level in {DiagnosticStatus.ERROR, DiagnosticStatus.STALE}:
+        overall_level, overall_message = DiagnosticStatus.ERROR, "IMAGE OFFLINE"
+    elif policy_level == DiagnosticStatus.ERROR:
+        overall_level, overall_message = DiagnosticStatus.ERROR, "POLICY STALE"
+    elif any(
+        level in warning_levels
+        for level in (depth_level, image_level, policy_level, battery_level)
+    ):
+        overall_level, overall_message = DiagnosticStatus.WARN, "ATTENTION"
+    else:
+        lock_text = "MOTION ON" if state["safety"] == "ENABLED" else "LOCKED"
+        overall_level, overall_message = DiagnosticStatus.OK, f"OK · {lock_text}"
+
+    rows = (
+        ("MemNav/Overall", "navdp", overall_level, overall_message),
+        ("MemNav/Mode", "navdp", mode_level, mode_message),
+        ("MemNav/Front depth", "realsense_d435i", depth_level, depth_message),
+        ("MemNav/Battery", "unitree_go2", battery_level, battery_message),
+        ("MemNav/Image refresh", "realsense_d435i", image_level, image_message),
+        ("MemNav/Policy refresh", "jetson", policy_level, policy_message),
     )
-    if arrival_payload is not None:
-        diagnostic_array.status.append(build_arrival_diagnostic(arrival_payload))
+    for name, hardware_id, level, message in rows:
+        diagnostic_array.status.append(
+            _diagnostic_status(
+                name=name,
+                hardware_id=hardware_id,
+                level=level,
+                message=message,
+                values={},
+            )
+        )
     return diagnostic_array
 
 

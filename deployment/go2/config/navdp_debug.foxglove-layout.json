@@ -243,16 +243,6 @@
       "editingMode": false,
       "foxglovePanelTitle": "Stop"
     },
-    "CallService!camera-recovery": {
-      "serviceName": "/navdp_camera_recovery/restart",
-      "requestPayload": "{}",
-      "layout": "vertical",
-      "buttonText": "CAMERA RESET",
-      "buttonTooltip": "Locks motion, restarts RealSense and verifies fresh RGB-D frames",
-      "buttonColor": "#ef6c00",
-      "editingMode": false,
-      "foxglovePanelTitle": "Camera"
-    },
     "CallService!survey-start": {
       "serviceName": "/navdp_go2_adapter/survey_start",
       "requestPayload": "{}",
@@ -346,15 +336,15 @@
       "pinnedIds": [],
       "hardwareIdFilter": "",
       "topicToRender": "/navdp/operator/diagnostics",
-      "sortByLevel": true,
-      "foxglovePanelTitle": "Status · Battery · Clearance"
+      "sortByLevel": false,
+      "foxglovePanelTitle": "Operator"
     },
     "DiagnosticStatusPanel!workflow": {
       "topicToRender": "/navdp/operator/diagnostics",
       "selectedHardwareId": "navdp",
-      "selectedName": "MemNav/Workflow",
+      "selectedName": "MemNav/Overall",
       "splitFraction": 0.32,
-      "foxglovePanelTitle": "Workflow detail"
+      "foxglovePanelTitle": "Overall"
     },
     "DiagnosticStatusPanel!arrival": {
       "topicToRender": "/navdp/operator/arrival_diagnostics",
@@ -400,12 +390,7 @@
                     "second": "CallService!survey-seal",
                     "splitPercentage": 50
                   },
-                  "second": {
-                    "direction": "row",
-                    "first": "CallService!stop",
-                    "second": "CallService!camera-recovery",
-                    "splitPercentage": 50
-                  },
+                  "second": "CallService!stop",
                   "splitPercentage": 50
                 },
                 "splitPercentage": 65

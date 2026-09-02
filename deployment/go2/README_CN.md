@@ -143,9 +143,10 @@ Go2离线不会覆盖当前Survey或Revisit阶段。
 锁停阶段也能看电量；链路恢复后会自动重连，无需重启整栈。
 
 版本化布局把当前RGB降到约40%的画布面积，Match降到约8%；Goal和Depth并排补足主区。
-右侧使用更紧凑的Trajectory，下方的Diagnostics使用单列小字号摘要，避免小屏上的四块
-多行大字状态被裁切；电量和前向安全距离无需展开即可看到。四个Service Call
-按钮组成更高的2×2控制区，避免按钮文字被panel标题遮挡。Foxglove内置panel仍是一项
+右侧使用更紧凑的Trajectory，下方的Operator摘要固定为六行：Overall、Mode、Front
+depth、Battery、Image refresh和Policy refresh。每行只显示一个可读结论，不再展开协议
+内部字段或按告警级别改变顺序。三个Service Call按钮保留Survey Start、Survey Seal和
+整行红色Stop；Camera Reset不再出现在Operate页。Foxglove内置panel仍是一项
 service一个panel，因此不引入自定义
 扩展。Match只显示紧凑的单帧匹配叠加，不再用宽幅左右对比抢占横向空间。
 `/navdp/trajectory`明确按4 cm
@@ -164,15 +165,13 @@ ImageGoal、最后一次arrival对比和原生状态topic使用transient-local�
 重连后仍能立即取得最近快照；arrival panel表示“最后一次评估”，不是锁定期间的新判断。
 状态条下方的绿色`START SURVEY`与蓝色`SEAL SURVEY`只在`survey-prepare`生成的Survey
 栈中可用。前者建立第一帧记录边界，后者等待当前帧提交完成后冻结dataset。
-Workflow诊断行会显示`Survey recording / paused / sealed`；已保存帧数和最近一次按钮结果
-可在同一行中展开。按钮关闭编辑模式，
-默认不铺开request/response文字；seal失败时保持记录暂停，已有帧不会丢失，可再次Start
-继续采集。红色
+Mode行会直接显示`SURVEY · RECORDING / PAUSED / SEALED`、`REVISIT · READY / RUNNING`、
+`NAVIGATION · RUNNING`、`READY`、`OFFLINE`或`ARRIVED`。按钮关闭编辑模式，默认不铺开
+request/response文字；seal失败时保持记录暂停，已有帧不会丢失，可再次Start继续采集。红色
 `STOP NAVIGATION`按钮只执行
 `enabled=false + estop=true + zero command`；
-它不能启动机器人，重复点击也安全。调用成功后应在Workflow诊断行看到`motion locked`。
-橙色`CAMERA RESET`会先执行相同的运动锁止，再只重启`rgbd`窗口，并等待RGB与aligned
-depth各至少10幅新帧后才返回成功；无论成功或失败都不自动解除estop或恢复导航。
+它不能启动机器人，重复点击也安全。调用成功后应在Overall行看到`OK · LOCKED`。
+相机恢复服务仍保留在ROS侧供维护使用，但不再占用默认Operate操作面板。
 这些topic有损且只用于显示；NavDP、arrival和`--profile full`采集仍读取原始
 848×480×30 Hz RGB-D。修改布局文件不会覆盖Foxglove已经导入的本地副本，升级后需要重新
 导入一次布局，或手动更新对应panel的topic和可见性。
