@@ -383,17 +383,17 @@
                 "direction": "column",
                 "first": "DiagnosticSummary!operate",
                 "second": {
-                  "direction": "column",
-                  "first": {
+                  "direction": "row",
+                  "first": "CallService!survey-start",
+                  "second": {
                     "direction": "row",
-                    "first": "CallService!survey-start",
-                    "second": "CallService!survey-seal",
+                    "first": "CallService!survey-seal",
+                    "second": "CallService!stop",
                     "splitPercentage": 50
                   },
-                  "second": "CallService!stop",
-                  "splitPercentage": 50
+                  "splitPercentage": 34
                 },
-                "splitPercentage": 65
+                "splitPercentage": 78
               },
               "splitPercentage": 40
             },

@@ -145,8 +145,9 @@ Go2离线不会覆盖当前Survey或Revisit阶段。
 版本化布局把当前RGB降到约40%的画布面积，Match降到约8%；Goal和Depth并排补足主区。
 右侧使用更紧凑的Trajectory，下方的Operator摘要固定为六行：Overall、Mode、Front
 depth、Battery、Image refresh和Policy refresh。每行只显示一个可读结论，不再展开协议
-内部字段或按告警级别改变顺序。三个Service Call按钮保留Survey Start、Survey Seal和
-整行红色Stop；Camera Reset不再出现在Operate页。Foxglove内置panel仍是一项
+内部字段或按告警级别改变顺序。三个Service Call按钮把Survey Start、Survey Seal和
+红色Stop排在同一行，把省下的纵向空间交给Operator摘要；Camera Reset不再出现在
+Operate页。Foxglove内置panel仍是一项
 service一个panel，因此不引入自定义
 扩展。Match只显示紧凑的单帧匹配叠加，不再用宽幅左右对比抢占横向空间。
 `/navdp/trajectory`明确按4 cm

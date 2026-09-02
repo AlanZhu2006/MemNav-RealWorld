@@ -277,17 +277,19 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
         panel_id.startswith("Indicator!")
         for panel_id in layout["configById"]
     )
-    assert status_and_controls["splitPercentage"] == 65
+    assert status_and_controls["splitPercentage"] == 78
     controls = status_and_controls["second"]
-    assert controls["direction"] == "column"
-    survey_button_row = controls["first"]
-    assert survey_button_row == {
+    assert controls == {
         "direction": "row",
         "first": "CallService!survey-start",
-        "second": "CallService!survey-seal",
-        "splitPercentage": 50,
+        "second": {
+            "direction": "row",
+            "first": "CallService!survey-seal",
+            "second": "CallService!stop",
+            "splitPercentage": 50,
+        },
+        "splitPercentage": 34,
     }
-    assert controls["second"] == "CallService!stop"
 
 
 def test_foxglove_layout_keeps_status_readable_on_small_16_by_9_display():
@@ -316,18 +318,18 @@ def test_foxglove_layout_keeps_status_readable_on_small_16_by_9_display():
         * layout["second"]["second"]["splitPercentage"]
         / 100.0
     )
-    button_row_height = (
+    button_height = (
         viewport_height - trajectory_height - status_height
-    ) / 2.0
+    )
     viewport_area = viewport_width * viewport_height
     rgb_area_fraction = main_width * main_height / viewport_area
     match_area_fraction = match_width * diagnostics_height / viewport_area
 
     assert 1.50 < side_width / trajectory_height < 1.60
     assert side_width > 400
-    assert status_height > 270
-    assert 1.5 < side_width / status_height < 1.7
-    assert 70 < button_row_height < 85
+    assert status_height > 330
+    assert 1.25 < side_width / status_height < 1.40
+    assert 90 < button_height < 110
     assert 0.35 < rgb_area_fraction < 0.42
     assert match_area_fraction < 0.08
 
