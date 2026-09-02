@@ -180,7 +180,8 @@ request/response文字；seal失败时保持记录暂停，已有帧不会丢失
 
 仓库同时提供扩展和组织级Layout自动发布：`.github/workflows/sync-foxglove-layout.yml`
 在控件源码、`navdp_debug.foxglove-layout.json`或同步器变化并push到`main`时运行。它先为
-扩展生成唯一版本、打包并上传`.foxe`到Foxglove组织，再更新唯一名称
+扩展生成唯一版本、打包并上传`.foxe`到Foxglove组织，确认该版本已成为组织的
+`activeVersion`后再更新唯一名称
 `MemNav Go2 Navigation`的组织Layout；Foxglove首次生成的合法ID
 `lay_0eaA5tDP1ifAOz3F` 已固定在 workflow 中，之后使用该 ID 原位更新，不会反复生成
 副本。首次启用前，由 Foxglove 组织管理员创建

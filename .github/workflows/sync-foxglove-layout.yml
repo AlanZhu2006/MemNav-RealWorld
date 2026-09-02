@@ -113,6 +113,12 @@ jobs:
             https://api.foxglove.dev/v1/extension-upload; } || true)"
           case "$status" in
             2??)
+              extension_id="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["id"])' "$response")"
+              if [ -z "$extension_id" ]; then
+                echo "Foxglove extension upload returned an empty extension ID" >&2
+                exit 1
+              fi
+              echo "EXTENSION_ID=$extension_id" >> "$GITHUB_ENV"
               echo "Published MemNav Operator Controls $EXTENSION_VERSION"
               ;;
             *)
@@ -124,6 +130,50 @@ jobs:
               exit 1
               ;;
           esac
+
+      - name: Verify active organization extension
+        run: |
+          response="$RUNNER_TEMP/foxglove-extension-active.json"
+          for attempt in $(seq 1 10); do
+            status="$({ curl \
+              --silent \
+              --show-error \
+              --connect-timeout 15 \
+              --max-time 30 \
+              --header "Authorization: Bearer $FOXGLOVE_API_KEY" \
+              --header "Accept: application/json" \
+              --output "$response" \
+              --write-out '%{http_code}' \
+              "https://api.foxglove.dev/v1/extensions/$EXTENSION_ID"; } || true)"
+            if [ "$status" = "200" ] && python3 - "$response" "$EXTENSION_VERSION" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              extension = json.load(handle)
+          expected_version = sys.argv[2]
+          valid = (
+              extension.get("name") == "memnav-operator-controls"
+              and extension.get("publisher") == "pengyue-polaron"
+              and extension.get("activeVersion") == expected_version
+              and bool(extension.get("foxe"))
+          )
+          raise SystemExit(0 if valid else 1)
+          PY
+            then
+              echo "Verified active organization extension $EXTENSION_VERSION"
+              exit 0
+            fi
+            if [ "$attempt" -lt 10 ]; then
+              sleep 2
+            fi
+          done
+          echo "Extension $EXTENSION_VERSION did not become active before layout publication" >&2
+          if [ -s "$response" ]; then
+            head -c 2000 "$response" >&2
+            echo >&2
+          fi
+          exit 1
 
       - name: Create or update organization layout
         run: |

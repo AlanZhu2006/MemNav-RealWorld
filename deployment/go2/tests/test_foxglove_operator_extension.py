@@ -47,10 +47,12 @@ def test_ci_packages_and_uploads_foxe_before_updating_layout():
     workflow = WORKFLOW.read_text(encoding="utf-8")
     package_step = workflow.index("npm run package")
     upload_step = workflow.index("https://api.foxglove.dev/v1/extension-upload")
+    verify_step = workflow.index("- name: Verify active organization extension")
     layout_step = workflow.index("- name: Create or update organization layout")
 
-    assert package_step < upload_step < layout_step
+    assert package_step < upload_step < verify_step < layout_step
     assert "actions/upload-artifact@v4" in workflow
     assert "Content-Type: application/octet-stream" in workflow
     assert "GITHUB_RUN_ATTEMPT" in workflow
     assert "deployment/go2/foxglove/operator-controls/**" in workflow
+    assert 'extension.get("activeVersion") == expected_version' in workflow
