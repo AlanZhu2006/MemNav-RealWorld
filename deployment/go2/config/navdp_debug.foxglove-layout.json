@@ -233,35 +233,8 @@
       },
       "foxglovePanelTitle": "Match"
     },
-    "CallService!stop": {
-      "serviceName": "/navdp_go2_adapter/operator_stop",
-      "requestPayload": "{}",
-      "layout": "vertical",
-      "buttonText": "STOP NAVIGATION",
-      "buttonTooltip": "Disable motion, assert estop and command zero",
-      "buttonColor": "#d32f2f",
-      "editingMode": false,
-      "foxglovePanelTitle": "Stop"
-    },
-    "CallService!survey-start": {
-      "serviceName": "/navdp_go2_adapter/survey_start",
-      "requestPayload": "{}",
-      "layout": "vertical",
-      "buttonText": "START SURVEY",
-      "buttonTooltip": "Start or resume RGB Survey recording",
-      "buttonColor": "#2e7d32",
-      "editingMode": false,
-      "foxglovePanelTitle": "Start"
-    },
-    "CallService!survey-seal": {
-      "serviceName": "/navdp_go2_adapter/survey_seal",
-      "requestPayload": "{}",
-      "layout": "vertical",
-      "buttonText": "SEAL SURVEY",
-      "buttonTooltip": "Pause, validate and seal the Survey",
-      "buttonColor": "#1565c0",
-      "editingMode": false,
-      "foxglovePanelTitle": "Seal"
+    "memnav-operator-controls.operator-controls!operate": {
+      "foxglovePanelTitle": "Controls"
     },
     "Plot!commands": {
       "paths": [
@@ -382,17 +355,7 @@
               "second": {
                 "direction": "column",
                 "first": "DiagnosticSummary!operate",
-                "second": {
-                  "direction": "row",
-                  "first": "CallService!survey-start",
-                  "second": {
-                    "direction": "row",
-                    "first": "CallService!survey-seal",
-                    "second": "CallService!stop",
-                    "splitPercentage": 50
-                  },
-                  "splitPercentage": 34
-                },
+                "second": "memnav-operator-controls.operator-controls!operate",
                 "splitPercentage": 78
               },
               "splitPercentage": 40

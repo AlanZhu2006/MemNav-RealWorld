@@ -482,7 +482,7 @@ bash deployment/go2/offboard/revisit_experiment.sh \
 
 ### 8.6 Seal
 
-走完去程和回程后，在 Foxglove 点击蓝色 `SEAL SURVEY`；命令行等价入口为：
+走完去程和回程后，在 Foxglove 点击 `STOP SURVEY`；命令行等价入口为：
 
 ```bash
 bash deployment/go2/offboard/revisit_experiment.sh \
@@ -1701,7 +1701,7 @@ bash deployment/go2/offboard/revisit_experiment.sh survey-status
 bash deployment/go2/offboard/revisit_experiment.sh \
   survey-return scene01_dataset
 
-# Foxglove: SEAL SURVEY（下面是CLI等价入口）
+# Foxglove: STOP SURVEY（下面是CLI等价入口）
 bash deployment/go2/offboard/revisit_experiment.sh \
   survey-seal scene01_dataset
 ```

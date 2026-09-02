@@ -199,41 +199,23 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
     panel_kinds = {panel_id.split("!", 1)[0] for panel_id in layout["configById"]}
     assert "Publish" not in panel_kinds
     assert "ServiceCall" not in panel_kinds
+    assert "CallService" not in panel_kinds
     assert "Teleop" not in panel_kinds
     assert {
         "3D",
         "DiagnosticStatusPanel",
         "DiagnosticSummary",
         "Image",
-        "CallService",
+        "memnav-operator-controls.operator-controls",
         "Plot",
         "StateTransitions",
         "Tab",
         "TopicGraph",
     } <= panel_kinds
-    service_panels = {
-        panel_id: panel
-        for panel_id, panel in layout["configById"].items()
-        if panel_id.startswith("CallService!")
+    controls_panel = "memnav-operator-controls.operator-controls!operate"
+    assert layout["configById"][controls_panel] == {
+        "foxglovePanelTitle": "Controls"
     }
-    assert set(service_panels) == {
-        "CallService!stop",
-        "CallService!survey-start",
-        "CallService!survey-seal",
-    }
-    assert service_panels["CallService!stop"]["serviceName"] == (
-        "/navdp_go2_adapter/operator_stop"
-    )
-    assert service_panels["CallService!stop"]["requestPayload"] == "{}"
-    assert service_panels["CallService!stop"]["buttonText"] == "STOP NAVIGATION"
-    survey_start = service_panels["CallService!survey-start"]
-    assert survey_start["serviceName"] == "/navdp_go2_adapter/survey_start"
-    assert survey_start["requestPayload"] == "{}"
-    assert survey_start["buttonText"] == "START SURVEY"
-    survey_seal = service_panels["CallService!survey-seal"]
-    assert survey_seal["serviceName"] == "/navdp_go2_adapter/survey_seal"
-    assert survey_seal["requestPayload"] == "{}"
-    assert survey_seal["buttonText"] == "SEAL SURVEY"
     assert layout["layout"] == "Tab!navdp"
     tab_panel = layout["configById"][layout["layout"]]
     assert tab_panel["activeTabIdx"] == 0
@@ -278,18 +260,7 @@ def test_foxglove_layout_limits_control_to_fail_closed_services():
         for panel_id in layout["configById"]
     )
     assert status_and_controls["splitPercentage"] == 78
-    controls = status_and_controls["second"]
-    assert controls == {
-        "direction": "row",
-        "first": "CallService!survey-start",
-        "second": {
-            "direction": "row",
-            "first": "CallService!survey-seal",
-            "second": "CallService!stop",
-            "splitPercentage": 50,
-        },
-        "splitPercentage": 34,
-    }
+    assert status_and_controls["second"] == controls_panel
 
 
 def test_foxglove_layout_keeps_status_readable_on_small_16_by_9_display():

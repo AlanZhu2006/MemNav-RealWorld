@@ -145,11 +145,11 @@ Go2离线不会覆盖当前Survey或Revisit阶段。
 版本化布局把当前RGB降到约40%的画布面积，Match降到约8%；Goal和Depth并排补足主区。
 右侧使用更紧凑的Trajectory，下方的Operator摘要固定为六行：Overall、Mode、Front
 depth、Battery、Image refresh和Policy refresh。每行只显示一个可读结论，不再展开协议
-内部字段或按告警级别改变顺序。三个Service Call按钮把Survey Start、Survey Seal和
+内部字段或按告警级别改变顺序。自定义React控件把Start Survey、Stop Survey和
 红色Stop排在同一行，把省下的纵向空间交给Operator摘要；Camera Reset不再出现在
-Operate页。Foxglove内置panel仍是一项
-service一个panel，因此不引入自定义
-扩展。Match只显示紧凑的单帧匹配叠加，不再用宽幅左右对比抢占横向空间。
+Operate页。该控件通过`memnav-operator-controls` Foxglove扩展调用既有service，避免
+内置Service Call的一项service一个panel。Match只显示紧凑的单帧匹配叠加，不再用
+宽幅左右对比抢占横向空间。
 `/navdp/trajectory`明确按4 cm
 细折线显示，并用绿到青的渐变区分轨迹起终方向；
 `/navdp/debug/markers`仍保留候选路径和Q值供诊断，但默认关闭，避免与选中轨迹重复叠加。
@@ -158,16 +158,17 @@ service一个panel，因此不引入自定义
 `Planning`打开候选轨迹/Q值marker，并并列显示vx/wz曲线、Goal、Match与格式化Arrival证据；
 `System`显示ROS连接图、模式/动作/安全/Go2/Arrival状态时间线、Diagnostics汇总和格式化
 Workflow详情。默认布局不再使用Raw Messages panel。
-这些页全部只用内置只读panel，不增加扩展，也不扩大Foxglove的控制权限。
+Planning和System页全部只用内置只读panel；自定义扩展仅用于Operate页的三个固定按钮，
+不会扩大Foxglove的控制权限。
 
 完整`/navdp/status`和
 `/navdp/rgb_arrival_status`仍可从Topics侧栏按需查看，不再占用默认dashboard。
 ImageGoal、最后一次arrival对比和原生状态topic使用transient-local显示QoS，因此Bridge或浏览器
 重连后仍能立即取得最近快照；arrival panel表示“最后一次评估”，不是锁定期间的新判断。
-状态条下方的绿色`START SURVEY`与蓝色`SEAL SURVEY`只在`survey-prepare`生成的Survey
+状态条下方的`START SURVEY`与`STOP SURVEY`只在`survey-prepare`生成的Survey
 栈中可用。前者建立第一帧记录边界，后者等待当前帧提交完成后冻结dataset。
 Mode行会直接显示`SURVEY · RECORDING / PAUSED / SEALED`、`REVISIT · READY / RUNNING`、
-`NAVIGATION · RUNNING`、`READY`、`OFFLINE`或`ARRIVED`。按钮关闭编辑模式，默认不铺开
+`NAVIGATION · RUNNING`、`READY`、`OFFLINE`或`ARRIVED`。按钮不提供service编辑器，也不铺开
 request/response文字；seal失败时保持记录暂停，已有帧不会丢失，可再次Start继续采集。红色
 `STOP NAVIGATION`按钮只执行
 `enabled=false + estop=true + zero command`；
@@ -177,19 +178,20 @@ request/response文字；seal失败时保持记录暂停，已有帧不会丢失
 848×480×30 Hz RGB-D。修改布局文件不会覆盖Foxglove已经导入的本地副本，升级后需要重新
 导入一次布局，或手动更新对应panel的topic和可见性。
 
-仓库同时提供组织级 Layout 自动同步：`.github/workflows/sync-foxglove-layout.yml`
-只在 `navdp_debug.foxglove-layout.json` 或同步器本身变化并 push 到 `main` 时运行，使用
-唯一名称 `MemNav Go2 Navigation` 创建组织 Layout；Foxglove 首次生成的合法 ID
+仓库同时提供扩展和组织级Layout自动发布：`.github/workflows/sync-foxglove-layout.yml`
+在控件源码、`navdp_debug.foxglove-layout.json`或同步器变化并push到`main`时运行。它先为
+扩展生成唯一版本、打包并上传`.foxe`到Foxglove组织，再更新唯一名称
+`MemNav Go2 Navigation`的组织Layout；Foxglove首次生成的合法ID
 `lay_0eaA5tDP1ifAOz3F` 已固定在 workflow 中，之后使用该 ID 原位更新，不会反复生成
 副本。首次启用前，由 Foxglove 组织管理员创建
-具备 Layout 读取、创建和更新能力的新 API Key，并通过交互式命令写入 GitHub Secret；
+具备扩展发布及Layout读取、创建和更新能力的新API Key，并通过交互式命令写入GitHub Secret；
 不要把 Key 放入 JSON、workflow、shell 历史或文档：
 
 ```bash
 gh secret set FOXGLOVE_API_KEY --repo AlanZhu2006/MemNav-RealWorld
 ```
 
-随后可在 GitHub Actions 手动运行一次 `Sync Foxglove organization layout`，或修改布局
+随后可在GitHub Actions手动运行一次`Publish Foxglove controls and organization layout`，或修改布局
 并 push。Foxglove 客户端只需首次从 Organization layouts 选择该 Layout；以后 CI
 保存的云端版本会跨设备同步，不再导入本地 JSON。如果客户端对该 Layout 有未保存的
 本地草稿，Foxglove会保护草稿而不会强制覆盖，此时需要在 Layout 菜单选择 Revert 或
@@ -248,7 +250,7 @@ bash deployment/go2/offboard/revisit_experiment.sh survey-prepare DATASET_ID
 # 在 Foxglove 点击 START SURVEY；旧的 survey-start 仍可一条命令直接开始
 # 遥控器走出并返回；转身处执行：
 bash deployment/go2/offboard/revisit_experiment.sh survey-return DATASET_ID
-# 在 Foxglove 点击 SEAL SURVEY；或使用下面的CLI等价入口
+# 在 Foxglove 点击 STOP SURVEY；或使用下面的CLI等价入口
 bash deployment/go2/offboard/revisit_experiment.sh survey-seal DATASET_ID
 bash deployment/go2/offboard/revisit_experiment.sh formal-start DATASET_ID \
   --scene-id SCENE_ID --run-id RUN_ID --arm mono_cec \

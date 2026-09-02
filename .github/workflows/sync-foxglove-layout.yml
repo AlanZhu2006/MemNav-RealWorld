@@ -1,9 +1,10 @@
-name: Sync Foxglove organization layout
+name: Publish Foxglove controls and organization layout
 
 on:
   push:
     branches: [main]
     paths:
+      - deployment/go2/foxglove/operator-controls/**
       - deployment/go2/config/navdp_debug.foxglove-layout.json
       - deployment/go2/scripts/sync_foxglove_layout.py
       - .github/workflows/sync-foxglove-layout.yml
@@ -13,15 +14,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: foxglove-layout-navdp-debug
+  group: foxglove-operator-ui
   cancel-in-progress: true
 
 jobs:
   sync:
-    name: Publish organization layout
+    name: Publish extension, then organization layout
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
+      EXTENSION_DIR: deployment/go2/foxglove/operator-controls
       LAYOUT_FILE: deployment/go2/config/navdp_debug.foxglove-layout.json
       LAYOUT_ID: lay_0eaA5tDP1ifAOz3F
       LAYOUT_NAME: MemNav Go2 Navigation
@@ -31,6 +33,13 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: deployment/go2/foxglove/operator-controls/package-lock.json
 
       - name: Validate tracked layout
         run: |
@@ -42,12 +51,79 @@ jobs:
             --permission ORG_WRITE \
             --dry-run
 
+      - name: Assign unique extension version
+        working-directory: ${{ env.EXTENSION_DIR }}
+        run: |
+          short_sha="${GITHUB_SHA:0:12}"
+          extension_version="0.1.${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}.${short_sha}"
+          npm pkg set version="$extension_version"
+          echo "EXTENSION_VERSION=$extension_version" >> "$GITHUB_ENV"
+
+      - name: Install extension dependencies
+        working-directory: ${{ env.EXTENSION_DIR }}
+        run: npm ci
+
+      - name: Lint and package extension
+        working-directory: ${{ env.EXTENSION_DIR }}
+        run: |
+          npm audit --audit-level=high
+          npm run lint
+          npm run package
+
+      - name: Locate FOXE package
+        run: |
+          mapfile -t packages < <(find "$EXTENSION_DIR" -maxdepth 1 -type f -name '*.foxe' -print)
+          if [ "${#packages[@]}" -ne 1 ]; then
+            echo "Expected exactly one .foxe package; found ${#packages[@]}" >&2
+            exit 1
+          fi
+          echo "FOXE_FILE=${packages[0]}" >> "$GITHUB_ENV"
+
+      - name: Store FOXE workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: memnav-operator-controls-${{ github.run_number }}-${{ github.run_attempt }}
+          path: deployment/go2/foxglove/operator-controls/*.foxe
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Require Foxglove API key
         run: |
           if [ -z "${FOXGLOVE_API_KEY:-}" ]; then
             echo "Missing GitHub Actions secret: FOXGLOVE_API_KEY" >&2
             exit 1
           fi
+
+      - name: Publish extension to Foxglove organization
+        run: |
+          response="$RUNNER_TEMP/foxglove-extension-result.json"
+          status="$({ curl \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --retry-all-errors \
+            --connect-timeout 15 \
+            --max-time 90 \
+            --request POST \
+            --header "Authorization: Bearer $FOXGLOVE_API_KEY" \
+            --header "Content-Type: application/octet-stream" \
+            --data-binary "@$FOXE_FILE" \
+            --output "$response" \
+            --write-out '%{http_code}' \
+            https://api.foxglove.dev/v1/extension-upload; } || true)"
+          case "$status" in
+            2??)
+              echo "Published MemNav Operator Controls $EXTENSION_VERSION"
+              ;;
+            *)
+              echo "Foxglove extension upload failed with HTTP ${status:-unknown}" >&2
+              if [ -s "$response" ]; then
+                head -c 2000 "$response" >&2
+                echo >&2
+              fi
+              exit 1
+              ;;
+          esac
 
       - name: Create or update organization layout
         run: |
@@ -71,7 +147,9 @@ jobs:
           summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
           if not result_path.exists():
               summary_path.write_text(
-                  "## Foxglove layout sync\n\nSync did not produce a result. Review the failed step.\n",
+                  "## Foxglove publish\n\n"
+                  f"- Extension: `MemNav Operator Controls {os.environ.get('EXTENSION_VERSION', 'unknown')}`\n"
+                  "- Layout sync did not produce a result. Review the failed step.\n",
                   encoding="utf-8",
               )
           else:
@@ -80,7 +158,8 @@ jobs:
               layout_id = layout["id"]
               link = f"https://app.foxglove.dev/~/view?layoutId={layout_id}"
               summary_path.write_text(
-                  "## Foxglove layout sync\n\n"
+                  "## Foxglove publish\n\n"
+                  f"- Extension: `MemNav Operator Controls {os.environ.get('EXTENSION_VERSION', 'unknown')}`\n"
                   f"- Action: `{result['action']}`\n"
                   f"- Layout: `{layout.get('name', 'MemNav Go2 Navigation')}`\n"
                   f"- Layout ID: `{layout_id}`\n"
