@@ -403,12 +403,13 @@ def test_foxglove_bridge_does_not_expose_raw_camera_images():
     services = parameters.split("service_whitelist:", 1)[1].split(
         "param_whitelist:", 1
     )[0]
-    assert '"^/navdp_go2_adapter/operator_stop$"' in services
-    assert '"^/navdp_go2_adapter/survey_start$"' in services
-    assert '"^/navdp_go2_adapter/survey_seal$"' in services
     assert '"^/navdp_camera_recovery/restart$"' in services
+    assert '"^/memnav_operator/capture_goal$"' in services
+    assert '"^/memnav_operator/start_survey$"' in services
+    assert '"^/memnav_operator/stop_survey$"' in services
     assert '"^/memnav_operator/start_revisit$"' in services
     assert '"^/memnav_operator/operator_stop$"' in services
+    assert "/navdp_go2_adapter/" not in services
     assert "set_enabled" not in services
     assert "reset_policy" not in services
     assert "begin_revisit" not in services

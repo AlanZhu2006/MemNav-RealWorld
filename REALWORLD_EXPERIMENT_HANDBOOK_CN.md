@@ -1051,11 +1051,13 @@ RealSense、策略、adapter、arrival、限流预览和Bridge照常启动并保
 使启动失败；命令桥在后台等待并重连，状态卡显示`GO2 OFFLINE`。接上Go2后不需要切换模式
 或重启Foxglove，且任何时候仍须通过独立的现场授权步骤才能运动。
 
-Bridge禁止client publish和参数修改；Service白名单精确限制为`operator_stop`、
-`survey_start`、`survey_seal`与`camera_recovery/restart`。Survey调用只能开始/冻结当前
-config-bound记录，不能取得运动权限；camera recovery先disable、assert estop并发布零速度，
-再重启相机并验证新RGB-D帧，成功后也保持锁止。Foxglove不能reset、clear estop或enable，
-因此只具有观察、Survey记录生命周期、单向撤销运动权限和锁止状态下的传感器恢复权限。
+Bridge禁止client publish和参数修改；Service白名单精确限制为Episode编排器的
+`capture_goal`、`start_survey`、`stop_survey`、`start_revisit`、`operator_stop`以及
+`camera_recovery/restart`，不再直接暴露adapter内部的Survey服务。Survey调用只能按当前
+Episode合同开始/冻结记录，不能取得运动权限；camera recovery先disable、assert estop并
+发布零速度，再重启当前相机owner并验证新RGB-D帧，成功后也保持锁止。Foxglove不能reset、
+clear estop或enable，因此只具有观察、完整Episode生命周期、受严格预检的单击Revisit、
+单向撤销运动权限和锁止状态下的传感器恢复权限。
 默认配置监听所有网卡且没有TLS，因此只能放在可信实验局域网或Tailscale内；相机数据
 仍属于敏感遥测，不能把8765端口直接暴露到公网。查看Jetson端Bridge日志可执行：
 

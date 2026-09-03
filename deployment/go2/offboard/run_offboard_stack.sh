@@ -24,6 +24,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
 fi
 
 start_complete=false
+reuse_boot_observer=false
 rollback_partial_start() {
   local status=$?
   if [[ "$start_complete" != true ]]; then
@@ -34,11 +35,19 @@ rollback_partial_start() {
 }
 trap rollback_partial_start EXIT
 
-navdp_pause_boot_observer
+if [[ "$CFG_WITH_CAMERA" == true && "$CFG_WITH_FOXGLOVE" == true ]] \
+    && navdp_boot_observer_is_healthy; then
+  reuse_boot_observer=true
+  echo "Reusing the always-on RGB-D and Foxglove observer without a camera restart."
+else
+  navdp_pause_boot_observer
+fi
 tmux new-session -d -s "$SESSION" -n tunnel \
   "exec '$OFFBOARD_DIR/run_policy_tunnel.sh' --config '$NAVDP_RUN_CONFIG'"
+tmux set-environment -t "$SESSION" MEMNAV_USES_BOOT_OBSERVER \
+  "$reuse_boot_observer"
 
-if [[ "$CFG_WITH_CAMERA" == true ]]; then
+if [[ "$CFG_WITH_CAMERA" == true && "$reuse_boot_observer" != true ]]; then
   mkdir -p "$LOG_ROOT"
   camera_log="$LOG_ROOT/realsense.log"
   : >"$camera_log"
@@ -48,7 +57,9 @@ fi
 # Camera, previews and the WebSocket bridge do not need to wait behind the RTX
 # tunnel. Starting them now overlaps the local 5--10 second sensor bring-up
 # with remote health verification and makes Foxglove connectable immediately.
-navdp_start_foxglove_windows "$SESSION"
+if [[ "$reuse_boot_observer" != true ]]; then
+  navdp_start_foxglove_windows "$SESSION"
+fi
 
 healthy=false
 for _ in $(seq 1 $((CFG_TUNNEL_READY_TIMEOUT_S * 4))); do
@@ -68,9 +79,16 @@ fi
 
 if [[ "$CFG_WITH_CAMERA" == true ]]; then
   navdp_source_ros
-  if ! navdp_wait_for_camera_info "$SESSION" true; then
+  require_camera_window=true
+  [[ "$reuse_boot_observer" != true ]] || require_camera_window=false
+  if ! navdp_wait_for_camera_info "$SESSION" "$require_camera_window"; then
     echo "D435i did not publish CameraInfo; refusing to start the adapter." >&2
-    [[ ! -s "$camera_log" ]] || tail -n 80 "$camera_log" >&2 || true
+    if [[ "$reuse_boot_observer" == true ]]; then
+      journalctl --user -u memnav-observer-camera.service -n 80 --no-pager \
+        >&2 || true
+    else
+      [[ ! -s "$camera_log" ]] || tail -n 80 "$camera_log" >&2 || true
+    fi
     tmux kill-session -t "$SESSION" 2>/dev/null || true
     exit 1
   fi
@@ -104,6 +122,7 @@ echo "  config_id=$CFG_CONFIG_ID"
 echo "  hub=http://127.0.0.1:${LOCAL_PORT} camera=$CFG_WITH_CAMERA go2_bridge=$CFG_WITH_GO2"
 echo "  ImageGoal=$CFG_IMAGE_GOAL"
 echo "  navigation=causal_monocular_rgb local_aligned_depth=safety_only"
+echo "  observer_reused=$reuse_boot_observer continuous_rgbd=$reuse_boot_observer"
 echo "  control_profile=$CFG_CONTROL_PROFILE max_linear_mps=$CFG_MAX_LINEAR_MPS max_angular_rps=$CFG_MAX_ANGULAR_RPS"
 echo "  arrival=$CFG_ARRIVAL_MODULE arrival_goal=$CFG_ARRIVAL_GOAL"
 echo "Motion remains locked until an operator explicitly calls set_enabled=true."

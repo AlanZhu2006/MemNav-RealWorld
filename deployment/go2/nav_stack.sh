@@ -168,7 +168,7 @@ native_session_is_current_and_healthy() {
 fullmono_session_is_current_and_healthy() {
   local session="$CFG_FULLMONO_SESSION"
   tmux has-session -t "$session" 2>/dev/null || return 1
-  local active_id windows window_states
+  local active_id windows window_states uses_boot_observer
   active_id="$(tmux show-environment -t "$session" MEMNAV_CONFIG_ID 2>/dev/null \
     | sed -n 's/^MEMNAV_CONFIG_ID=//p' || true)"
   [[ "$active_id" == "$CFG_CONFIG_ID" ]] || return 1
@@ -177,16 +177,26 @@ fullmono_session_is_current_and_healthy() {
     || return 1
   grep -Eq ' 1$' <<<"$window_states" && return 1
   windows="$(cut -d' ' -f1 <<<"$window_states")"
+  uses_boot_observer="$(tmux show-environment -t "$session" \
+    MEMNAV_USES_BOOT_OBSERVER 2>/dev/null \
+    | sed -n 's/^MEMNAV_USES_BOOT_OBSERVER=//p' || true)"
   local required=(tunnel adapter)
-  [[ "$CFG_WITH_CAMERA" != true ]] || required+=(rgbd camera-recovery)
+  if [[ "$CFG_WITH_CAMERA" == true ]]; then
+    required+=(camera-recovery)
+    [[ "$uses_boot_observer" == true ]] || required+=(rgbd)
+  fi
   [[ "$CFG_ARRIVAL_MODULE" != rgb-homography ]] || required+=(arrival)
   [[ "$CFG_WITH_GO2" != true ]] || required+=(go2)
-  [[ "$CFG_WITH_FOXGLOVE" != true ]] \
-    || required+=(battery fox-preview foxglove)
+  if [[ "$CFG_WITH_FOXGLOVE" == true \
+      && "$uses_boot_observer" != true ]]; then
+    required+=(battery fox-preview foxglove)
+  fi
   local window
   for window in "${required[@]}"; do
     grep -Fxq "$window" <<<"$windows" || return 1
   done
+  [[ "$uses_boot_observer" != true ]] || navdp_boot_observer_is_healthy \
+    || return 1
   curl -fsS --max-time 2 \
     "http://127.0.0.1:${CFG_TUNNEL_LOCAL_PORT}/healthz" >/dev/null 2>&1
 }

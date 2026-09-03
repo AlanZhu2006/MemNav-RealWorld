@@ -91,6 +91,22 @@ def restart_tmux_camera(
     )
 
 
+def restart_systemd_camera(
+    unit: str,
+    *,
+    runner: Callable = subprocess.run,
+) -> None:
+    """Restart the always-on observer camera owned by user systemd."""
+
+    if unit != "memnav-observer-camera.service":
+        raise RuntimeError(f"unsupported camera systemd unit: {unit}")
+    runner(
+        ["systemctl", "--user", "restart", unit],
+        check=True,
+        timeout=30,
+    )
+
+
 class CameraRecoveryService(Node):
     """Restart RealSense while keeping every motion gate fail-closed."""
 
@@ -101,6 +117,7 @@ class CameraRecoveryService(Node):
         camera_script: Path,
         resolved_config: Path,
         camera_log: Path,
+        camera_systemd_unit: str | None = None,
         rgb_topic: str,
         depth_topic: str,
         enable_topic: str,
@@ -115,6 +132,7 @@ class CameraRecoveryService(Node):
         self._camera_script = camera_script
         self._resolved_config = resolved_config
         self._camera_log = camera_log
+        self._camera_systemd_unit = camera_systemd_unit
         self._recovery_timeout_s = max(5.0, float(recovery_timeout_s))
         self._minimum_frames = max(1, int(minimum_frames))
         self._verification_grace_s = max(0.0, float(verification_grace_s))
@@ -182,6 +200,9 @@ class CameraRecoveryService(Node):
             time.sleep(0.02)
 
     def _restart_camera(self) -> None:
+        if self._camera_systemd_unit:
+            restart_systemd_camera(self._camera_systemd_unit)
+            return
         restart_tmux_camera(
             self._session,
             self._camera_script,
@@ -259,6 +280,7 @@ def _parse_args() -> tuple[argparse.Namespace, list[str]]:
     parser.add_argument("--camera-script", type=Path, required=True)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--camera-log", type=Path, required=True)
+    parser.add_argument("--camera-systemd-unit")
     parser.add_argument("--rgb-topic", required=True)
     parser.add_argument("--depth-topic", required=True)
     parser.add_argument("--enable-topic", default="/navdp/enabled")
@@ -277,6 +299,7 @@ def main() -> None:
         camera_script=args.camera_script.resolve(),
         resolved_config=args.config.resolve(),
         camera_log=args.camera_log.resolve(),
+        camera_systemd_unit=args.camera_systemd_unit,
         rgb_topic=args.rgb_topic,
         depth_topic=args.depth_topic,
         enable_topic=args.enable_topic,

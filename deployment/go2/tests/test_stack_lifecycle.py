@@ -199,6 +199,89 @@ fi
     assert result.stdout.strip() == "correctly-unhealthy"
 
 
+def test_fullmono_health_accepts_healthy_reused_observer_without_duplicate_windows():
+    command = f"""
+source {NAV_STACK!s}
+CFG_FULLMONO_SESSION=navdp-go2-offboard
+CFG_CONFIG_ID=expected-id
+CFG_TUNNEL_LOCAL_PORT=18889
+CFG_WITH_CAMERA=true
+CFG_ARRIVAL_MODULE=rgb-homography
+CFG_WITH_GO2=true
+CFG_WITH_FOXGLOVE=true
+tmux() {{
+  case "$1" in
+    has-session) return 0 ;;
+    show-environment)
+      if [[ "$4" == MEMNAV_USES_BOOT_OBSERVER ]]; then
+        echo MEMNAV_USES_BOOT_OBSERVER=true
+      else
+        echo MEMNAV_CONFIG_ID=expected-id
+      fi ;;
+    list-windows) printf '%s\n' \
+      'tunnel 0' 'adapter 0' 'camera-recovery 0' 'arrival 0' 'go2 0' ;;
+  esac
+}}
+navdp_boot_observer_is_healthy() {{ return 0; }}
+curl() {{ return 0; }}
+if fullmono_session_is_current_and_healthy; then
+  echo healthy
+else
+  echo unhealthy
+fi
+"""
+
+    result = subprocess.run(
+        ["bash", "-c", command],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.strip() == "healthy"
+
+
+def test_fullmono_reused_observer_health_fails_when_systemd_plane_is_down():
+    command = f"""
+source {NAV_STACK!s}
+CFG_FULLMONO_SESSION=navdp-go2-offboard
+CFG_CONFIG_ID=expected-id
+CFG_TUNNEL_LOCAL_PORT=18889
+CFG_WITH_CAMERA=true
+CFG_ARRIVAL_MODULE=none
+CFG_WITH_GO2=false
+CFG_WITH_FOXGLOVE=true
+tmux() {{
+  case "$1" in
+    has-session) return 0 ;;
+    show-environment)
+      if [[ "$4" == MEMNAV_USES_BOOT_OBSERVER ]]; then
+        echo MEMNAV_USES_BOOT_OBSERVER=true
+      else
+        echo MEMNAV_CONFIG_ID=expected-id
+      fi ;;
+    list-windows) printf '%s\n' 'tunnel 0' 'adapter 0' 'camera-recovery 0' ;;
+  esac
+}}
+navdp_boot_observer_is_healthy() {{ return 1; }}
+curl() {{ return 0; }}
+if fullmono_session_is_current_and_healthy; then
+  echo unexpectedly-healthy
+else
+  echo correctly-unhealthy
+fi
+"""
+
+    result = subprocess.run(
+        ["bash", "-c", command],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.strip() == "correctly-unhealthy"
+
+
 def test_invalid_run_timeout_is_rejected_before_cold_start():
     command = f"""
 source {NAV_STACK!s}

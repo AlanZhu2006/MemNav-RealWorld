@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from camera_recovery_service import (  # noqa: E402
     CameraRecoveryService,
+    restart_systemd_camera,
     restart_tmux_camera,
 )
 
@@ -66,6 +67,30 @@ def test_restart_tmux_camera_recreates_a_missing_window(tmp_path):
         "rgbd",
     ]
     assert "run_realsense.sh" in calls[1][0][7]
+
+
+def test_restart_systemd_camera_uses_only_fixed_observer_unit():
+    calls = []
+
+    def runner(args, **kwargs):
+        calls.append((args, kwargs))
+        return SimpleNamespace(stdout="")
+
+    restart_systemd_camera(
+        "memnav-observer-camera.service", runner=runner
+    )
+
+    assert calls == [
+        (
+            [
+                "systemctl",
+                "--user",
+                "restart",
+                "memnav-observer-camera.service",
+            ],
+            {"check": True, "timeout": 30},
+        )
+    ]
 
 
 class _Logger:

@@ -16,6 +16,13 @@ NAVDP_ROS_SETUP="$CFG_ROS_SETUP"
 NAVDP_REALSENSE_SETUP="$CFG_REALSENSE_SETUP"
 NAVDP_MESSAGE_FILTERS_SETUP="$CFG_MESSAGE_FILTERS_SETUP"
 NAVDP_CUSPARSELT_DIR="$NAVDP_VENV/opt/cusparselt"
+NAVDP_BOOT_OBSERVER_TARGET="memnav-observer.target"
+NAVDP_BOOT_OBSERVER_UNITS=(
+  memnav-observer-camera.service
+  memnav-observer-battery.service
+  memnav-observer-preview.service
+  memnav-observer-foxglove.service
+)
 
 navdp_require_config_arg() {
   if [[ $# -ne 2 || "$1" != --config || -z "$2" ]]; then
@@ -250,11 +257,20 @@ navdp_lock_motion_before_shutdown() {
   navdp_assert_motion_locked >/dev/null 2>&1 || true
 }
 
+navdp_boot_observer_is_healthy() {
+  command -v systemctl >/dev/null 2>&1 || return 1
+  systemctl --user is-active --quiet "$NAVDP_BOOT_OBSERVER_TARGET" || return 1
+  local unit
+  for unit in "${NAVDP_BOOT_OBSERVER_UNITS[@]}"; do
+    systemctl --user is-active --quiet "$unit" || return 1
+  done
+}
+
 navdp_pause_boot_observer() {
   command -v systemctl >/dev/null 2>&1 || return 0
-  systemctl --user cat memnav-observer.target >/dev/null 2>&1 || return 0
-  if systemctl --user is-active --quiet memnav-observer.target; then
-    systemctl --user stop memnav-observer.target
+  systemctl --user cat "$NAVDP_BOOT_OBSERVER_TARGET" >/dev/null 2>&1 || return 0
+  if systemctl --user is-active --quiet "$NAVDP_BOOT_OBSERVER_TARGET"; then
+    systemctl --user stop "$NAVDP_BOOT_OBSERVER_TARGET"
     echo "Paused the boot observer for exclusive navigation-stack ownership."
   fi
 }
@@ -262,12 +278,14 @@ navdp_pause_boot_observer() {
 navdp_resume_boot_observer() {
   [[ "${NAVDP_OBSERVER_RESUME:-true}" == true ]] || return 0
   command -v systemctl >/dev/null 2>&1 || return 0
-  systemctl --user is-enabled --quiet memnav-observer.target || return 0
+  systemctl --user is-enabled --quiet "$NAVDP_BOOT_OBSERVER_TARGET" || return 0
   if command -v tmux >/dev/null 2>&1; then
     tmux has-session -t "${CFG_NATIVE_SESSION:-navdp-go2}" 2>/dev/null && return 0
     tmux has-session -t "${CFG_FULLMONO_SESSION:-navdp-go2-offboard}" 2>/dev/null \
       && return 0
   fi
-  systemctl --user start memnav-observer.target
+  navdp_boot_observer_is_healthy && return 0
+  systemctl --user start "$NAVDP_BOOT_OBSERVER_TARGET" \
+    "${NAVDP_BOOT_OBSERVER_UNITS[@]}"
   echo "Restored the always-on camera and Foxglove observer."
 }

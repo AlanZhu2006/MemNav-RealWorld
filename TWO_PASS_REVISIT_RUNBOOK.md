@@ -81,7 +81,8 @@ bash deployment/go2/offboard/revisit_experiment.sh \
   survey-prepare office_loop_01
 ```
 
-该命令从 Jetson 拉起 RTX policy stack、SSH tunnel、D435i 和 adapter。Dataset id 在 RTX
+该命令从 Jetson 拉起 RTX policy stack、SSH tunnel 和 adapter，并直接复用开机常驻的
+D435i/Foxglove观察层，不重启相机。Dataset id 在 RTX
 hub 第一次 `navigator_reset` 内原子打开，因此不存在 adapter 提前写入、dataset 后启动而
 漏掉开头帧的竞态。Go2 bridge 不启动，adapter 始终 `disabled + estop`；机器人只由原装
 手柄移动。此时 dataset 已打开但 frame recording 仍暂停；在 Foxglove 点击

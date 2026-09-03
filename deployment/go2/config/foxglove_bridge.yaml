@@ -8,10 +8,10 @@ foxglove_bridge:
       - services
       - connectionGraph
     service_whitelist:
-      - "^/navdp_go2_adapter/operator_stop$"
-      - "^/navdp_go2_adapter/survey_start$"
-      - "^/navdp_go2_adapter/survey_seal$"
       - "^/navdp_camera_recovery/restart$"
+      - "^/memnav_operator/capture_goal$"
+      - "^/memnav_operator/start_survey$"
+      - "^/memnav_operator/stop_survey$"
       - "^/memnav_operator/start_revisit$"
       - "^/memnav_operator/operator_stop$"
     param_whitelist:

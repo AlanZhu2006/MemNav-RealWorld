@@ -230,10 +230,12 @@ systemctl --user status memnav-observer.target
 systemctl --user status memnav-revisit-operator.service
 ```
 
-导航栈启动前会自动暂停该target并接管相机和Bridge，失败回滚或正常停止后自动恢复，
-因此不会出现两套RealSense深度流。四个组件独立重启：相机暂时掉线不会让8765端口和
-OFFLINE诊断一起消失。独立的Revisit编排器不会随观察target暂停，因此整栈切换时按钮仍可
-持续报告进度和接受STOP。日志可用`journalctl --user -u 'memnav-observer-*' -f`以及
+Full-Mono Survey/Revisit启动时会复用这套健康的常驻相机、预览、Bridge和电量服务，只增加
+RTX tunnel、adapter、arrival与按阶段启用的Go2命令桥；因此不会出现两套RealSense深度流，
+也不会因切换Survey/Revisit重启D435i或断开Foxglove。若常驻层不完整，启动器才会fail-closed
+地切回独占栈，并在失败回滚或正常停止后恢复观察层。四个组件独立重启：相机暂时掉线不会让
+8765端口和OFFLINE诊断一起消失。独立的Revisit编排器不会随观察target暂停，因此整栈切换时
+按钮仍可持续报告进度和接受STOP。日志可用`journalctl --user -u 'memnav-observer-*' -f`以及
 `journalctl --user -u memnav-revisit-operator.service -f`查看。
 
 首次部署由`setup_jetson.sh`安装`ros-humble-foxglove-bridge`和
@@ -251,7 +253,7 @@ bash deployment/go2/nav_stack.sh start \
 ```
 
 入口自动同步 resolved 配置、执行 4090 preflight、启动/复用同 config ID 的 GPU
-session、建立 loopback SSH tunnel，再启动 Jetson 相机和 adapter。4090 的模型路径
+session、建立 loopback SSH tunnel，再把常驻 RGB-D 接入 Jetson adapter。4090 的模型路径
 只在 `system.json` 修改。
 
 ## 5. Survey → Formal Revisit
@@ -282,7 +284,8 @@ M点单程工程流程现在全部由`Operate`页完成，不再为每轮实验�
 2. 面板生成唯一Episode/Dataset ID，冻结当前lossless RGB和aligned-depth PNG，并把
    RGB立即显示在`Revisit Goal`面板；
 3. 系统同时从该时刻启动full MCAP，连续记录D435i原始RGB、aligned depth、CameraInfo、
-   RealSense metadata、策略/安全/轨迹/CEC收据和Episode事件；
+   RealSense metadata、策略/安全/轨迹/CEC收据和Episode事件；Survey/Revisit阶段复用同一
+   常驻相机publisher，因此正常阶段切换不会产生相机重启缺口；
 4. 用Unitree手柄回到Survey起点，点击`START SURVEY`。后台自动准备RTX/Jetson栈并在
    运动锁定状态开始causal RGB memory；
 5. 手动完成路线后点击`STOP SURVEY`。后台校验、seal并保存Dataset；若不足40帧，GUI
