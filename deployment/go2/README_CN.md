@@ -115,7 +115,7 @@ battery、预览和Foxglove都正常启动并保持`disabled + estop`；Go2网�
 才回退到导入`deployment/go2/config/navdp_debug.foxglove-layout.json`。不需要VNC。Bridge不允许浏览器
 发布topic、修改参数、reset、解除estop或enable；它开放两个config-bound Survey生命周期
 调用、STOP、相机恢复，以及一个无参数的受控Revisit编排入口。浏览器拿不到原始运动
-service；Revisit编排器只能使用本机冻结的目标、dataset和配置，并在现场二次确认后执行
+service；Revisit编排器只能使用本机冻结的目标、dataset和配置，并在现场单击授权后执行
 硬件、哈希、新轨迹、新鲜度和净空检查。`survey_start`与`survey_seal`本身均不取得运动权限。
 
 为避免原始RGB-D把无线链路占满，启动器同时运行观察专用的`fox-preview`窗口：RGB被缩放为
@@ -174,9 +174,10 @@ request/response文字；seal失败时保持记录暂停，已有帧不会丢失
 `STOP NAVIGATION`按钮只执行
 `enabled=false + estop=true + zero command`，并取消尚在后台准备的Revisit；
 它不能启动机器人，重复点击也安全。调用成功后应在Overall行看到`OK · LOCKED`。
-蓝色`REVISIT`第一次点击只显示10秒现场确认，确认区域安全、操作员手持Unitree控制器且
-急停就绪后再次点击`CONFIRM`，才会启动固定的工程Revisit流程。它不接收浏览器提供的路径、
-配置或速度参数。
+蓝色`REVISIT`单击后直接启动固定的工程Revisit流程；这一次点击本身就是本轮现场运动授权，
+因此点击前必须确认区域安全、操作员手持Unitree控制器且急停就绪。它不接收浏览器提供的
+路径、配置或速度参数。Survey服务返回的结构化收据只提取`operator_summary`显示，状态条
+不会直接铺开JSON。
 相机恢复服务仍保留在ROS侧供维护使用，但不再占用默认Operate操作面板。
 这些topic有损且只用于显示；NavDP、arrival和`--profile full`采集仍读取原始
 848×480×30 Hz RGB-D。修改布局文件不会覆盖Foxglove已经导入的本地副本，升级后需要重新
@@ -209,7 +210,7 @@ MCAP，不通过远程dashboard传输。
 
 默认Bridge监听所有网卡且不启用TLS。它会暴露相机与状态数据，并允许已连接客户端触发
 STOP、fail-closed相机恢复和受控Revisit，因此只应在可信实验局域网或Tailscale内使用；
-跨公网时必须另加防火墙或加密代理。Revisit的第二次确认会在预检通过后授予运动权限，
+跨公网时必须另加防火墙或加密代理。单击Revisit会在预检通过后授予运动权限，
 不能把Foxglove端口暴露到不可信网络。
 
 数据链路是`ROS publisher -> Foxglove Bridge广告白名单topic -> 可见panel按需订阅`。
@@ -290,15 +291,17 @@ bash deployment/go2/offboard/revisit_debug.sh status
 # 到达新的 Revisit 起点后，在 Foxglove 点击 STOP SURVEY。
 # 未满足持久化 seal 门时会拒绝，已有记录保持可恢复。
 
-# 保持机器人静止并确认现场安全；点击 REVISIT，再在10秒内点击 CONFIRM。
+# 保持机器人静止并确认现场安全；单击 REVISIT。
 # 系统会自动重启Full-Mono栈、重放历史、安装exact M目标并执行受监督返回。
 ```
 
 `REVISIT`首先校验`active.json`、冻结目标SHA-256和`STOP SURVEY`产生的fail-closed seal
 收据，然后检查D435i、实际USB 5 Gbit/s视频链路以及Go2连通性。它复用
-`revisit-prepare`完成双机重启和持久化重放，再由标准`navigation_run_agent.py`检查reset后
-新轨迹、RGB-D/Policy新鲜度、轨迹几何和至少`0.80 m`前方净空；只有全部通过才解除软件
-estop并enable。到达、超时、异常或点击`STOP NAVIGATION`都会重新锁止并发送零速度。
+`revisit-prepare`完成双机重启和持久化重放，再由标准`navigation_run_agent.py`验证并保留
+`revisit_query`、dataset manifest和已安装goal，不再调用会清空长程记忆的通用policy reset；
+随后等待一条点击后的新轨迹，并检查RGB-D/Policy新鲜度、轨迹几何和至少`0.80 m`前方净空。
+只有全部通过才解除软件estop并enable。到达、超时、异常或点击`STOP NAVIGATION`都会重新
+锁止并发送零速度。
 STOP也会取消仍在重启/重放阶段的事务，不会在停止后延迟取得运动权限。
 
 命令行`record-stop`和`revisit-prepare`仍保留为维护入口；正常面板流程不需要执行它们。
@@ -324,7 +327,7 @@ manifest。它不是普通正式往返 Survey 的候选门绕过工具。
 Survey 锁停期间，`m-match` 是纯观察节点：持续比较 M 与实时 RGB，在 Foxglove 紧凑
 match panel 顶部显示绿色 `MATCH` 或红色 `NO MATCH`，并发布 good matches、inliers、
 scale 和拒绝原因。它没有 `/navdp/arrival`、enable、estop 或速度 publisher。完成
-`revisit-prepare` 后，标准RGB arrival模块恢复；Foxglove流程把第二次`CONFIRM`作为本轮明确
+`revisit-prepare` 后，标准RGB arrival模块恢复；Foxglove流程把单击`REVISIT`作为本轮明确
 的现场有电授权，且要求操作者持续持有控制器并保持急停就绪。
 
 冻结目标保留两个不可混淆的身份：`frozen_goal_source_sha256` 校验操作员指定的原始

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""One-command, fail-closed supervisor for a native NavDP navigation run.
+"""One-command, fail-closed supervisor for a NavDP navigation run.
 
 The stack launcher deliberately starts motion-locked.  This agent turns the
-operator's explicit ``nav_stack.sh run`` command into one bounded transaction:
-lock, reset, verify one fresh plan, arm, monitor, and stop on every non-arrival
-exit.  It prints relative timestamps so slow phases are visible without
-requiring ad-hoc topic or tmux inspection.
+operator's explicit run command into one bounded transaction: lock, establish
+the requested policy state, verify one fresh plan, arm, monitor, and stop on
+every non-arrival exit. It prints relative timestamps so slow phases are
+visible without requiring ad-hoc topic or tmux inspection.
 """
 
 from __future__ import annotations
@@ -106,6 +106,33 @@ def locked_preflight_issue(
         return "depth_clearance_unavailable"
     if float(clearance) < float(min_clearance_m):
         return f"clearance_below_{float(min_clearance_m):.2f}m"
+    return ""
+
+
+def preserved_revisit_issue(
+    status: dict,
+    *,
+    expected_dataset_id: str,
+    expected_dataset_sha256: str,
+    expected_goal_sha256: str,
+) -> str:
+    """Prove Formal Revisit state without issuing a destructive policy reset."""
+    if status.get("phase") != "revisit_query":
+        return "revisit_phase_not_active"
+    if status.get("active_goal_sha256") != expected_goal_sha256:
+        return "revisit_goal_changed"
+    receipt = status.get("begin_revisit_receipt")
+    if not isinstance(receipt, dict):
+        return "revisit_receipt_missing"
+    if receipt.get("loaded_dataset_id") != expected_dataset_id:
+        return "revisit_dataset_changed"
+    if receipt.get("loaded_dataset_manifest_sha256") != expected_dataset_sha256:
+        return "revisit_dataset_manifest_changed"
+    selected_goal = receipt.get("selected_goal")
+    if not isinstance(selected_goal, dict):
+        return "revisit_goal_receipt_missing"
+    if selected_goal.get("sha256") != expected_goal_sha256:
+        return "revisit_goal_receipt_changed"
     return ""
 
 
@@ -304,6 +331,15 @@ class NavigationRunAgent:
             if self.arrival_status is None:
                 last_issue = "waiting_for_arrival_module"
                 return False
+            if self.args.preserve_policy_state:
+                last_issue = preserved_revisit_issue(
+                    self.status,
+                    expected_dataset_id=self.args.expected_dataset_id,
+                    expected_dataset_sha256=self.args.expected_dataset_sha256,
+                    expected_goal_sha256=self.args.expected_goal_sha256,
+                )
+                if last_issue:
+                    return False
             command_subscribers = self.node.get_subscriptions_info_by_topic(
                 "/navdp/cmd_vel"
             )
@@ -425,15 +461,34 @@ class NavigationRunAgent:
             self._operator_stop("failed to confirm initial lock")
             return 1
 
+        if self.args.preserve_policy_state:
+            assert self.status is not None
+            issue = preserved_revisit_issue(
+                self.status,
+                expected_dataset_id=self.args.expected_dataset_id,
+                expected_dataset_sha256=self.args.expected_dataset_sha256,
+                expected_goal_sha256=self.args.expected_goal_sha256,
+            )
+            if issue:
+                self._log("BLOCKED", issue)
+                self._operator_stop("prepared Revisit contract changed")
+                return 1
+            self._log(
+                "PRESERVE",
+                f"revisit_query dataset={self.args.expected_dataset_id}; reset skipped",
+            )
+        else:
+            response = self._call(
+                self.reset_client,
+                self.Trigger.Request(),
+                "reset_policy",
+                timeout_s=5.0,
+            )
+            self._log("RESET", response.message)
+        # Reject the transient-local trajectory delivered at subscription time.
+        # Only a path published after this transaction boundary may arm motion.
         self.path_after_reset = None
         self.reset_started_at = time.monotonic()
-        response = self._call(
-            self.reset_client,
-            self.Trigger.Request(),
-            "reset_policy",
-            timeout_s=5.0,
-        )
-        self._log("RESET", response.message)
         ready, issue = self._wait_for_reset_ready()
         if not ready:
             self._log("BLOCKED", f"preflight timed out: {issue}")
@@ -531,6 +586,10 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--min-clearance-m", type=float, default=0.80)
     parser.add_argument("--ready-timeout-s", type=float, default=25.0)
     parser.add_argument("--timeout-s", type=float, default=60.0)
+    parser.add_argument("--preserve-policy-state", action="store_true")
+    parser.add_argument("--expected-dataset-id", default="")
+    parser.add_argument("--expected-dataset-sha256", default="")
+    parser.add_argument("--expected-goal-sha256", default="")
     args = parser.parse_args(argv)
     args.arrival_phases = frozenset(
         item.strip() for item in args.arrival_phases.split(",") if item.strip()
@@ -539,6 +598,16 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         parser.error("--arrival-phases must not be empty")
     if args.ready_timeout_s <= 0 or args.timeout_s <= 0:
         parser.error("timeouts must be positive")
+    if args.preserve_policy_state and not all(
+        (
+            args.expected_dataset_id,
+            args.expected_dataset_sha256,
+            args.expected_goal_sha256,
+        )
+    ):
+        parser.error(
+            "--preserve-policy-state requires expected dataset ID, dataset SHA, and goal SHA"
+        )
     return args
 
 

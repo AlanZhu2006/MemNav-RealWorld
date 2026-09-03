@@ -42,8 +42,9 @@ def test_operator_controls_expose_only_fixed_fail_closed_services():
     assert 'label: "STOP SURVEY"' in source
     assert 'label: "REVISIT"' in source
     assert 'label: "STOP NAVIGATION"' in source
-    assert '"CONFIRM"' in source
-    assert "Confirm area clear" in source
+    assert '"CONFIRM"' not in source
+    assert "confirmingRevisit" not in source
+    assert "payload.operator_summary" in source
     assert "SEAL SURVEY" not in source
     assert "set_enabled" not in source
     assert "clear_estop" not in source

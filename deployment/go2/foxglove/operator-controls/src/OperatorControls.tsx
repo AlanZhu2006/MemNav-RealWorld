@@ -68,7 +68,20 @@ function responseNotice(action: Action, response: unknown): Notice {
   let message = "";
   if (typeof response === "object" && response != undefined) {
     const result = response as { message?: unknown; success?: unknown };
-    message = typeof result.message === "string" ? result.message.trim() : "";
+    if (typeof result.message === "string") {
+      const raw = result.message.trim();
+      try {
+        const payload = JSON.parse(raw) as {
+          detail?: unknown;
+          message?: unknown;
+          operator_summary?: unknown;
+        };
+        const readable = payload.operator_summary ?? payload.detail ?? payload.message;
+        message = typeof readable === "string" ? readable.trim() : "";
+      } catch {
+        message = raw;
+      }
+    }
     if (result.success === false) {
       return {
         message: message || `${action.label} was rejected`,
@@ -175,7 +188,6 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
   const [notice, setNotice] = useState<Notice>({ message: "Ready", tone: "muted" });
   const [workflow, setWorkflow] = useState<WorkflowStatus>();
   const [followWorkflow, setFollowWorkflow] = useState(false);
-  const [confirmingRevisit, setConfirmingRevisit] = useState(false);
 
   useLayoutEffect(() => {
     context.watch("colorScheme");
@@ -197,19 +209,6 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
   useEffect(() => {
     renderDone?.();
   }, [renderDone]);
-
-  useEffect(() => {
-    if (!confirmingRevisit) {
-      return undefined;
-    }
-    const timeout = window.setTimeout(() => {
-      setConfirmingRevisit(false);
-      setNotice({ message: "Revisit confirmation expired", tone: "muted" });
-    }, 10_000);
-    return () => {
-      window.clearTimeout(timeout);
-    };
-  }, [confirmingRevisit]);
 
   const callAction = useCallback(
     async (action: Action): Promise<void> => {
@@ -264,24 +263,15 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
 
   const activateAction = useCallback(
     (action: Action): void => {
-      if (action.id === "revisit" && !confirmingRevisit) {
-        setConfirmingRevisit(true);
-        setNotice({
-          message: "Confirm area clear · controller held · emergency stop ready",
-          tone: "muted",
-        });
-        return;
-      }
-      setConfirmingRevisit(false);
       setFollowWorkflow(action.id === "revisit" || action.id === "stop-navigation");
       void callAction(action);
     },
-    [callAction, confirmingRevisit],
+    [callAction],
   );
 
   const servicesAvailable = context.callService != undefined;
   const status = servicesAvailable
-    ? workflow != undefined && (workflow.active || followWorkflow) && !confirmingRevisit
+    ? workflow != undefined && (workflow.active || followWorkflow)
       ? workflowNotice(workflow)
       : notice
     : { message: "Services unavailable for this connection", tone: "error" as const };
@@ -292,7 +282,6 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
       <div className="control-row">
         {ACTIONS.map((action) => {
           const isPending = pending.has(action.id);
-          const isRevisitConfirm = action.id === "revisit" && confirmingRevisit;
           const disabled =
             !servicesAvailable ||
             isPending ||
@@ -310,9 +299,7 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
               }}
             >
               <ActionIcon action={action.id} />
-              <span>
-                {isPending ? action.pendingLabel : isRevisitConfirm ? "CONFIRM" : action.label}
-              </span>
+              <span>{isPending ? action.pendingLabel : action.label}</span>
             </button>
           );
         })}

@@ -5,7 +5,7 @@ operator actions backed by fixed, fail-closed ROS 2 services:
 
 - `START SURVEY` calls `/navdp_go2_adapter/survey_start`.
 - `STOP SURVEY` calls `/navdp_go2_adapter/survey_seal`.
-- `REVISIT` requires a second safety-confirmation click, then calls
+- `REVISIT` directly calls
   `/memnav_operator/start_revisit` to validate the sealed Survey, restart the
   fixed Full-Mono stack, run fresh-plan/clearance checks and supervise return.
 - `STOP NAVIGATION` calls both the persistent Revisit supervisor and the active
@@ -13,9 +13,11 @@ operator actions backed by fixed, fail-closed ROS 2 services:
 
 The display name deliberately says **Stop Survey**; `survey_seal` remains the
 internal service contract because it pauses, validates, and seals the captured
-Survey dataset. The extension never calls a service on mount. The Revisit
-confirmation is the explicit onsite assertion that the area is clear, the
-operator holds the Unitree controller, and the emergency stop is ready.
+Survey dataset. The extension never calls a service on mount. Clicking Revisit
+is the explicit onsite motion authorization; the operator must already have a
+clear area, the Unitree controller in hand, and the emergency stop ready.
+Structured Survey service responses are reduced to their `operator_summary`,
+so the status strip never displays raw JSON.
 
 ## Local build
 

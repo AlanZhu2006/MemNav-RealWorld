@@ -11,6 +11,7 @@ from navigation_run_agent import (  # noqa: E402
     assess_path,
     live_fault,
     locked_preflight_issue,
+    preserved_revisit_issue,
 )
 
 
@@ -101,3 +102,47 @@ def test_live_monitor_faults_are_fail_closed():
     assert live_fault(
         status, max_linear_mps=0.30, max_angular_rps=0.55
     ) == "angular_command_limit_violation"
+
+
+def test_preserved_revisit_requires_exact_phase_dataset_and_goal():
+    status = ready_status()
+    status.update(
+        phase="revisit_query",
+        active_goal_sha256="b" * 64,
+        begin_revisit_receipt={
+            "loaded_dataset_id": "route_01",
+            "loaded_dataset_manifest_sha256": "a" * 64,
+            "selected_goal": {"sha256": "b" * 64},
+        },
+    )
+    expected = {
+        "expected_dataset_id": "route_01",
+        "expected_dataset_sha256": "a" * 64,
+        "expected_goal_sha256": "b" * 64,
+    }
+    assert preserved_revisit_issue(status, **expected) == ""
+
+    changes = {
+        "phase": "revisit_phase_not_active",
+        "active_goal_sha256": "revisit_goal_changed",
+    }
+    for key, issue in changes.items():
+        changed = dict(status)
+        changed[key] = "wrong"
+        assert preserved_revisit_issue(changed, **expected) == issue
+
+    changed = dict(status)
+    changed["begin_revisit_receipt"] = {
+        **status["begin_revisit_receipt"],
+        "loaded_dataset_id": "wrong",
+    }
+    assert preserved_revisit_issue(changed, **expected) == "revisit_dataset_changed"
+
+
+def test_fullmono_runner_preserves_prepared_revisit_instead_of_resetting_it():
+    script = (
+        Path(__file__).resolve().parents[1] / "scripts/run_navigation.sh"
+    ).read_text(encoding="utf-8")
+    assert "--preserve-policy-state" in script
+    assert "formal.expected_dataset_sha256" in script
+    assert 'sha256sum "$CFG_SELECTED_GOAL_IMAGE"' in script

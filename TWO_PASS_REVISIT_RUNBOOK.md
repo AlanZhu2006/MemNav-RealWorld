@@ -111,10 +111,11 @@ bash deployment/go2/offboard/revisit_experiment.sh \
 再次点击 `START SURVEY` 继续采集。两个按钮都不能 enable、解除 estop 或启动 Go2 bridge。
 
 外部M点的单程工程流程另提供Foxglove `REVISIT`按钮：完成
-`revisit_debug.sh record-prepare`、`START SURVEY`和`STOP SURVEY`后，第一次点击进入10秒
-安全确认，第二次`CONFIRM`才会校验冻结目标与seal收据、重启Full-Mono、执行标准新轨迹/
-新鲜度/净空门并开始受监督返回。红色`STOP NAVIGATION`会同时锁止活动adapter并取消尚在
-准备的事务。该入口不改变本节正式去程—回程实验的预注册和证据要求。
+`revisit_debug.sh record-prepare`、`START SURVEY`和`STOP SURVEY`后，单击`REVISIT`即代表
+本轮现场运动授权；系统会校验冻结目标与seal收据、重启Full-Mono、保留并复核准备好的
+`revisit_query`状态，再执行新轨迹/新鲜度/净空门并开始受监督返回。红色
+`STOP NAVIGATION`会同时锁止活动adapter并取消尚在准备的事务。该入口不改变本节正式
+去程—回程实验的预注册和证据要求。
 
 ### 第二次：一键准备正式实验
 

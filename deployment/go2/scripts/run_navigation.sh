@@ -8,9 +8,10 @@ usage() {
   cat <<'EOF'
 Usage: run_navigation.sh --config RESOLVED_CONFIG.json [--timeout-s SECONDS]
 
-Runs one supervised NavDP episode. The command starts locked, verifies
-one fresh post-reset trajectory, arms motion, monitors arrival, and asserts the
-operator stop on every failure, interruption, or timeout.
+Runs one supervised NavDP episode. The command starts locked, verifies one
+fresh trajectory, arms motion, monitors arrival, and asserts the operator stop
+on every failure, interruption, or timeout. Native runs reset the policy;
+Formal Full-Mono runs preserve and verify the prepared Revisit state.
 EOF
 }
 
@@ -61,10 +62,32 @@ case "$CFG_PROFILE" in
   native-navdp-rgbd)
     session="$CFG_NATIVE_SESSION"
     stack_label="Native"
+    policy_state_args=()
     ;;
   fullmono-lingbot-cec)
     session="$CFG_FULLMONO_SESSION"
     stack_label="Full-Mono"
+    expected_dataset_id="$(python3 "$NAVDP_RUNTIME_CONFIG_TOOL" get \
+      --config "$NAVDP_RUN_CONFIG" dataset.metadata.formal_dataset_id)"
+    expected_dataset_sha256="$(python3 "$NAVDP_RUNTIME_CONFIG_TOOL" get \
+      --config "$NAVDP_RUN_CONFIG" formal.expected_dataset_sha256)"
+    [[ -s "$CFG_SELECTED_GOAL_IMAGE" ]] || {
+      echo "Installed Full-Mono goal is missing: $CFG_SELECTED_GOAL_IMAGE" >&2
+      exit 1
+    }
+    expected_goal_sha256="$(sha256sum "$CFG_SELECTED_GOAL_IMAGE" | awk '{print $1}')"
+    [[ "$expected_dataset_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ \
+        && "$expected_dataset_sha256" =~ ^[0-9a-f]{64}$ \
+        && "$expected_goal_sha256" =~ ^[0-9a-f]{64}$ ]] || {
+      echo "Full-Mono prepared Revisit identity is invalid" >&2
+      exit 1
+    }
+    policy_state_args=(
+      --preserve-policy-state
+      --expected-dataset-id "$expected_dataset_id"
+      --expected-dataset-sha256 "$expected_dataset_sha256"
+      --expected-goal-sha256 "$expected_goal_sha256"
+    )
     ;;
   *)
     echo "One-command run does not support profile=$CFG_PROFILE" >&2
@@ -114,4 +137,5 @@ exec "$CFG_JETSON_PYTHON" "$NAVDP_GO2_DIR/navigation_run_agent.py" \
   --max-image-scale "$CFG_ARRIVAL_MAX_SCALE" \
   --max-linear-mps "$CFG_MAX_LINEAR_MPS" \
   --max-angular-rps "$CFG_MAX_ANGULAR_RPS" \
+  "${policy_state_args[@]}" \
   --timeout-s "$timeout_s"
