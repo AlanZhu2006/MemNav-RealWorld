@@ -1,5 +1,5 @@
 [Unit]
-Description=MemNav guarded Foxglove Revisit operator
+Description=MemNav persistent Foxglove Episode operator
 After=network-online.target
 
 [Service]

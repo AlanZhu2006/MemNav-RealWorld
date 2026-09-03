@@ -167,7 +167,7 @@
         "rectifyImage": false,
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
-      "foxglovePanelTitle": "Goal"
+      "foxglovePanelTitle": "Revisit Goal"
     },
     "Image!arrival": {
       "scene": {},
@@ -215,7 +215,7 @@
         "rectifyImage": false,
         "publish": {"clickEnabled": false, "hoverEnabled": false}
       },
-      "foxglovePanelTitle": "Goal"
+      "foxglovePanelTitle": "Revisit Goal"
     },
     "Image!arrival-debug": {
       "scene": {},

@@ -1,8 +1,12 @@
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
+import cv2
+import numpy as np
 import pytest
 
 
@@ -11,8 +15,16 @@ sys.path.insert(0, str(REPO / "deployment/go2"))
 
 from revisit_operator_service import (  # noqa: E402
     ContractError,
+    allowed_actions_for_state,
+    capture_start_command,
+    capture_finalize_command,
+    capture_stop_command,
+    episode_identity,
+    freeze_goal_pair,
     navigation_command,
     prepare_command,
+    survey_prepare_command,
+    survey_stop_command,
     validate_realsense_link,
     validate_start_contract,
 )
@@ -108,6 +120,118 @@ def test_fixed_commands_do_not_accept_browser_arguments(tmp_path):
         str(tmp_path / "formal.json"),
         "--timeout-s",
         "300",
+    ]
+    assert survey_prepare_command(tmp_path, "route_01", tmp_path / "goal.png") == [
+        "bash",
+        str(tmp_path / "deployment/go2/offboard/revisit_debug.sh"),
+        "record-prepare",
+        "route_01",
+        "--goal",
+        str(tmp_path / "goal.png"),
+        "--point-label",
+        "M",
+    ]
+    assert survey_stop_command(tmp_path)[-1] == "record-stop"
+    assert capture_start_command(tmp_path, "episode_01", "route_01") == [
+        "bash",
+        str(tmp_path / "deployment/go2/offboard/experiment_capture.sh"),
+        "start",
+        "episode_01",
+        "--dataset",
+        "route_01",
+        "--trial-kind",
+        "revisit",
+        "--profile",
+        "full",
+        "--allow-observer",
+        "--onboard-episode",
+    ]
+    assert capture_stop_command(tmp_path, "episode_01")[-2:] == ["stop", "episode_01"]
+    assert capture_finalize_command(
+        tmp_path, "episode_01", "success", allow_incomplete=False
+    )[-3:] == [
+        "success",
+        "--notes",
+        "Foxglove-managed RGB-D Episode",
+    ]
+    assert capture_finalize_command(
+        tmp_path, "episode_01", "failure", allow_incomplete=True
+    )[-1] == "--allow-incomplete"
+
+
+def _image_message(
+    image: np.ndarray, *, encoding: str, stamp_ns: int, frame_id: str
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        width=image.shape[1],
+        height=image.shape[0],
+        step=image.strides[0],
+        encoding=encoding,
+        is_bigendian=False,
+        data=image.tobytes(),
+        header=SimpleNamespace(
+            stamp=SimpleNamespace(
+                sec=stamp_ns // 1_000_000_000,
+                nanosec=stamp_ns % 1_000_000_000,
+            ),
+            frame_id=frame_id,
+        ),
+    )
+
+
+def test_freezes_lossless_rgbd_goal_with_exact_sensor_timestamps(tmp_path):
+    rgb = np.array(
+        [[[10, 20, 30], [40, 50, 60]], [[70, 80, 90], [100, 110, 120]]],
+        dtype=np.uint8,
+    )
+    depth = np.array([[1000, 1200], [1400, 1600]], dtype=np.uint16)
+    receipt = freeze_goal_pair(
+        rgb_message=_image_message(
+            rgb, encoding="rgb8", stamp_ns=1_234_000_000, frame_id="color"
+        ),
+        depth_message=_image_message(
+            depth, encoding="16UC1", stamp_ns=1_235_000_000, frame_id="aligned"
+        ),
+        episode_dir=tmp_path,
+        rgb_topic="/rgb",
+        depth_topic="/depth",
+        captured_utc="2026-09-03T10:00:00Z",
+    )
+
+    frozen_rgb = cv2.imread(str(tmp_path / "revisit_goal.png"), cv2.IMREAD_COLOR)
+    frozen_depth = cv2.imread(
+        str(tmp_path / "revisit_goal_depth.png"), cv2.IMREAD_UNCHANGED
+    )
+    assert np.array_equal(frozen_rgb, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+    assert np.array_equal(frozen_depth, depth)
+    assert receipt["rgb"]["stamp_ns"] == 1_234_000_000
+    assert receipt["depth"]["stamp_ns"] == 1_235_000_000
+    assert receipt["pair_delta_ms"] == pytest.approx(1.0)
+    assert receipt["rgb"]["policy_goal_authority"] is True
+    assert receipt["depth"]["policy_goal_authority"] is False
+
+
+def test_episode_identity_and_gui_state_machine_are_deterministic():
+    episode_id, dataset_id = episode_identity(
+        datetime(2026, 9, 3, 10, 11, 12, 345678, tzinfo=timezone.utc)
+    )
+    assert episode_id == "episode_20260903T101112_345678Z"
+    assert dataset_id == "m_episode_20260903T101112_345678Z"
+    assert allowed_actions_for_state(None, busy=False) == ["capture-goal"]
+    assert allowed_actions_for_state("goal_captured", busy=False) == [
+        "start-survey",
+        "stop-navigation",
+    ]
+    assert allowed_actions_for_state("surveying", busy=False) == [
+        "stop-survey",
+        "stop-navigation",
+    ]
+    assert allowed_actions_for_state("survey_sealed", busy=False) == [
+        "revisit",
+        "stop-navigation",
+    ]
+    assert allowed_actions_for_state("surveying", busy=True) == [
+        "stop-navigation"
     ]
 
 

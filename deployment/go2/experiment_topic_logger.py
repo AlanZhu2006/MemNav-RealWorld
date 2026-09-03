@@ -17,6 +17,8 @@ TOPICS = {
     "/navdp/rgb_arrival_status": "rgb_arrival_status.jsonl",
     "/navdp/gt/status": "odin_gt_status.jsonl",
     "/navdp/experiment_event": "experiment_event.jsonl",
+    "/navdp/operator/episode_event": "episode_event.jsonl",
+    "/navdp/operator/revisit_workflow": "revisit_workflow.jsonl",
 }
 
 

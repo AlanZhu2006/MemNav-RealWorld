@@ -28,5 +28,10 @@ fi
 exec /usr/bin/python3 "$NAVDP_GO2_DIR/revisit_operator_service.py" \
   --repo-root "$NAVDP_ROOT" \
   --state "$NAVDP_ROOT/runtime/go2/revisit_debug/active.json" \
+  --episodes-root "$NAVDP_ROOT/runtime/go2/episodes" \
+  --capture-root "$CFG_CAPTURE_ROOT" \
+  --capture-session-prefix "$CFG_CAPTURE_SESSION_PREFIX" \
+  --rgb-topic "$CFG_RGB_TOPIC" \
+  --depth-topic "$CFG_DEPTH_TOPIC" \
   --robot-ip 192.168.123.161 \
   --timeout-s 300

@@ -31,13 +31,14 @@ def test_operator_controls_expose_only_fixed_fail_closed_services():
     service_names = set(re.findall(r'"(/[a-z0-9_/-]+)"', source))
 
     assert service_names == {
-        "/navdp_go2_adapter/survey_start",
-        "/navdp_go2_adapter/survey_seal",
-        "/navdp_go2_adapter/operator_stop",
+        "/memnav_operator/capture_goal",
+        "/memnav_operator/start_survey",
+        "/memnav_operator/stop_survey",
         "/memnav_operator/start_revisit",
         "/memnav_operator/operator_stop",
         "/navdp/operator/revisit_workflow",
     }
+    assert 'label: "CAPTURE GOAL"' in source
     assert 'label: "START SURVEY"' in source
     assert 'label: "STOP SURVEY"' in source
     assert 'label: "REVISIT"' in source
@@ -48,6 +49,23 @@ def test_operator_controls_expose_only_fixed_fail_closed_services():
     assert "SEAL SURVEY" not in source
     assert "set_enabled" not in source
     assert "clear_estop" not in source
+
+
+def test_episode_capture_starts_from_observer_and_records_full_rgbd():
+    source = (
+        REPO / "deployment/go2/offboard/experiment_capture.sh"
+    ).read_text(encoding="utf-8")
+    logger = (
+        REPO / "deployment/go2/experiment_topic_logger.py"
+    ).read_text(encoding="utf-8")
+
+    assert "--allow-observer" in source
+    assert "/camera/camera/color/image_raw" in source
+    assert "/camera/camera/aligned_depth_to_color/image_raw" in source
+    assert "/camera/camera/depth/metadata" in source
+    assert "/navdp/operator/episode_event" in source
+    assert '"/navdp/operator/episode_event"' in logger
+    assert '"/navdp/operator/revisit_workflow"' in logger
 
 
 def test_revisit_supervisor_is_installed_as_an_idle_boot_service():

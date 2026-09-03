@@ -273,27 +273,33 @@ bash deployment/go2/offboard/revisit_experiment.sh formal-start DATASET_ID \
 脚本从 Full-Mono 基础配置派生带哈希的 survey/formal 配置，不使用临时环境变量。
 Formal 会自动设置选中历史目标的输出路径并启动 Go2 bridge，但仍保持运动锁定。
 
-### 5.1 M 点单程工程调试
+### 5.1 Foxglove 完整 Episode
 
-若目的是先在 M 点冻结外部目标、再用原装 Unitree 手柄从 M 开到新的物理起点，关闭
-双机栈后重新加载同一段历史做 CEC Revisit，使用独立的 engineering 入口：
+M点单程工程流程现在全部由`Operate`页完成，不再为每轮实验写路径、Dataset ID、改
+4090代码或重新push：
 
-```bash
-bash deployment/go2/offboard/revisit_debug.sh record-prepare m_route_01 \
-  --goal /absolute/path/to/revisit_m.png --point-label M
+1. 手动到达希望机器人最终返回的位置，保持静止，点击`CAPTURE GOAL`；
+2. 面板生成唯一Episode/Dataset ID，冻结当前lossless RGB和aligned-depth PNG，并把
+   RGB立即显示在`Revisit Goal`面板；
+3. 系统同时从该时刻启动full MCAP，连续记录D435i原始RGB、aligned depth、CameraInfo、
+   RealSense metadata、策略/安全/轨迹/CEC收据和Episode事件；
+4. 用Unitree手柄回到Survey起点，点击`START SURVEY`。后台自动准备RTX/Jetson栈并在
+   运动锁定状态开始causal RGB memory；
+5. 手动完成路线后点击`STOP SURVEY`。后台校验、seal并保存Dataset；若不足40帧，GUI
+   明确提示继续Survey，数据不会被丢弃；
+6. 现场安全、手持控制器且急停就绪时，单击`REVISIT`。系统自动重放该Episode的历史并
+   安装同一张冻结目标；到达或失败后自动停止栈、关闭MCAP并写SHA-256 artifact inventory；
+7. 红色`STOP NAVIGATION`可在任一阶段取消、锁止运动并封存本轮为aborted。完成后再次
+   点击`CAPTURE GOAL`即可开始新Episode。
 
-# 在 Foxglove 确认 PAUSED / 0 FRAMES 后点击 START SURVEY。
-# 若不需要等待人工起始边界，也可直接使用 record-start。
+Episode状态持久化在`runtime/go2/episodes/<episode_id>/`；目标收据同时记录RGB/depth的
+ROS header `sec/nanosec`、接收UTC、两帧时间差、分辨率、encoding、路径和SHA-256。
+完整MCAP和最终manifest位于`runtime/go2/experiment_capture/<episode_id>/`。Foxglove
+断线或浏览器刷新不改变后台Episode，重新连接后会恢复ID、阶段、`REC RGB-D`和目标图。
 
-# 只用 Unitree 手柄开动；策略运动保持 disabled + estop，Go2 bridge 不启动。
-bash deployment/go2/offboard/revisit_debug.sh status
-
-# 到达新的 Revisit 起点后，在 Foxglove 点击 STOP SURVEY。
-# 未满足持久化 seal 门时会拒绝，已有记录保持可恢复。
-
-# 保持机器人静止并确认现场安全；单击 REVISIT。
-# 系统会自动重启Full-Mono栈、重放历史、安装exact M目标并执行受监督返回。
-```
+命令行`revisit_debug.sh`与`experiment_capture.sh`仍保留为维护入口，正常工程Episode不需要
+执行它们。4090 hub继续使用参数化Dataset/goal API；代码只部署一次，每轮仅切换运行时
+Episode合同。
 
 `REVISIT`首先校验`active.json`、冻结目标SHA-256和`STOP SURVEY`产生的fail-closed seal
 收据，然后检查D435i、实际USB 5 Gbit/s视频链路以及Go2连通性。它复用
@@ -304,8 +310,7 @@ bash deployment/go2/offboard/revisit_debug.sh status
 锁止并发送零速度。
 STOP也会取消仍在重启/重放阶段的事务，不会在停止后延迟取得运动权限。
 
-命令行`record-stop`和`revisit-prepare`仍保留为维护入口；正常面板流程不需要执行它们。
-`REVISIT`只适用于上述已经`record-prepare`并冻结外部M点的工程流程，不替代正式配对实验的
+`REVISIT`只适用于上述已经由GUI冻结外部M点并seal Survey的工程流程，不替代正式配对实验的
 预注册、证据采集和独立现场监督。
 
 `record-start`启动 RTX 上的 MemNav、LingBot、CEC 和 frozen NavDP，但 Jetson 不启动

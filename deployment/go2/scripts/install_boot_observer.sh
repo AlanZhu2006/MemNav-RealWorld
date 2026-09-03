@@ -34,6 +34,6 @@ fi
 
 echo "MemNav boot observer is enabled for $(id -un)."
 echo "  target:    memnav-observer.target"
-echo "  Revisit:   memnav-revisit-operator.service (idle until confirmed)"
+echo "  Episodes:  memnav-revisit-operator.service (persistent GUI workflow)"
 echo "  Foxglove:  ws://<Jetson LAN or Tailscale address>:8765"
 echo "  motion:    no policy, adapter, command bridge, or navigation until confirmed"

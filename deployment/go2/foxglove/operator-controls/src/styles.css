@@ -9,13 +9,15 @@
   --danger: #b42318;
   --danger-hover: #b42318;
   --danger-hover-foreground: #ffffff;
+  --capture: #0f766e;
+  --capture-foreground: #ffffff;
   --revisit: #3157c8;
   --revisit-foreground: #ffffff;
   --success: #16803a;
   box-sizing: border-box;
   display: grid;
-  grid-template-rows: minmax(34px, 1fr) 16px;
-  gap: 6px;
+  grid-template-rows: 14px minmax(32px, 1fr) 16px;
+  gap: 5px;
   width: 100%;
   height: 100%;
   min-width: 0;
@@ -23,7 +25,14 @@
   overflow: hidden;
   color: var(--foreground);
   background: var(--background);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
 }
 
 .operator-controls[data-color-scheme="dark"] {
@@ -37,6 +46,8 @@
   --danger: #f97066;
   --danger-hover: #f97066;
   --danger-hover-foreground: #18181b;
+  --capture: #5eead4;
+  --capture-foreground: #102d2a;
   --revisit: #6f8cff;
   --revisit-foreground: #10152c;
   --success: #4ade80;
@@ -49,7 +60,7 @@
 
 .control-row {
   display: grid;
-  grid-template-columns: 0.95fr 0.95fr 0.85fr 1.25fr;
+  grid-template-columns: 1.08fr 1fr 1fr 0.85fr 0.75fr;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -63,22 +74,25 @@
   gap: 6px;
   width: 100%;
   min-width: 0;
-  height: 36px;
+  height: 34px;
   margin: 0;
-  padding: 0 10px;
+  padding: 0 7px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 7px;
   color: var(--foreground);
   background: transparent;
   font: inherit;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 650;
   line-height: 1;
   letter-spacing: 0.015em;
   white-space: nowrap;
   cursor: pointer;
-  transition: color 120ms ease, background 120ms ease, border-color 120ms ease,
+  transition:
+    color 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease,
     opacity 120ms ease;
 }
 
@@ -100,6 +114,17 @@
   border-color: var(--primary);
   color: var(--primary-foreground);
   background: var(--primary);
+}
+
+.control-button--capture {
+  border-color: var(--capture);
+  color: var(--capture-foreground);
+  background: var(--capture);
+}
+
+.control-button--capture:hover:not(:disabled) {
+  opacity: 0.86;
+  background: var(--capture);
 }
 
 .control-button--primary:hover:not(:disabled) {
@@ -132,6 +157,51 @@
   flex: 0 0 14px;
   width: 14px;
   height: 14px;
+}
+
+.episode-strip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 14px;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 14px;
+  letter-spacing: 0.04em;
+}
+
+.episode-id {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.episode-stage {
+  flex: 0 0 auto;
+  padding-left: 7px;
+  border-left: 1px solid var(--border);
+}
+
+.recording-badge {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.recording-badge::before {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
 }
 
 .control-status {
@@ -181,7 +251,7 @@
   .control-button {
     gap: 0;
     padding: 0 5px;
-    font-size: 10px;
+    font-size: 9px;
   }
 
   .control-icon {

@@ -1,23 +1,35 @@
 # MemNav Operator Controls
 
-Compact React controls for the Foxglove `Operate` tab. The panel exposes four
-operator actions backed by fixed, fail-closed ROS 2 services:
+Compact React controls for the Foxglove `Operate` tab. The panel owns the full
+repeatable Episode sequence through five fixed, fail-closed ROS 2 services:
 
-- `START SURVEY` calls `/navdp_go2_adapter/survey_start`.
-- `STOP SURVEY` calls `/navdp_go2_adapter/survey_seal`.
+- `CAPTURE GOAL` calls `/memnav_operator/capture_goal`. It creates a unique
+  Episode/Dataset, freezes the current aligned RGB-D pair with both ROS sensor
+  timestamps, displays the RGB frame as **Revisit Goal**, and starts full MCAP
+  recording before the robot leaves that location.
+- `START SURVEY` calls `/memnav_operator/start_survey`, which prepares the
+  reusable RTX stack and begins causal RGB memory recording.
+- `STOP SURVEY` calls `/memnav_operator/stop_survey`, which locks motion,
+  validates the minimum history, seals the Dataset and stops the Survey stack.
 - `REVISIT` directly calls
   `/memnav_operator/start_revisit` to validate the sealed Survey, restart the
   fixed Full-Mono stack, run fresh-plan/clearance checks and supervise return.
-- `STOP NAVIGATION` calls both the persistent Revisit supervisor and the active
-  adapter, cancelling pending preparation as well as stopping motion.
+- `STOP NAVIGATION` calls `/memnav_operator/operator_stop`, cancelling any
+  stage, locking motion, closing the MCAP and hash-finalizing the Episode.
 
-The display name deliberately says **Stop Survey**; `survey_seal` remains the
-internal service contract because it pauses, validates, and seals the captured
-Survey dataset. The extension never calls a service on mount. Clicking Revisit
-is the explicit onsite motion authorization; the operator must already have a
-clear area, the Unitree controller in hand, and the emergency stop ready.
-Structured Survey service responses are reduced to their `operator_summary`,
-so the status strip never displays raw JSON.
+The Episode ID, stage and `REC RGB-D` state remain visible in the control panel.
+Buttons are enabled only for the next valid state transition. The extension
+never calls a service on mount and never accepts browser-provided file paths or
+motion parameters. Clicking Revisit is the explicit onsite motion authorization;
+the operator must already have a clear area, the Unitree controller in hand,
+and the emergency stop ready. Structured service responses are reduced to a
+short operator summary, so the status strip never displays raw JSON.
+
+Each Episode stores lossless goal RGB/depth PNGs, exact RGB/depth header stamps,
+an event timeline, the CEC Dataset identity and manifest hash, raw D435i color
+plus aligned-depth MCAP, policy/safety/trajectory topics, receipts, final outcome
+and a SHA-256 artifact inventory. A completed Episode can be followed by a new
+`CAPTURE GOAL` without changing source or restarting the persistent operator.
 
 ## Local build
 

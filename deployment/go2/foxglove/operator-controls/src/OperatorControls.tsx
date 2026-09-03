@@ -4,8 +4,8 @@ import { createRoot } from "react-dom/client";
 
 import "./styles.css";
 
-type ActionId = "start-survey" | "stop-survey" | "revisit" | "stop-navigation";
-type Tone = "primary" | "neutral" | "revisit" | "danger";
+type ActionId = "capture-goal" | "start-survey" | "stop-survey" | "revisit" | "stop-navigation";
+type Tone = "capture" | "primary" | "neutral" | "revisit" | "danger";
 
 type Action = {
   id: ActionId;
@@ -23,7 +23,13 @@ type Notice = {
 
 type WorkflowStatus = {
   active: boolean;
+  allowed_actions?: readonly string[];
+  capture_active?: boolean;
+  dataset_id?: string;
   detail: string;
+  episode_id?: string;
+  episode_state?: string;
+  goal_captured_utc?: string;
   state: string;
 };
 
@@ -31,19 +37,27 @@ const WORKFLOW_TOPIC = "/navdp/operator/revisit_workflow";
 
 const ACTIONS: readonly Action[] = [
   {
+    id: "capture-goal",
+    label: "CAPTURE GOAL",
+    pendingLabel: "CAPTURING…",
+    serviceNames: ["/memnav_operator/capture_goal"],
+    title: "Create a new Episode and freeze the current aligned RGB-D frame",
+    tone: "capture",
+  },
+  {
     id: "start-survey",
     label: "START SURVEY",
     pendingLabel: "STARTING…",
-    serviceNames: ["/navdp_go2_adapter/survey_start"],
-    title: "Start or resume RGB Survey recording",
+    serviceNames: ["/memnav_operator/start_survey"],
+    title: "Automatically prepare the Dataset and start RGB Survey recording",
     tone: "primary",
   },
   {
     id: "stop-survey",
     label: "STOP SURVEY",
     pendingLabel: "STOPPING…",
-    serviceNames: ["/navdp_go2_adapter/survey_seal"],
-    title: "Stop recording and validate the Survey dataset",
+    serviceNames: ["/memnav_operator/stop_survey"],
+    title: "Stop, validate, persist and seal the Survey Dataset",
     tone: "neutral",
   },
   {
@@ -58,8 +72,8 @@ const ACTIONS: readonly Action[] = [
     id: "stop-navigation",
     label: "STOP NAVIGATION",
     pendingLabel: "STOPPING…",
-    serviceNames: ["/memnav_operator/operator_stop", "/navdp_go2_adapter/operator_stop"],
-    title: "Disable motion, assert estop, and command zero",
+    serviceNames: ["/memnav_operator/operator_stop"],
+    title: "Abort the Episode, close recording, disable motion and assert estop",
     tone: "danger",
   },
 ] as const;
@@ -123,7 +137,18 @@ function workflowFromFrame(
       ) {
         return {
           active: payload.active,
+          allowed_actions: Array.isArray(payload.allowed_actions)
+            ? payload.allowed_actions.filter((item): item is string => typeof item === "string")
+            : undefined,
+          capture_active:
+            typeof payload.capture_active === "boolean" ? payload.capture_active : undefined,
+          dataset_id: typeof payload.dataset_id === "string" ? payload.dataset_id : undefined,
           detail: payload.detail,
+          episode_id: typeof payload.episode_id === "string" ? payload.episode_id : undefined,
+          episode_state:
+            typeof payload.episode_state === "string" ? payload.episode_state : undefined,
+          goal_captured_utc:
+            typeof payload.goal_captured_utc === "string" ? payload.goal_captured_utc : undefined,
           state: payload.state,
         };
       }
@@ -145,6 +170,31 @@ function workflowNotice(status: WorkflowStatus): Notice {
 }
 
 function ActionIcon({ action }: { action: ActionId }): ReactElement {
+  if (action === "capture-goal") {
+    return (
+      <svg aria-hidden="true" className="control-icon" viewBox="0 0 16 16">
+        <rect
+          x="2.25"
+          y="4"
+          width="11.5"
+          height="8.25"
+          rx="1.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.4"
+        />
+        <path
+          d="M5 4 6 2.75h4L11 4"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.4"
+        />
+        <circle cx="8" cy="8.1" r="2.15" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      </svg>
+    );
+  }
   if (action === "start-survey") {
     return (
       <svg aria-hidden="true" className="control-icon" viewBox="0 0 16 16">
@@ -187,7 +237,6 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
   const [pending, setPending] = useState<ReadonlySet<ActionId>>(() => new Set());
   const [notice, setNotice] = useState<Notice>({ message: "Ready", tone: "muted" });
   const [workflow, setWorkflow] = useState<WorkflowStatus>();
-  const [followWorkflow, setFollowWorkflow] = useState(false);
 
   useLayoutEffect(() => {
     context.watch("colorScheme");
@@ -198,6 +247,7 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
       const nextWorkflow = workflowFromFrame(renderState.currentFrame);
       if (nextWorkflow != undefined) {
         setWorkflow(nextWorkflow);
+        setNotice(workflowNotice(nextWorkflow));
       }
       setRenderDone(() => done);
     };
@@ -263,7 +313,6 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
 
   const activateAction = useCallback(
     (action: Action): void => {
-      setFollowWorkflow(action.id === "revisit" || action.id === "stop-navigation");
       void callAction(action);
     },
     [callAction],
@@ -271,21 +320,32 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
 
   const servicesAvailable = context.callService != undefined;
   const status = servicesAvailable
-    ? workflow != undefined && (workflow.active || followWorkflow)
-      ? workflowNotice(workflow)
-      : notice
+    ? notice
     : { message: "Services unavailable for this connection", tone: "error" as const };
   const anyPending = pending.size > 0;
+  const episodeLabel = workflow?.episode_id?.replace(/^episode_/, "") ?? "NO EPISODE";
+  const stageLabel = (workflow?.episode_state ?? workflow?.state ?? "idle")
+    .replace(/_/g, " ")
+    .toUpperCase();
 
   return (
     <div className="operator-controls" data-color-scheme={colorScheme ?? "dark"}>
+      <div className="episode-strip">
+        <span className="episode-id" title={workflow?.episode_id ?? "No active Episode"}>
+          {episodeLabel}
+        </span>
+        <span className="episode-stage">{stageLabel}</span>
+        {workflow?.capture_active === true && <span className="recording-badge">REC RGB-D</span>}
+      </div>
       <div className="control-row">
         {ACTIONS.map((action) => {
           const isPending = pending.has(action.id);
           const disabled =
             !servicesAvailable ||
             isPending ||
-            (action.id !== "stop-navigation" && (anyPending || workflow?.active === true));
+            (workflow?.allowed_actions != undefined
+              ? !workflow.allowed_actions.includes(action.id)
+              : action.id !== "stop-navigation" && (anyPending || workflow?.active === true));
           return (
             <button
               key={action.id}

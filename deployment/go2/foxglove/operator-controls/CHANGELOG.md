@@ -7,3 +7,6 @@
 - Add a guarded one-click Revisit action, live workflow status, and
   cancellation through Stop Navigation.
 - Render concise operator summaries instead of raw service-response JSON.
+- Add the complete Capture Goal → Survey → Revisit Episode state machine.
+- Show the active Episode, workflow stage and full RGB-D recording state.
+- Persist goal timestamps and hash-finalize onboard Episode evidence.

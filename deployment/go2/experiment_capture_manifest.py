@@ -176,6 +176,7 @@ def create_manifest(
     topics: Iterable[str],
     workspace: Path,
     gt_source: str = "none",
+    media_policy: str = "formal_external",
     calibration_scene_id: str | None = None,
     physical_distance_m: float | None = None,
     physical_yaw_deg: float | None = None,
@@ -198,6 +199,8 @@ def create_manifest(
         raise CaptureManifestError(f"run path already exists: {run_root}")
     if gt_source not in {"none", "odin1"}:
         raise CaptureManifestError(f"unsupported GT source: {gt_source}")
+    if media_policy not in {"formal_external", "onboard_episode"}:
+        raise CaptureManifestError(f"unsupported media policy: {media_policy}")
     run_root.mkdir(parents=True)
     for child in ("logs", "media", "receipts"):
         (run_root / child).mkdir()
@@ -208,6 +211,7 @@ def create_manifest(
         "trial_kind": trial_kind,
         "capture_profile": capture_profile,
         "gt_source": gt_source,
+        "media_policy": media_policy,
         "state": "recording",
         "created_utc": created_utc,
         "captured_utc": None,
@@ -219,11 +223,11 @@ def create_manifest(
         "topics": sorted(set(str(topic) for topic in topics)),
         "media_contract": {
             "dashboard": {
-                "required": True,
+                "required": media_policy == "formal_external",
                 "capture": "external_foxglove_dashboard_then_sha256_import",
             },
             "third_view": {
-                "required": True,
+                "required": media_policy == "formal_external",
                 "capture": "external_camera_then_sha256_import",
             },
         },
@@ -395,6 +399,7 @@ def completeness(
     inventory: list[dict[str, Any]],
     *,
     gt_source: str = "none",
+    require_external_media: bool = True,
 ) -> dict[str, bool]:
     paths = {row["path"] for row in inventory if int(row["bytes"]) > 0}
     rosbag_metadata = "rosbag/metadata.yaml" in paths
@@ -418,8 +423,8 @@ def completeness(
     odin_spl_receipt = "receipts/odin_spl_receipt.json" in paths
     result = {
         "rosbag": rosbag_metadata and rosbag_storage,
-        "dashboard": dashboard,
-        "third_view": third_view,
+        "dashboard": dashboard or not require_external_media,
+        "third_view": third_view or not require_external_media,
         "status_receipts": status_receipts,
         "cec_receipts": cec_receipts,
         "odin_gt_status": gt_source != "odin1" or odin_gt_status,
@@ -444,7 +449,11 @@ def finalize_manifest(
         raise CaptureManifestError(f"unsupported outcome: {outcome}")
     inventory = artifact_inventory(run_root)
     gates = completeness(
-        run_root, inventory, gt_source=str(payload.get("gt_source", "none"))
+        run_root,
+        inventory,
+        gt_source=str(payload.get("gt_source", "none")),
+        require_external_media=payload.get("media_policy", "formal_external")
+        == "formal_external",
     )
     if not gates["formal_complete"] and not allow_incomplete:
         missing = ", ".join(key for key, value in gates.items() if not value)
@@ -494,7 +503,11 @@ def verify_manifest(run_root: Path) -> dict[str, Any]:
     if current != payload.get("artifact_inventory"):
         raise CaptureManifestError("capture artifact inventory changed after finalization")
     expected = completeness(
-        root, current, gt_source=str(payload.get("gt_source", "none"))
+        root,
+        current,
+        gt_source=str(payload.get("gt_source", "none")),
+        require_external_media=payload.get("media_policy", "formal_external")
+        == "formal_external",
     )
     if expected != payload.get("completeness"):
         raise CaptureManifestError("capture completeness receipt changed")
@@ -522,6 +535,11 @@ def main() -> int:
     create.add_argument("--capture-profile", choices=("audit", "full"), default="audit")
     create.add_argument("--topic", action="append", default=[])
     create.add_argument("--gt-source", choices=("none", "odin1"), default="none")
+    create.add_argument(
+        "--media-policy",
+        choices=("formal_external", "onboard_episode"),
+        default="formal_external",
+    )
     create.add_argument("--calibration-scene-id")
     create.add_argument("--physical-distance-m", type=float)
     create.add_argument("--physical-yaw-deg", type=float)
@@ -565,6 +583,7 @@ def main() -> int:
                 topics=args.topic,
                 workspace=args.workspace,
                 gt_source=args.gt_source,
+                media_policy=args.media_policy,
                 calibration_scene_id=args.calibration_scene_id,
                 physical_distance_m=args.physical_distance_m,
                 physical_yaw_deg=args.physical_yaw_deg,

@@ -25,12 +25,16 @@ AUDIT_TOPICS=(
   /navdp/rgb_arrival_debug
   /navdp/debug/markers
   /navdp/experiment_event
+  /navdp/operator/episode_event
+  /navdp/operator/revisit_workflow
   /rt/sportmodestate
   /camera/camera/color/camera_info
 )
 FULL_SENSOR_TOPICS=(
   /camera/camera/color/image_raw
   /camera/camera/aligned_depth_to_color/image_raw
+  /camera/camera/aligned_depth_to_color/camera_info
+  /camera/camera/depth/metadata
 )
 ODIN_GT_TOPICS=(
   /navdp/gt/status
@@ -45,11 +49,12 @@ ODIN_GT_TOPICS=(
 
 usage() {
   cat <<'EOF'
-Usage (run on Jetson while the NavDP stack and Foxglove Bridge are running):
+Usage (run on Jetson with Foxglove and either observer or NavDP stack running):
   experiment_capture.sh preflight
   experiment_capture.sh start RUN_ID [--dataset DATASET_ID]
       [--trial-kind revisit|novel|calibration|debug]
       [--profile audit|full] [--gt-source none|odin1]
+      [--allow-observer] [--onboard-episode]
       [--calibration-scene-id ID --physical-distance-m M
        --physical-yaw-deg DEG --physical-label-method METHOD]
   experiment_capture.sh status RUN_ID
@@ -67,6 +72,12 @@ Profiles:
          authority. This is the recommended formal-run profile.
   full   Adds raw D435i RGB and aligned depth to the rosbag. Use only when disk
          bandwidth and capacity have been checked; policy authority is unchanged.
+
+--allow-observer starts the recorder before the policy stack exists. It still
+requires live aligned RGB-D and Foxglove, then discovers policy topics as the
+Episode advances. This is used by the GUI so recording begins at Goal capture.
+--onboard-episode makes the internal RGB-D/receipt bundle self-contained; an
+external dashboard or third-person video is optional rather than mandatory.
 
 GT source:
   none   Preserves the current evidence contract.
@@ -121,6 +132,18 @@ require_live_topics() {
     grep -Fxq /navdp/gt/status <<<"$topics" || die "/navdp/gt/status is not live"
     grep -Fxq /odin1/odometry <<<"$topics" || die "/odin1/odometry is not live"
   fi
+  grep -Fxq /foxglove_bridge <<<"$(ros2 node list 2>/dev/null || true)" \
+    || die "Foxglove Bridge is not running"
+}
+
+require_observer_topics() {
+  navdp_source_ros
+  local topics
+  topics="$(timeout 8 ros2 topic list 2>/dev/null || true)"
+  grep -Fxq /camera/camera/color/image_raw <<<"$topics" \
+    || die "D435i RGB is not live"
+  grep -Fxq /camera/camera/aligned_depth_to_color/image_raw <<<"$topics" \
+    || die "D435i aligned depth is not live"
   grep -Fxq /foxglove_bridge <<<"$(ros2 node list 2>/dev/null || true)" \
     || die "Foxglove Bridge is not running"
 }
@@ -209,6 +232,8 @@ start_capture() {
   local trial_kind="revisit"
   local profile="audit"
   local gt_source="none"
+  local allow_observer=false
+  local onboard_episode=false
   local calibration_scene_id=""
   local physical_distance_m=""
   local physical_yaw_deg=""
@@ -219,6 +244,8 @@ start_capture() {
       --trial-kind) [[ $# -ge 2 ]] || die "--trial-kind requires a value"; trial_kind="$2"; shift ;;
       --profile) [[ $# -ge 2 ]] || die "--profile requires a value"; profile="$2"; shift ;;
       --gt-source) [[ $# -ge 2 ]] || die "--gt-source requires a value"; gt_source="$2"; shift ;;
+      --allow-observer) allow_observer=true ;;
+      --onboard-episode) onboard_episode=true ;;
       --calibration-scene-id) [[ $# -ge 2 ]] || die "--calibration-scene-id requires a value"; calibration_scene_id="$2"; shift ;;
       --physical-distance-m) [[ $# -ge 2 ]] || die "--physical-distance-m requires a value"; physical_distance_m="$2"; shift ;;
       --physical-yaw-deg) [[ $# -ge 2 ]] || die "--physical-yaw-deg requires a value"; physical_yaw_deg="$2"; shift ;;
@@ -234,7 +261,13 @@ start_capture() {
   [[ -z "$dataset_id" ]] || validate_id "$dataset_id"
 
   require_capture_commands
-  require_live_topics "$gt_source"
+  if [[ "$allow_observer" == true ]]; then
+    [[ "$gt_source" == none ]] \
+      || die "--allow-observer does not support an Odin GT source"
+    require_observer_topics
+  else
+    require_live_topics "$gt_source"
+  fi
   local root session
   root="$(run_root "$run_id")"
   session="$(session_name "$run_id")"
@@ -253,6 +286,9 @@ start_capture() {
     --capture-profile "$profile" --workspace "$NAVDP_ROOT"
     --gt-source "$gt_source"
   )
+  if [[ "$onboard_episode" == true ]]; then
+    manifest_args+=(--media-policy onboard_episode)
+  fi
   if [[ "$trial_kind" == calibration ]]; then
     [[ -n "$calibration_scene_id" && -n "$physical_distance_m" \
       && -n "$physical_yaw_deg" && -n "$physical_label_method" ]] \
@@ -291,6 +327,7 @@ start_capture() {
   event="$(publish_event "$run_id" START)"
   printf '%s\n' "$event" >"$root/receipts/start_event.json"
   printf '%s\n' "$session" >"$root/receipts/tmux_session.txt"
+  printf '%s\n' "$allow_observer" >"$root/receipts/started_from_observer.txt"
   echo "Experiment capture started"
   echo "  run id:       $run_id"
   echo "  run root:     $root"

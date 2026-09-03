@@ -114,6 +114,40 @@ class ExperimentCaptureManifestTests(unittest.TestCase):
         )
         self.assertIs(result["completeness"]["formal_complete"], False)
 
+    def test_onboard_episode_is_complete_without_external_videos(self):
+        root = self.tmp_path / "episode-01"
+        created = create_manifest(
+            root,
+            run_id="episode-01",
+            dataset_id="survey-01",
+            trial_kind="revisit",
+            capture_profile="full",
+            topics=("/navdp/status", "/navdp/cec_receipt"),
+            workspace=Path(__file__).resolve().parents[3],
+            media_policy="onboard_episode",
+        )
+        self.assertIs(created["media_contract"]["dashboard"]["required"], False)
+        (root / "rosbag").mkdir()
+        (root / "rosbag" / "metadata.yaml").write_text(
+            "rosbag2_bagfile_information: {}\n"
+        )
+        (root / "rosbag" / "capture_0.mcap").write_bytes(b"full rgbd")
+        (root / "logs" / "status.jsonl").write_text("{}\n")
+        (root / "logs" / "cec_receipt.jsonl").write_text("{}\n")
+        mark_captured(root, clean=True)
+
+        finalized = finalize_manifest(
+            root,
+            outcome="success",
+            notes="Foxglove-managed RGB-D Episode",
+            allow_incomplete=False,
+        )
+
+        self.assertIs(finalized["completeness"]["formal_complete"], True)
+        self.assertIs(finalized["completeness"]["dashboard"], True)
+        self.assertIs(finalized["completeness"]["third_view"], True)
+        self.assertEqual(verify_manifest(root)["run_id"], "episode-01")
+
     def test_attached_video_is_byte_preserved(self):
         root = create_capture(self.tmp_path)
         source = self.tmp_path / "external.mov"

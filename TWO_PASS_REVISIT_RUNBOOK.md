@@ -15,6 +15,11 @@ date-stamped filename.
 这解决了此前真机实验最重要的可复现性问题：正式结果不再依赖某个仍存活的 RTX
 进程或临时内存，数据、目标和控制阶段都有独立收据。
 
+工程调试的完整单程Episode已经收进Foxglove `Operate`页：
+`CAPTURE GOAL → START SURVEY → STOP SURVEY → REVISIT`。浏览器只发送固定Trigger，
+Episode/Dataset ID、文件路径、目标SHA和运行参数全部由持久后台生成，不能由浏览器注入。
+每轮结束后可直接捕获下一目标，不需要修改或重新发布Jetson/RTX代码。
+
 ## 2. 数据契约
 
 一次 sealed survey 包含：
