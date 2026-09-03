@@ -1,9 +1,9 @@
 foxglove_bridge:
   ros__parameters:
-    # Observation plus fail-closed operator services. Survey lifecycle calls
-    # can only start recording for the config-bound dataset or revoke motion
-    # and seal it. A browser must never gain process-start/reset/goal/parameter/
-    # topic-publish or robot motion authority on a physical Go2.
+    # Observation plus fixed, fail-closed operator orchestration. The guarded
+    # Revisit service validates a sealed dataset, hardware and a fresh plan
+    # before delegating to the supervised navigation runner. A browser never
+    # receives raw reset/goal/parameter/topic-publish or motion services.
     capabilities:
       - services
       - connectionGraph
@@ -12,6 +12,8 @@ foxglove_bridge:
       - "^/navdp_go2_adapter/survey_start$"
       - "^/navdp_go2_adapter/survey_seal$"
       - "^/navdp_camera_recovery/restart$"
+      - "^/memnav_operator/start_revisit$"
+      - "^/memnav_operator/operator_stop$"
     param_whitelist:
       - "(?!)"
     client_topic_whitelist:

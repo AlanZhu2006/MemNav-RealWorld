@@ -4,14 +4,14 @@ import { createRoot } from "react-dom/client";
 
 import "./styles.css";
 
-type ActionId = "start-survey" | "stop-survey" | "stop-navigation";
-type Tone = "primary" | "neutral" | "danger";
+type ActionId = "start-survey" | "stop-survey" | "revisit" | "stop-navigation";
+type Tone = "primary" | "neutral" | "revisit" | "danger";
 
 type Action = {
   id: ActionId;
   label: string;
   pendingLabel: string;
-  serviceName: string;
+  serviceNames: readonly string[];
   title: string;
   tone: Tone;
 };
@@ -21,12 +21,20 @@ type Notice = {
   tone: "muted" | "success" | "error";
 };
 
+type WorkflowStatus = {
+  active: boolean;
+  detail: string;
+  state: string;
+};
+
+const WORKFLOW_TOPIC = "/navdp/operator/revisit_workflow";
+
 const ACTIONS: readonly Action[] = [
   {
     id: "start-survey",
     label: "START SURVEY",
     pendingLabel: "STARTING…",
-    serviceName: "/navdp_go2_adapter/survey_start",
+    serviceNames: ["/navdp_go2_adapter/survey_start"],
     title: "Start or resume RGB Survey recording",
     tone: "primary",
   },
@@ -34,24 +42,33 @@ const ACTIONS: readonly Action[] = [
     id: "stop-survey",
     label: "STOP SURVEY",
     pendingLabel: "STOPPING…",
-    serviceName: "/navdp_go2_adapter/survey_seal",
+    serviceNames: ["/navdp_go2_adapter/survey_seal"],
     title: "Stop recording and validate the Survey dataset",
     tone: "neutral",
+  },
+  {
+    id: "revisit",
+    label: "REVISIT",
+    pendingLabel: "STARTING…",
+    serviceNames: ["/memnav_operator/start_revisit"],
+    title: "Prepare the sealed Survey stack and begin supervised Revisit",
+    tone: "revisit",
   },
   {
     id: "stop-navigation",
     label: "STOP NAVIGATION",
     pendingLabel: "STOPPING…",
-    serviceName: "/navdp_go2_adapter/operator_stop",
+    serviceNames: ["/memnav_operator/operator_stop", "/navdp_go2_adapter/operator_stop"],
     title: "Disable motion, assert estop, and command zero",
     tone: "danger",
   },
 ] as const;
 
 function responseNotice(action: Action, response: unknown): Notice {
+  let message = "";
   if (typeof response === "object" && response != undefined) {
     const result = response as { message?: unknown; success?: unknown };
-    const message = typeof result.message === "string" ? result.message.trim() : "";
+    message = typeof result.message === "string" ? result.message.trim() : "";
     if (result.success === false) {
       return {
         message: message || `${action.label} was rejected`,
@@ -59,7 +76,7 @@ function responseNotice(action: Action, response: unknown): Notice {
       };
     }
   }
-  return { message: `${action.label} complete`, tone: "success" };
+  return { message: message || `${action.label} complete`, tone: "success" };
 }
 
 function errorMessage(error: unknown): string {
@@ -67,6 +84,51 @@ function errorMessage(error: unknown): string {
     return error.message;
   }
   return "Service call failed";
+}
+
+function workflowFromFrame(
+  frame: readonly { readonly message: unknown; readonly topic: string }[] | undefined,
+): WorkflowStatus | undefined {
+  if (frame == undefined) {
+    return undefined;
+  }
+  for (let index = frame.length - 1; index >= 0; index -= 1) {
+    const event = frame[index];
+    if (event?.topic !== WORKFLOW_TOPIC || typeof event.message !== "object") {
+      continue;
+    }
+    const data = (event.message as { data?: unknown }).data;
+    if (typeof data !== "string") {
+      continue;
+    }
+    try {
+      const payload = JSON.parse(data) as Partial<WorkflowStatus>;
+      if (
+        typeof payload.active === "boolean" &&
+        typeof payload.detail === "string" &&
+        typeof payload.state === "string"
+      ) {
+        return {
+          active: payload.active,
+          detail: payload.detail,
+          state: payload.state,
+        };
+      }
+    } catch {
+      // Ignore malformed status and keep the last valid workflow state.
+    }
+  }
+  return undefined;
+}
+
+function workflowNotice(status: WorkflowStatus): Notice {
+  if (status.state === "complete") {
+    return { message: status.detail, tone: "success" };
+  }
+  if (status.state === "blocked" || status.state === "failed") {
+    return { message: status.detail, tone: "error" };
+  }
+  return { message: status.detail, tone: "muted" };
 }
 
 function ActionIcon({ action }: { action: ActionId }): ReactElement {
@@ -84,6 +146,20 @@ function ActionIcon({ action }: { action: ActionId }): ReactElement {
       </svg>
     );
   }
+  if (action === "revisit") {
+    return (
+      <svg aria-hidden="true" className="control-icon" viewBox="0 0 16 16">
+        <path
+          d="M6.25 4H3v-3M3.2 3.8A6 6 0 1 1 2.1 9"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
+        />
+      </svg>
+    );
+  }
   return (
     <svg aria-hidden="true" className="control-icon" viewBox="0 0 16 16">
       <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
@@ -97,12 +173,24 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
   const [renderDone, setRenderDone] = useState<(() => void) | undefined>();
   const [pending, setPending] = useState<ReadonlySet<ActionId>>(() => new Set());
   const [notice, setNotice] = useState<Notice>({ message: "Ready", tone: "muted" });
+  const [workflow, setWorkflow] = useState<WorkflowStatus>();
+  const [followWorkflow, setFollowWorkflow] = useState(false);
+  const [confirmingRevisit, setConfirmingRevisit] = useState(false);
 
   useLayoutEffect(() => {
     context.watch("colorScheme");
+    context.watch("currentFrame");
+    context.subscribe([{ topic: WORKFLOW_TOPIC }]);
     context.onRender = (renderState, done) => {
       setColorScheme(renderState.colorScheme);
+      const nextWorkflow = workflowFromFrame(renderState.currentFrame);
+      if (nextWorkflow != undefined) {
+        setWorkflow(nextWorkflow);
+      }
       setRenderDone(() => done);
+    };
+    return () => {
+      context.subscribe([]);
     };
   }, [context]);
 
@@ -110,12 +198,28 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
     renderDone?.();
   }, [renderDone]);
 
+  useEffect(() => {
+    if (!confirmingRevisit) {
+      return undefined;
+    }
+    const timeout = window.setTimeout(() => {
+      setConfirmingRevisit(false);
+      setNotice({ message: "Revisit confirmation expired", tone: "muted" });
+    }, 10_000);
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [confirmingRevisit]);
+
   const callAction = useCallback(
     async (action: Action): Promise<void> => {
       if (context.callService == undefined) {
         setNotice({ message: "Services unavailable for this connection", tone: "error" });
         return;
       }
+      const callService = async (serviceName: string): Promise<unknown> =>
+        await (context.callService?.(serviceName, {}) ??
+          Promise.reject(new Error("Services unavailable")));
 
       setPending((current) => new Set(current).add(action.id));
       setNotice({
@@ -123,8 +227,28 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
         tone: "muted",
       });
       try {
-        const response = await context.callService(action.serviceName, {});
-        setNotice(responseNotice(action, response));
+        const results = await Promise.allSettled(
+          action.serviceNames.map(async (serviceName) => await callService(serviceName)),
+        );
+        const accepted = results.find(
+          (result) =>
+            result.status === "fulfilled" &&
+            !(
+              typeof result.value === "object" &&
+              result.value != undefined &&
+              (result.value as { success?: unknown }).success === false
+            ),
+        );
+        if (accepted?.status === "fulfilled") {
+          setNotice(responseNotice(action, accepted.value));
+        } else {
+          const reasons = results.map((result) =>
+            result.status === "rejected"
+              ? errorMessage(result.reason)
+              : responseNotice(action, result.value).message,
+          );
+          setNotice({ message: reasons.join(" · "), tone: "error" });
+        }
       } catch (error) {
         setNotice({ message: errorMessage(error), tone: "error" });
       } finally {
@@ -138,30 +262,57 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
     [context],
   );
 
+  const activateAction = useCallback(
+    (action: Action): void => {
+      if (action.id === "revisit" && !confirmingRevisit) {
+        setConfirmingRevisit(true);
+        setNotice({
+          message: "Confirm area clear · controller held · emergency stop ready",
+          tone: "muted",
+        });
+        return;
+      }
+      setConfirmingRevisit(false);
+      setFollowWorkflow(action.id === "revisit" || action.id === "stop-navigation");
+      void callAction(action);
+    },
+    [callAction, confirmingRevisit],
+  );
+
   const servicesAvailable = context.callService != undefined;
   const status = servicesAvailable
-    ? notice
+    ? workflow != undefined && (workflow.active || followWorkflow) && !confirmingRevisit
+      ? workflowNotice(workflow)
+      : notice
     : { message: "Services unavailable for this connection", tone: "error" as const };
+  const anyPending = pending.size > 0;
 
   return (
     <div className="operator-controls" data-color-scheme={colorScheme ?? "dark"}>
       <div className="control-row">
         {ACTIONS.map((action) => {
           const isPending = pending.has(action.id);
+          const isRevisitConfirm = action.id === "revisit" && confirmingRevisit;
+          const disabled =
+            !servicesAvailable ||
+            isPending ||
+            (action.id !== "stop-navigation" && (anyPending || workflow?.active === true));
           return (
             <button
               key={action.id}
               aria-busy={isPending}
               className={`control-button control-button--${action.tone}`}
-              disabled={!servicesAvailable || isPending}
+              disabled={disabled}
               title={action.title}
               type="button"
               onClick={() => {
-                void callAction(action);
+                activateAction(action);
               }}
             >
               <ActionIcon action={action.id} />
-              <span>{isPending ? action.pendingLabel : action.label}</span>
+              <span>
+                {isPending ? action.pendingLabel : isRevisitConfirm ? "CONFIRM" : action.label}
+              </span>
             </button>
           );
         })}

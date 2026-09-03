@@ -26,21 +26,41 @@ def test_layout_panel_identity_matches_extension_registration():
     assert operate["second"]["second"]["second"] == panel_id
 
 
-def test_operator_controls_expose_only_the_three_fixed_fail_closed_services():
+def test_operator_controls_expose_only_fixed_fail_closed_services():
     source = (EXTENSION / "src/OperatorControls.tsx").read_text(encoding="utf-8")
-    service_names = set(re.findall(r'serviceName: "([^"]+)"', source))
+    service_names = set(re.findall(r'"(/[a-z0-9_/-]+)"', source))
 
     assert service_names == {
         "/navdp_go2_adapter/survey_start",
         "/navdp_go2_adapter/survey_seal",
         "/navdp_go2_adapter/operator_stop",
+        "/memnav_operator/start_revisit",
+        "/memnav_operator/operator_stop",
+        "/navdp/operator/revisit_workflow",
     }
     assert 'label: "START SURVEY"' in source
     assert 'label: "STOP SURVEY"' in source
+    assert 'label: "REVISIT"' in source
     assert 'label: "STOP NAVIGATION"' in source
+    assert '"CONFIRM"' in source
+    assert "Confirm area clear" in source
     assert "SEAL SURVEY" not in source
     assert "set_enabled" not in source
     assert "clear_estop" not in source
+
+
+def test_revisit_supervisor_is_installed_as_an_idle_boot_service():
+    installer = (
+        REPO / "deployment/go2/scripts/install_boot_observer.sh"
+    ).read_text(encoding="utf-8")
+    unit = (
+        REPO / "deployment/go2/systemd/memnav-revisit-operator.service"
+    ).read_text(encoding="utf-8")
+
+    assert "memnav-revisit-operator.service" in installer
+    assert "run_revisit_operator_service.sh" in unit
+    assert "ExecStop=" in unit
+    assert "Restart=always" in unit
 
 
 def test_ci_packages_and_uploads_foxe_before_updating_layout():

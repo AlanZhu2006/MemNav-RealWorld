@@ -113,9 +113,10 @@ battery、预览和Foxglove都正常启动并保持`disabled + estop`；Go2网�
 `launch.foxglove=true`只在Jetson启动无界面、观察为主的Bridge。操作电脑打开Foxglove，
 连接`ws://JETSON_IP:8765`并选择组织 Layout `MemNav Go2 Navigation`；组织同步尚未配置时，
 才回退到导入`deployment/go2/config/navdp_debug.foxglove-layout.json`。不需要VNC。Bridge不允许浏览器
-发布topic、修改参数、reset、解除estop或enable；除 STOP 和相机恢复外，只开放两个
-config-bound Survey 生命周期调用：`survey_start`只开始/恢复RGB记录，`survey_seal`先锁停
-再校验并冻结当前resolved config指定的数据集。它们均不取得运动权限。
+发布topic、修改参数、reset、解除estop或enable；它开放两个config-bound Survey生命周期
+调用、STOP、相机恢复，以及一个无参数的受控Revisit编排入口。浏览器拿不到原始运动
+service；Revisit编排器只能使用本机冻结的目标、dataset和配置，并在现场二次确认后执行
+硬件、哈希、新轨迹、新鲜度和净空检查。`survey_start`与`survey_seal`本身均不取得运动权限。
 
 为避免原始RGB-D把无线链路占满，启动器同时运行观察专用的`fox-preview`窗口：RGB被缩放为
 640×360、15 Hz、JPEG质量75，深度被缩放、按200--4000 mm做Turbo着色后以640×360、
@@ -145,7 +146,7 @@ Go2离线不会覆盖当前Survey或Revisit阶段。
 版本化布局把当前RGB降到约40%的画布面积，Match降到约8%；Goal和Depth并排补足主区。
 右侧使用更紧凑的Trajectory，下方的Operator摘要固定为六行：Overall、Mode、Front
 depth、Battery、Image refresh和Policy refresh。每行只显示一个可读结论，不再展开协议
-内部字段或按告警级别改变顺序。自定义React控件把Start Survey、Stop Survey和
+内部字段或按告警级别改变顺序。自定义React控件把Start Survey、Stop Survey、Revisit和
 红色Stop排在同一行，把省下的纵向空间交给Operator摘要；Camera Reset不再出现在
 Operate页。该控件通过`memnav-operator-controls` Foxglove扩展调用既有service，避免
 内置Service Call的一项service一个panel。Match只显示紧凑的单帧匹配叠加，不再用
@@ -158,7 +159,7 @@ Operate页。该控件通过`memnav-operator-controls` Foxglove扩展调用既�
 `Planning`打开候选轨迹/Q值marker，并并列显示vx/wz曲线、Goal、Match与格式化Arrival证据；
 `System`显示ROS连接图、模式/动作/安全/Go2/Arrival状态时间线、Diagnostics汇总和格式化
 Workflow详情。默认布局不再使用Raw Messages panel。
-Planning和System页全部只用内置只读panel；自定义扩展仅用于Operate页的三个固定按钮，
+Planning和System页全部只用内置只读panel；自定义扩展仅用于Operate页的四个固定按钮，
 不会扩大Foxglove的控制权限。
 
 完整`/navdp/status`和
@@ -171,8 +172,11 @@ Mode行会直接显示`SURVEY · RECORDING / PAUSED / SEALED`、`REVISIT · READ
 `NAVIGATION · RUNNING`、`READY`、`OFFLINE`或`ARRIVED`。按钮不提供service编辑器，也不铺开
 request/response文字；seal失败时保持记录暂停，已有帧不会丢失，可再次Start继续采集。红色
 `STOP NAVIGATION`按钮只执行
-`enabled=false + estop=true + zero command`；
+`enabled=false + estop=true + zero command`，并取消尚在后台准备的Revisit；
 它不能启动机器人，重复点击也安全。调用成功后应在Overall行看到`OK · LOCKED`。
+蓝色`REVISIT`第一次点击只显示10秒现场确认，确认区域安全、操作员手持Unitree控制器且
+急停就绪后再次点击`CONFIRM`，才会启动固定的工程Revisit流程。它不接收浏览器提供的路径、
+配置或速度参数。
 相机恢复服务仍保留在ROS侧供维护使用，但不再占用默认Operate操作面板。
 这些topic有损且只用于显示；NavDP、arrival和`--profile full`采集仍读取原始
 848×480×30 Hz RGB-D。修改布局文件不会覆盖Foxglove已经导入的本地副本，升级后需要重新
@@ -204,8 +208,9 @@ Bridge白名单故意不暴露四个原始图像topic，防止旧布局或临时
 MCAP，不通过远程dashboard传输。
 
 默认Bridge监听所有网卡且不启用TLS。它会暴露相机与状态数据，并允许已连接客户端触发
-STOP和fail-closed相机恢复，因此只应在可信实验局域网或Tailscale内使用；跨公网时必须
-另加防火墙或加密代理。两个调用都只能移除或保持运动权限，不能授予运动权限。
+STOP、fail-closed相机恢复和受控Revisit，因此只应在可信实验局域网或Tailscale内使用；
+跨公网时必须另加防火墙或加密代理。Revisit的第二次确认会在预检通过后授予运动权限，
+不能把Foxglove端口暴露到不可信网络。
 
 数据链路是`ROS publisher -> Foxglove Bridge广告白名单topic -> 可见panel按需订阅`。
 Bridge不会把所有高带宽图像无条件推给浏览器；如果Topics侧栏能看到topic但panel没有画面，
@@ -213,18 +218,22 @@ Bridge不会把所有高带宽图像无条件推给浏览器；如果Topics侧�
 
 ### 3.1 开机常驻观察层
 
-相机、限流图像预览、六行Operator诊断、Go2电量和Foxglove Bridge可以作为用户级
-systemd target随Jetson开机启动；它不会启动policy、adapter、arrival或Go2命令桥，
-所以此时只能观察，不能产生运动。首次安装并立即启动：
+相机、限流图像预览、六行Operator诊断、Go2电量、Foxglove Bridge和空闲的Revisit
+编排器可以作为用户级systemd服务随Jetson开机启动。开机不会启动policy、adapter、
+arrival或Go2命令桥，也不会自动调用任何Revisit服务，所以此时只能观察，不能产生运动。
+首次安装并立即启动：
 
 ```bash
 bash deployment/go2/scripts/install_boot_observer.sh
 systemctl --user status memnav-observer.target
+systemctl --user status memnav-revisit-operator.service
 ```
 
 导航栈启动前会自动暂停该target并接管相机和Bridge，失败回滚或正常停止后自动恢复，
 因此不会出现两套RealSense深度流。四个组件独立重启：相机暂时掉线不会让8765端口和
-OFFLINE诊断一起消失。日志可用`journalctl --user -u 'memnav-observer-*' -f`查看。
+OFFLINE诊断一起消失。独立的Revisit编排器不会随观察target暂停，因此整栈切换时按钮仍可
+持续报告进度和接受STOP。日志可用`journalctl --user -u 'memnav-observer-*' -f`以及
+`journalctl --user -u memnav-revisit-operator.service -f`查看。
 
 首次部署由`setup_jetson.sh`安装`ros-humble-foxglove-bridge`和
 `ros-humble-rosbag2-storage-mcap`。Foxglove Desktop/Web运行在操作电脑，不需要安装在
@@ -278,12 +287,23 @@ bash deployment/go2/offboard/revisit_debug.sh record-prepare m_route_01 \
 # 只用 Unitree 手柄开动；策略运动保持 disabled + estop，Go2 bridge 不启动。
 bash deployment/go2/offboard/revisit_debug.sh status
 
-# 到达新的 Revisit 起点后；未满足持久化 seal 门时会拒绝停止并保留记录现场。
-bash deployment/go2/offboard/revisit_debug.sh record-stop
+# 到达新的 Revisit 起点后，在 Foxglove 点击 STOP SURVEY。
+# 未满足持久化 seal 门时会拒绝，已有记录保持可恢复。
 
-# 以后在同一物理起点重新加载历史并安装 exact M 目标；仍然不会启动运动。
-bash deployment/go2/offboard/revisit_debug.sh revisit-prepare
+# 保持机器人静止并确认现场安全；点击 REVISIT，再在10秒内点击 CONFIRM。
+# 系统会自动重启Full-Mono栈、重放历史、安装exact M目标并执行受监督返回。
 ```
+
+`REVISIT`首先校验`active.json`、冻结目标SHA-256和`STOP SURVEY`产生的fail-closed seal
+收据，然后检查D435i、实际USB 5 Gbit/s视频链路以及Go2连通性。它复用
+`revisit-prepare`完成双机重启和持久化重放，再由标准`navigation_run_agent.py`检查reset后
+新轨迹、RGB-D/Policy新鲜度、轨迹几何和至少`0.80 m`前方净空；只有全部通过才解除软件
+estop并enable。到达、超时、异常或点击`STOP NAVIGATION`都会重新锁止并发送零速度。
+STOP也会取消仍在重启/重放阶段的事务，不会在停止后延迟取得运动权限。
+
+命令行`record-stop`和`revisit-prepare`仍保留为维护入口；正常面板流程不需要执行它们。
+`REVISIT`只适用于上述已经`record-prepare`并冻结外部M点的工程流程，不替代正式配对实验的
+预注册、证据采集和独立现场监督。
 
 `record-start`启动 RTX 上的 MemNav、LingBot、CEC 和 frozen NavDP，但 Jetson 不启动
 Go2命令 bridge。它把单程采集明确标为
@@ -304,7 +324,8 @@ manifest。它不是普通正式往返 Survey 的候选门绕过工具。
 Survey 锁停期间，`m-match` 是纯观察节点：持续比较 M 与实时 RGB，在 Foxglove 紧凑
 match panel 顶部显示绿色 `MATCH` 或红色 `NO MATCH`，并发布 good matches、inliers、
 scale 和拒绝原因。它没有 `/navdp/arrival`、enable、estop 或速度 publisher。完成
-`revisit-prepare` 后，标准 RGB arrival 模块恢复；最终有电授权仍必须由现场人员单独执行。
+`revisit-prepare` 后，标准RGB arrival模块恢复；Foxglove流程把第二次`CONFIRM`作为本轮明确
+的现场有电授权，且要求操作者持续持有控制器并保持急停就绪。
 
 冻结目标保留两个不可混淆的身份：`frozen_goal_source_sha256` 校验操作员指定的原始
 PNG/JPEG 文件，`committed_goal_sha256` 校验 `NavDPClient` 固定 quality-95 编码后真正

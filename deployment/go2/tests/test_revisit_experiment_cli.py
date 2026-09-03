@@ -77,5 +77,6 @@ def test_debug_help_exposes_locked_record_and_prepare_boundary():
     assert "record-start" in result.stdout
     assert "record-stop" in result.stdout
     assert "revisit-prepare" in result.stdout
+    assert "Accepts a validated STOP SURVEY receipt directly from Foxglove" in result.stdout
     assert "It never starts physical motion" in result.stdout
     assert "leaves recording PAUSED at zero frames" in result.stdout

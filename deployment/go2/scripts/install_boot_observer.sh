@@ -18,11 +18,13 @@ command -v systemctl >/dev/null || {
 }
 
 mkdir -p "$unit_dir"
-for unit in "$UNIT_SOURCE_DIR"/memnav-observer*; do
+for unit in "$UNIT_SOURCE_DIR"/memnav-observer* \
+    "$UNIT_SOURCE_DIR"/memnav-revisit-operator.service; do
   ln -sfn "$unit" "$unit_dir/$(basename "$unit")"
 done
 
 systemctl --user daemon-reload
+systemctl --user enable --now memnav-revisit-operator.service
 systemctl --user enable --now memnav-observer.target
 
 if command -v loginctl >/dev/null 2>&1 \
@@ -32,5 +34,6 @@ fi
 
 echo "MemNav boot observer is enabled for $(id -un)."
 echo "  target:    memnav-observer.target"
+echo "  Revisit:   memnav-revisit-operator.service (idle until confirmed)"
 echo "  Foxglove:  ws://<Jetson LAN or Tailscale address>:8765"
-echo "  motion:    no policy, adapter, command bridge, or navigation process"
+echo "  motion:    no policy, adapter, command bridge, or navigation until confirmed"

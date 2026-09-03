@@ -1,0 +1,15 @@
+[Unit]
+Description=MemNav guarded Foxglove Revisit operator
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/bin/bash %h/MemNav-RealWorld/deployment/go2/scripts/run_revisit_operator_service.sh
+ExecStop=/bin/bash %h/MemNav-RealWorld/deployment/go2/scripts/run_revisit_operator_service.sh --operator-stop
+Restart=always
+RestartSec=3
+TimeoutStopSec=25
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

@@ -46,9 +46,10 @@ record-stop:
   is not accidentally discarded.
 
 revisit-prepare:
-  Restarts both machines, verifies and replays the sealed history, installs the
-  exact frozen M image under mono_cec authority, starts the Go2 watchdog bridge,
-  and leaves motion disabled + estop. It never starts physical motion.
+  Accepts a validated STOP SURVEY receipt directly from Foxglove, then restarts
+  both machines, verifies and replays the sealed history, installs the exact
+  frozen M image under mono_cec authority, starts the Go2 watchdog bridge, and
+  leaves motion disabled + estop. It never starts physical motion.
 EOF
 }
 
@@ -350,6 +351,39 @@ PY
   echo "  next:            $0 revisit-prepare"
 }
 
+adopt_foxglove_seal() {
+  local mode dataset_id receipt manifest_sha
+  mode="$(state_value mode)"
+  [[ "$mode" == sealed ]] && return 0
+  [[ "$mode" == prepared || "$mode" == recording ]] \
+    || die "revisit-prepare requires mode=sealed, got $mode"
+
+  dataset_id="$(state_value dataset_id)"
+  receipt="$REPO_ROOT/runtime/go2/two_pass_revisit/$dataset_id/survey_seal.json"
+  [[ -f "$receipt" ]] || die \
+    "STOP SURVEY has not produced a seal receipt for dataset $dataset_id"
+  manifest_sha="$(python3 - "$receipt" "$dataset_id" <<'PY'
+import json
+from pathlib import Path
+import re
+import sys
+
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+assert payload.get("dataset_id") == sys.argv[2]
+assert payload.get("recording_active") is False
+assert payload.get("motion_enabled") is False
+assert payload.get("estop") is True
+assert payload.get("evaluation_depth_consumed_by_policy") is False
+assert int(payload.get("goal_memory_exact_sha_overlap", -1)) == 0
+digest = payload.get("manifest_sha256")
+assert isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest)
+print(digest)
+PY
+)" || die "STOP SURVEY receipt failed its fail-closed contract"
+  update_state sealed "$manifest_sha"
+  echo "Adopted validated Foxglove STOP SURVEY receipt for $dataset_id."
+}
+
 revisit_prepare() {
   local run_id=""
   while [[ $# -gt 0 ]]; do
@@ -359,6 +393,7 @@ revisit_prepare() {
     esac
   done
   local mode dataset_id experiment goal goal_sha dataset_sha scene_id
+  adopt_foxglove_seal
   mode="$(state_value mode)"
   [[ "$mode" == sealed ]] || die "revisit-prepare requires mode=sealed, got $mode"
   dataset_id="$(state_value dataset_id)"

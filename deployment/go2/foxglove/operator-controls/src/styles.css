@@ -9,6 +9,8 @@
   --danger: #b42318;
   --danger-hover: #b42318;
   --danger-hover-foreground: #ffffff;
+  --revisit: #3157c8;
+  --revisit-foreground: #ffffff;
   --success: #16803a;
   box-sizing: border-box;
   display: grid;
@@ -35,6 +37,8 @@
   --danger: #f97066;
   --danger-hover: #f97066;
   --danger-hover-foreground: #18181b;
+  --revisit: #6f8cff;
+  --revisit-foreground: #10152c;
   --success: #4ade80;
 }
 
@@ -45,7 +49,7 @@
 
 .control-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 0.95fr 0.95fr 0.85fr 1.25fr;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -108,6 +112,17 @@
   color: var(--danger);
 }
 
+.control-button--revisit {
+  border-color: var(--revisit);
+  color: var(--revisit-foreground);
+  background: var(--revisit);
+}
+
+.control-button--revisit:hover:not(:disabled) {
+  opacity: 0.86;
+  background: var(--revisit);
+}
+
 .control-button--danger:hover:not(:disabled) {
   color: var(--danger-hover-foreground);
   background: var(--danger-hover);
@@ -154,7 +169,7 @@
   white-space: nowrap;
 }
 
-@media (max-width: 380px) {
+@media (max-width: 560px) {
   .operator-controls {
     padding: 6px;
   }
@@ -164,14 +179,12 @@
   }
 
   .control-button {
-    gap: 4px;
-    padding: 0 6px;
+    gap: 0;
+    padding: 0 5px;
     font-size: 10px;
   }
 
   .control-icon {
-    flex-basis: 12px;
-    width: 12px;
-    height: 12px;
+    display: none;
   }
 }

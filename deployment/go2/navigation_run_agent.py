@@ -14,6 +14,7 @@ import argparse
 from dataclasses import dataclass
 import json
 import math
+import signal
 import sys
 import time
 from typing import Optional
@@ -545,6 +546,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parse_args(argv)
     import rclpy
 
+    previous_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def interrupt_on_sigterm(_signum, _frame) -> None:
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGTERM, interrupt_on_sigterm)
     rclpy.init()
     agent: Optional[NavigationRunAgent] = None
     try:
@@ -566,6 +573,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             agent.close()
         if rclpy.ok():
             rclpy.shutdown()
+        signal.signal(signal.SIGTERM, previous_sigterm)
 
 
 if __name__ == "__main__":

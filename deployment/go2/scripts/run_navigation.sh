@@ -8,7 +8,7 @@ usage() {
   cat <<'EOF'
 Usage: run_navigation.sh --config RESOLVED_CONFIG.json [--timeout-s SECONDS]
 
-Runs one supervised native NavDP episode. The command starts locked, verifies
+Runs one supervised NavDP episode. The command starts locked, verifies
 one fresh post-reset trajectory, arms motion, monitors arrival, and asserts the
 operator stop on every failure, interruption, or timeout.
 EOF
@@ -57,10 +57,20 @@ NAVDP_RUN_CONFIG="$(readlink -f "$config")"
 }
 navdp_load_config "$NAVDP_RUN_CONFIG"
 
-[[ "$CFG_PROFILE" == native-navdp-rgbd ]] || {
-  echo "One-command run currently requires profile=native-navdp-rgbd" >&2
-  exit 2
-}
+case "$CFG_PROFILE" in
+  native-navdp-rgbd)
+    session="$CFG_NATIVE_SESSION"
+    stack_label="Native"
+    ;;
+  fullmono-lingbot-cec)
+    session="$CFG_FULLMONO_SESSION"
+    stack_label="Full-Mono"
+    ;;
+  *)
+    echo "One-command run does not support profile=$CFG_PROFILE" >&2
+    exit 2
+    ;;
+esac
 [[ "$CFG_NAV_BACKEND" == navdp && "$CFG_NAV_MODE" == imagegoal ]] || {
   echo "One-command run requires backend=navdp mode=imagegoal" >&2
   exit 2
@@ -82,15 +92,14 @@ navdp_load_config "$NAVDP_RUN_CONFIG"
   exit 1
 }
 
-session="$CFG_NATIVE_SESSION"
 tmux has-session -t "$session" 2>/dev/null || {
-  echo "Native stack session is not running: $session" >&2
+  echo "$stack_label stack session is not running: $session" >&2
   exit 1
 }
 active_id="$(tmux show-environment -t "$session" MEMNAV_CONFIG_ID 2>/dev/null \
   | sed -n 's/^MEMNAV_CONFIG_ID=//p' || true)"
 [[ "$active_id" == "$CFG_CONFIG_ID" ]] || {
-  echo "Native stack contract changed: active=${active_id:-unknown} expected=$CFG_CONFIG_ID" >&2
+  echo "$stack_label stack contract changed: active=${active_id:-unknown} expected=$CFG_CONFIG_ID" >&2
   exit 1
 }
 
