@@ -53,13 +53,14 @@ navdp_go2_adapter:
     latency_max_plan_input_age_s: 1.50
     latency_turn_in_place_after_s: 0.45
     latency_turning_translation_cutoff_rps: 0.12
+    latency_turning_creep_mps: 0.08
     latency_reversal_deadband_rps: 0.08
     latency_reversal_confirmation_plans: 2
 
-    # Start at 0.10 m/s for 0.60 s, then retain only 0.02 m/s. This Go2 does
-    # not execute pure-yaw Move commands, while the maintenance creep keeps
-    # the turn radius near 0.10 m instead of the previous ~0.50 m arc.
+    # Start at 0.10 m/s for 0.60 s, then retain the measured effective Go2
+    # locomotion floor. Fail closed if one certified turn persists abnormally.
     certified_turn_bootstrap_s: 0.60
+    certified_turn_max_s: 20.0
 
     # Tight indoor lab setting requested by the operator. The 0.80 m slowdown
     # envelope and fail-closed invalid-depth behavior remain unchanged.

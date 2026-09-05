@@ -14,9 +14,9 @@ EXPECTED_POINT_TOKEN_SUPPORT_DEG = 60.0
 POINT_TOKEN_HANDOFF_MARGIN_DEG = 5.0
 # This Go2 has repeatedly failed to enter locomotion for a pure-yaw Move.
 # Start certified turns with one short, depth-protected forward pulse at the
-# smallest known effective speed, then continue yaw-only.
+# smallest known effective speed, then retain that proven locomotion floor.
 CERTIFIED_TURN_CREEP_MPS = 0.10
-CERTIFIED_TURN_MAINTENANCE_CREEP_MPS = 0.02
+CERTIFIED_TURN_MAINTENANCE_CREEP_MPS = 0.08
 CERTIFIED_TURN_REASONS = frozenset(
     {"certified_atomic_turn", "certified_long_range_atomic_turn"}
 )
@@ -51,14 +51,23 @@ class CertifiedTurnBootstrapResult:
 
 
 class CertifiedTurnBootstrap:
-    """Use a short gait-start pulse, then retain near-zero-radius turn creep."""
+    """Use a gait-start pulse, bounded creep, and a fail-closed turn timeout."""
 
-    def __init__(self, duration_s: float = 0.60) -> None:
+    def __init__(self, duration_s: float = 0.60, max_duration_s: float = 20.0) -> None:
         if not math.isfinite(duration_s) or duration_s < 0.0:
             raise ValueError(
                 "certified turn bootstrap duration must be finite and nonnegative"
             )
+        if not math.isfinite(max_duration_s) or max_duration_s <= 0.0:
+            raise ValueError(
+                "certified turn maximum duration must be finite and positive"
+            )
+        if max_duration_s < duration_s:
+            raise ValueError(
+                "certified turn maximum duration must cover the bootstrap"
+            )
         self.duration_s = float(duration_s)
+        self.max_duration_s = float(max_duration_s)
         self._key: tuple[str, int] | None = None
         self._started_s: float | None = None
 
@@ -88,6 +97,10 @@ class CertifiedTurnBootstrap:
             self._key = key
             self._started_s = float(now_s)
         elapsed_s = max(0.0, float(now_s) - self._started_s)
+        if elapsed_s >= self.max_duration_s:
+            return CertifiedTurnBootstrapResult(
+                VelocityCommand(), "turn_timeout", elapsed_s
+            )
         if elapsed_s < self.duration_s:
             return CertifiedTurnBootstrapResult(command, "gait_bootstrap", elapsed_s)
 

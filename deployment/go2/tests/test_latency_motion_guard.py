@@ -24,13 +24,13 @@ def command(vx=0.30, wz=0.55):
     )
 
 
-def test_slow_plan_limits_open_loop_rotation_and_turns_before_driving():
+def test_slow_plan_limits_rotation_and_keeps_minimal_go2_turn_creep():
     guard = LatencyMotionGuard()
     result = guard.apply(command(), plan_input_age_s=0.90, max_angular_rps=0.55)
 
-    assert result.command.linear_x == 0.0
+    assert result.command.linear_x == pytest.approx(0.08)
     assert result.command.angular_z == pytest.approx(math.radians(10.0) / 0.90)
-    assert result.reason == "stale_plan_turn_in_place"
+    assert result.reason == "stale_plan_turn_creep"
     assert result.command.target_x == 0.6
 
 
@@ -43,6 +43,18 @@ def test_small_heading_request_can_keep_driving():
     assert result.command.linear_x == pytest.approx(0.30)
     assert result.command.angular_z == pytest.approx(0.06)
     assert result.reason == "pass"
+
+
+def test_slow_reverse_turn_creep_preserves_direction_and_cap():
+    guard = LatencyMotionGuard()
+    result = guard.apply(
+        command(vx=-0.20, wz=0.30),
+        plan_input_age_s=0.90,
+        max_angular_rps=0.55,
+    )
+
+    assert result.command.linear_x == pytest.approx(-0.08)
+    assert result.reason == "stale_plan_turn_creep"
 
 
 def test_slow_certified_turn_preserves_required_go2_creep():

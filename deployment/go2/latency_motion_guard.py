@@ -22,10 +22,12 @@ class LatencyMotionGuardConfig:
     # Do not let one planning interval rotate the body by more than 10 deg.
     max_open_loop_heading_rad: float = math.radians(10.0)
     max_plan_input_age_s: float = 1.50
-    # With a slow plan, perform material steering corrections in place unless
-    # a certified Go2 turn explicitly requires bounded forward creep.
+    # This Go2 does not actuate a pure-yaw Move. With a slow plan, cap material
+    # steering translation to near-zero-radius creep unless a certified turn
+    # applies its own bounded bootstrap policy.
     turn_in_place_after_s: float = 0.45
     turning_translation_cutoff_rps: float = 0.12
+    turning_creep_mps: float = 0.08
     # One opposite result only stops the previous turn.  A second consecutive
     # result must agree before the opposite turn is allowed.
     reversal_deadband_rps: float = 0.08
@@ -175,8 +177,9 @@ class LatencyMotionGuard:
             and abs(linear) > 0.0
             and not preserve_turn_creep
         ):
-            linear = 0.0
-            reason = "stale_plan_turn_in_place"
+            creep = max(0.0, float(self.config.turning_creep_mps))
+            linear = math.copysign(min(abs(linear), creep), linear)
+            reason = "stale_plan_turn_creep"
         guarded = _with_motion(command, linear_x=linear, angular_z=angular)
         return self._result(guarded, reason, age, angular_limit, raw_angular)
 

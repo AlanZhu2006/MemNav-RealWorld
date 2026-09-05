@@ -93,7 +93,8 @@ class NavDPGo2Adapter(Node):
         )
         self._latency_motion_receipt: dict = {}
         self._certified_turn_bootstrap = CertifiedTurnBootstrap(
-            self.certified_turn_bootstrap_s
+            self.certified_turn_bootstrap_s,
+            self.certified_turn_max_s,
         )
         self._certified_turn_bootstrap_receipt: dict = {}
         self._plan_monotonic = 0.0
@@ -283,9 +284,11 @@ class NavDPGo2Adapter(Node):
             "latency_max_plan_input_age_s": 1.50,
             "latency_turn_in_place_after_s": 0.45,
             "latency_turning_translation_cutoff_rps": 0.12,
+            "latency_turning_creep_mps": 0.08,
             "latency_reversal_deadband_rps": 0.08,
             "latency_reversal_confirmation_plans": 2,
             "certified_turn_bootstrap_s": 0.60,
+            "certified_turn_max_s": 20.0,
             "depth_hard_stop_m": 0.35,
             "depth_slow_distance_m": 0.80,
             "depth_percentile": 10.0,
@@ -384,6 +387,7 @@ class NavDPGo2Adapter(Node):
             "max_linear_accel_mps2",
             "max_angular_accel_rps2",
             "certified_turn_bootstrap_s",
+            "certified_turn_max_s",
         ):
             setattr(self, name, float(self.get_parameter(name).value))
         self.plan_while_disabled = bool(self.get_parameter("plan_while_disabled").value)
@@ -408,6 +412,10 @@ class NavDPGo2Adapter(Node):
             raise ValueError("rgbd_sync_queue_size must be positive")
         if self.certified_turn_bootstrap_s < 0.0:
             raise ValueError("certified_turn_bootstrap_s must be nonnegative")
+        if self.certified_turn_max_s <= 0.0:
+            raise ValueError("certified_turn_max_s must be positive")
+        if self.certified_turn_max_s < self.certified_turn_bootstrap_s:
+            raise ValueError("certified_turn_max_s must cover the bootstrap")
 
         self.controller_config = ControllerConfig(
             lookahead_m=float(self.get_parameter("lookahead_m").value),
@@ -459,6 +467,9 @@ class NavDPGo2Adapter(Node):
                 self.get_parameter(
                     "latency_turning_translation_cutoff_rps"
                 ).value
+            ),
+            turning_creep_mps=float(
+                self.get_parameter("latency_turning_creep_mps").value
             ),
             reversal_deadband_rps=float(
                 self.get_parameter("latency_reversal_deadband_rps").value
@@ -1620,6 +1631,16 @@ class NavDPGo2Adapter(Node):
         target = bootstrap.command
         with self._lock:
             self._certified_turn_bootstrap_receipt = bootstrap.audit_dict()
+
+        if bootstrap.phase == "turn_timeout":
+            with self._lock:
+                self._enabled = False
+                self._estop = True
+            self._publish_zero("certified_turn_timeout")
+            self.get_logger().error(
+                "Certified turn timed out; motion disabled and estop asserted"
+            )
+            return
 
         if reason is not None:
             self._publish_zero(reason)

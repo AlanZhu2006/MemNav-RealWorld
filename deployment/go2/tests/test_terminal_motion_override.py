@@ -125,10 +125,47 @@ def test_certified_turn_bootstrap_rearms_only_for_a_new_turn():
     assert reversed_turn.command.linear_x == CERTIFIED_TURN_CREEP_MPS
 
 
+def test_certified_turn_bootstrap_fails_closed_after_max_duration():
+    gate = CertifiedTurnBootstrap(duration_s=0.60, max_duration_s=20.0)
+    command = VelocityCommand(
+        linear_x=CERTIFIED_TURN_CREEP_MPS,
+        angular_z=0.20,
+    )
+    gate.apply(
+        command,
+        reason="certified_long_range_atomic_turn",
+        motion_allowed=True,
+        now_s=10.0,
+    )
+
+    expired = gate.apply(
+        command,
+        reason="certified_long_range_atomic_turn",
+        motion_allowed=True,
+        now_s=30.0,
+    )
+
+    assert expired.phase == "turn_timeout"
+    assert expired.elapsed_s == pytest.approx(20.0)
+    assert expired.command.linear_x == 0.0
+    assert expired.command.angular_z == 0.0
+
+
 @pytest.mark.parametrize("duration", [-0.1, float("nan"), float("inf")])
 def test_certified_turn_bootstrap_rejects_invalid_duration(duration):
     with pytest.raises(ValueError):
         CertifiedTurnBootstrap(duration_s=duration)
+
+
+@pytest.mark.parametrize("duration", [-0.1, 0.0, float("nan"), float("inf")])
+def test_certified_turn_bootstrap_rejects_invalid_max_duration(duration):
+    with pytest.raises(ValueError):
+        CertifiedTurnBootstrap(max_duration_s=duration)
+
+
+def test_certified_turn_bootstrap_rejects_max_shorter_than_bootstrap():
+    with pytest.raises(ValueError):
+        CertifiedTurnBootstrap(duration_s=0.60, max_duration_s=0.59)
 
 
 def test_malformed_long_range_turn_receipt_fails_closed():
