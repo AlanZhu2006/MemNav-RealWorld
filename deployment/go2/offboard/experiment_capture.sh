@@ -489,7 +489,7 @@ stop_capture() {
   echo "Import the Foxglove dashboard and external video, then finalize:"
   echo "  $0 attach-dashboard $run_id /path/to/foxglove_dashboard.mp4"
   echo "  $0 attach-third-view $run_id /path/to/third_view.mp4"
-  echo "  $0 finalize $run_id success --notes 'operator-confirmed outcome'"
+  echo "  $0 finalize $run_id unreviewed --termination-reason operator_stop"
 }
 
 attach_third_view() {

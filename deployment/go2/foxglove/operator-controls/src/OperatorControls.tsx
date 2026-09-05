@@ -4,12 +4,7 @@ import { createRoot } from "react-dom/client";
 
 import "./styles.css";
 
-type ActionId =
-  | "capture-goal"
-  | "start-survey"
-  | "stop-survey"
-  | "revisit"
-  | "stop-navigation";
+type ActionId = "capture-goal" | "start-survey" | "stop-survey" | "revisit" | "stop-navigation";
 type Tone = "capture" | "primary" | "neutral" | "revisit" | "danger";
 
 type Action = {
