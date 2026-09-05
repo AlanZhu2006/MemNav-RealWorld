@@ -4,7 +4,14 @@ import { createRoot } from "react-dom/client";
 
 import "./styles.css";
 
-type ActionId = "capture-goal" | "start-survey" | "stop-survey" | "revisit" | "stop-navigation" | "review-success" | "review-failure";
+type ActionId =
+  | "capture-goal"
+  | "start-survey"
+  | "stop-survey"
+  | "revisit"
+  | "stop-navigation"
+  | "review-success"
+  | "review-failure";
 type Tone = "capture" | "primary" | "neutral" | "revisit" | "danger";
 
 type Action = {
@@ -283,7 +290,9 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
   const stageLabel = (workflow?.episode_state ?? workflow?.state ?? "idle")
     .replace(/_/g, " ")
     .toUpperCase();
-  const reviewMode = ["stopped", "complete", "failed", "cancelled"].includes(workflow?.episode_state ?? "");
+  const reviewMode = ["stopped", "complete", "failed", "cancelled"].includes(
+    workflow?.episode_state ?? "",
+  );
   const visibleActions = ACTIONS.filter((action) =>
     reviewMode
       ? ["capture-goal", "review-success", "review-failure", "stop-navigation"].includes(action.id)
@@ -297,11 +306,16 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
           {episodeLabel}
         </span>
         <span className="episode-stage">
-          {reviewMode ? `STOPPED · HUMAN: ${workflow?.evaluation?.outcome?.toUpperCase() ?? "UNREVIEWED"}` : stageLabel}
+          {reviewMode
+            ? `STOPPED · HUMAN: ${workflow?.evaluation?.outcome?.toUpperCase() ?? "UNREVIEWED"}`
+            : stageLabel}
         </span>
         {workflow?.capture_active === true && <span className="recording-badge">REC RGB-D</span>}
       </div>
-      <div className="control-row" style={reviewMode ? { gridTemplateColumns: "repeat(4, minmax(0, 1fr))" } : undefined}>
+      <div
+        className="control-row"
+        style={reviewMode ? { gridTemplateColumns: "repeat(4, minmax(0, 1fr))" } : undefined}
+      >
         {visibleActions.map((action) => {
           const isPending = pending.has(action.id);
           const disabled =
