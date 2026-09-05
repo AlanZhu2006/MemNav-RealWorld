@@ -45,6 +45,20 @@ def test_small_heading_request_can_keep_driving():
     assert result.reason == "pass"
 
 
+def test_slow_certified_turn_preserves_required_go2_creep():
+    guard = LatencyMotionGuard()
+    result = guard.apply(
+        command(vx=0.10, wz=0.55),
+        plan_input_age_s=0.90,
+        max_angular_rps=0.55,
+        preserve_turn_creep=True,
+    )
+
+    assert result.command.linear_x == pytest.approx(0.10)
+    assert result.command.angular_z == pytest.approx(math.radians(10.0) / 0.90)
+    assert result.reason == "latency_limited_turn"
+
+
 def test_single_opposite_plan_stops_instead_of_reversing_turn():
     guard = LatencyMotionGuard()
     first = guard.apply(command(wz=0.40), plan_input_age_s=0.80, max_angular_rps=0.55)

@@ -90,6 +90,14 @@ class TrajectoryControlTest(unittest.TestCase):
         self.assertEqual(result.command.linear_x, 0.0)
         self.assertEqual(result.command.angular_z, 0.0)
 
+    def test_turn_creep_remains_inside_forward_depth_stop(self):
+        depth = np.full((100, 100), 0.35, dtype=np.float32)
+        command = VelocityCommand(linear_x=0.10, angular_z=0.20)
+        result = apply_depth_safety(command, depth)
+        self.assertEqual(result.reason, "obstacle_stop")
+        self.assertEqual(result.command.linear_x, 0.0)
+        self.assertEqual(result.command.angular_z, 0.0)
+
     def test_invalid_depth_fails_closed(self):
         depth = np.zeros((100, 100), dtype=np.float32)
         result = apply_depth_safety(VelocityCommand(linear_x=0.2), depth)

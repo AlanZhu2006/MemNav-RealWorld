@@ -1516,6 +1516,13 @@ class NavDPGo2Adapter(Node):
                     target,
                     plan_input_age_s=plan_input_age_s,
                     max_angular_rps=self.controller_config.max_angular_rps,
+                    preserve_turn_creep=(
+                        terminal.applied
+                        and terminal.reason in {
+                            "certified_atomic_turn",
+                            "certified_long_range_atomic_turn",
+                        }
+                    ),
                 )
                 target = guarded.command
                 with self._lock:

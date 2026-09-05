@@ -23,6 +23,7 @@ import numpy as np
 
 from image_goal_io import load_rgb_image
 from rgb_goal_arrival import RgbGoalArrivalVerifier
+from terminal_motion_override import CERTIFIED_TURN_CREEP_MPS
 from trajectory_control import ControllerConfig, trajectory_to_command
 
 
@@ -84,12 +85,13 @@ def assess_motion(
     max_linear_mps: float,
     max_angular_rps: float,
 ) -> PathAssessment:
-    """Assess the adapter's effective motion, including certified pure turns.
+    """Assess effective motion, including certified creep-assisted turns.
 
     The adapter validates the policy proof before publishing its override
-    receipt. A turn replaces the trajectory command, so a zero XY path is
-    expected. Unknown overrides and holds must never fall back to arming a
-    trajectory that the adapter will not execute.
+    receipt. A turn replaces the trajectory command, so its displayed XY path
+    can be zero even though the Go2 receives bounded forward creep. Unknown
+    overrides and holds must never fall back to arming a trajectory that the
+    adapter will not execute.
     """
     override = status.get("terminal_motion_override")
     if not override or (
@@ -116,8 +118,12 @@ def assess_motion(
     ):
         raise ValueError("motion override command is not finite")
     vx, wz = values
-    if vx != 0.0 or command.get("reverse") is not False:
-        raise ValueError("certified turn must have zero translation")
+    if (
+        not math.isclose(vx, CERTIFIED_TURN_CREEP_MPS, abs_tol=1e-6)
+        or vx > max_linear_mps
+        or command.get("reverse") is not False
+    ):
+        raise ValueError("certified turn must have bounded forward creep")
     if not 0.0 < abs(wz) <= max_angular_rps:
         raise ValueError("certified turn angular speed is zero or exceeds limit")
     path = np.asarray(path_xy, dtype=np.float64)
@@ -127,7 +133,7 @@ def assess_motion(
         raise ValueError("selected trajectory contains non-finite coordinates")
     return PathAssessment(
         poses=len(path), path_length_m=0.0, target_x_m=0.0, target_y_m=0.0,
-        predicted_vx=0.0, predicted_wz=wz, reverse=False, motion_source=reason,
+        predicted_vx=vx, predicted_wz=wz, reverse=False, motion_source=reason,
     )
 
 

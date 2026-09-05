@@ -22,8 +22,8 @@ class LatencyMotionGuardConfig:
     # Do not let one planning interval rotate the body by more than 10 deg.
     max_open_loop_heading_rad: float = math.radians(10.0)
     max_plan_input_age_s: float = 1.50
-    # With a slow plan, perform material steering corrections in place.  The
-    # robot translates again once the requested angular rate is small.
+    # With a slow plan, perform material steering corrections in place unless
+    # a certified Go2 turn explicitly requires bounded forward creep.
     turn_in_place_after_s: float = 0.45
     turning_translation_cutoff_rps: float = 0.12
     # One opposite result only stops the previous turn.  A second consecutive
@@ -110,6 +110,7 @@ class LatencyMotionGuard:
         *,
         plan_input_age_s: float | None,
         max_angular_rps: float,
+        preserve_turn_creep: bool = False,
     ) -> LatencyMotionGuardResult:
         raw_angular = float(command.angular_z)
         if not self.config.enabled:
@@ -172,6 +173,7 @@ class LatencyMotionGuard:
             age >= self.config.turn_in_place_after_s
             and abs(raw_angular) >= self.config.turning_translation_cutoff_rps
             and abs(linear) > 0.0
+            and not preserve_turn_creep
         ):
             linear = 0.0
             reason = "stale_plan_turn_in_place"

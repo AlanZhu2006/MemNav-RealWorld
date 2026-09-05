@@ -12,6 +12,10 @@ from trajectory_control import VelocityCommand
 EXPECTED_HANDOFF_SCHEMA = "cec_direct_bearing_handoff_v2_20260824"
 EXPECTED_POINT_TOKEN_SUPPORT_DEG = 60.0
 POINT_TOKEN_HANDOFF_MARGIN_DEG = 5.0
+# This Go2 has repeatedly failed to enter locomotion for a pure-yaw Move.
+# Keep certified turns inside the forward depth-safety envelope with the
+# smallest deployed bridge command instead of sending zero translation.
+CERTIFIED_TURN_CREEP_MPS = 0.10
 
 
 @dataclass(frozen=True)
@@ -117,7 +121,10 @@ def terminal_motion_override(
             angular = max(-limit, min(limit, gain * bearing_rad))
             return TerminalMotionOverride(
                 True,
-                VelocityCommand(angular_z=angular),
+                VelocityCommand(
+                    linear_x=CERTIFIED_TURN_CREEP_MPS,
+                    angular_z=angular,
+                ),
                 False,
                 "certified_long_range_atomic_turn",
             )
@@ -140,7 +147,10 @@ def terminal_motion_override(
         angular = max(-limit, min(limit, gain * error))
         return TerminalMotionOverride(
             True,
-            VelocityCommand(angular_z=angular),
+            VelocityCommand(
+                linear_x=CERTIFIED_TURN_CREEP_MPS,
+                angular_z=angular,
+            ),
             False,
             "certified_atomic_turn",
         )
@@ -157,6 +167,7 @@ def terminal_motion_override(
 
 
 __all__ = [
+    "CERTIFIED_TURN_CREEP_MPS",
     "EXPECTED_POINT_TOKEN_SUPPORT_DEG",
     "EXPECTED_HANDOFF_SCHEMA",
     "POINT_TOKEN_HANDOFF_MARGIN_DEG",

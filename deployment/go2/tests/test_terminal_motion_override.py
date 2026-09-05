@@ -1,6 +1,9 @@
 import pytest
 
-from terminal_motion_override import terminal_motion_override
+from terminal_motion_override import (
+    CERTIFIED_TURN_CREEP_MPS,
+    terminal_motion_override,
+)
 
 
 def receipt(disposition, **updates):
@@ -48,7 +51,7 @@ def test_certified_rear_long_range_requests_bounded_atomic_turn():
         max_angular_rps=0.35,
     )
     assert result.applied is True
-    assert result.command.linear_x == 0.0
+    assert result.command.linear_x == CERTIFIED_TURN_CREEP_MPS
     assert result.command.angular_z == pytest.approx(-0.35)
     assert result.assert_estop is False
     assert result.reason == "certified_long_range_atomic_turn"
@@ -66,14 +69,14 @@ def test_malformed_long_range_turn_receipt_fails_closed():
     assert result.reason == "invalid_long_range_turn_receipt"
 
 
-def test_rear_target_turn_is_bounded_and_keeps_translation_zero():
+def test_rear_target_turn_is_bounded_and_keeps_forward_creep():
     result = terminal_motion_override(
         receipt("atomic_turn", terminal_turn_error_left_rad=-3.10),
         rotate_gain=1.5,
         max_angular_rps=0.35,
     )
     assert result.applied is True
-    assert result.command.linear_x == 0.0
+    assert result.command.linear_x == CERTIFIED_TURN_CREEP_MPS
     assert result.command.angular_z == pytest.approx(-0.35)
     assert result.assert_estop is False
 
@@ -90,7 +93,7 @@ def test_direct_novel_proof_is_eligible_without_cec_takeover():
         max_angular_rps=0.35,
     )
     assert result.applied is True
-    assert result.command.linear_x == 0.0
+    assert result.command.linear_x == CERTIFIED_TURN_CREEP_MPS
     assert result.command.angular_z == pytest.approx(0.35)
 
 

@@ -17,6 +17,7 @@ from navigation_run_agent import (  # noqa: E402
     preserved_revisit_issue,
 )
 from terminal_motion_override import terminal_motion_override
+from terminal_motion_override import CERTIFIED_TURN_CREEP_MPS
 
 
 def turn_status(bearing=(-1.0, 0.05), **updates):
@@ -43,10 +44,15 @@ def test_rear_turn_can_start_on_zero_path_and_hands_back_to_forward_path(bearing
     limits = dict(max_linear_mps=0.30, max_angular_rps=0.55)
     assert locked_preflight_issue(status, min_clearance_m=0.8) == ""
     motion = assess_motion(np.zeros((24, 2)), status, **limits)
-    assert motion.predicted_vx == 0
+    assert motion.predicted_vx == CERTIFIED_TURN_CREEP_MPS
     assert motion.predicted_wz == pytest.approx(sign * 0.55)
     assert motion.motion_source == "certified_long_range_atomic_turn"
-    status.update(enabled=True, estop=False, cmd_wz=motion.predicted_wz)
+    status.update(
+        enabled=True,
+        estop=False,
+        cmd_vx=motion.predicted_vx,
+        cmd_wz=motion.predicted_wz,
+    )
     assert live_fault(status, **limits) == ""
     forward = turn_status((1, 0.1))
     motion = assess_motion(np.array([[0, 0], [1, 0]]), forward, **limits)
@@ -56,20 +62,24 @@ def test_rear_turn_can_start_on_zero_path_and_hands_back_to_forward_path(bearing
         assess_motion(np.zeros((24, 2)), forward, **limits)
 
 
-def test_direct_certified_turn_also_accepts_zero_translation():
+def test_direct_certified_turn_also_accepts_bounded_forward_creep():
     status = turn_status(
         terminal_handoff_disposition="atomic_turn",
         terminal_proof_active=True, terminal_turn_error_left_rad=-3.1,
     )
-    assert assess_motion(
+    motion = assess_motion(
         np.zeros((24, 2)), status, max_linear_mps=0.3, max_angular_rps=0.55,
-    ).predicted_wz == pytest.approx(-0.55)
+    )
+    assert motion.predicted_vx == CERTIFIED_TURN_CREEP_MPS
+    assert motion.predicted_wz == pytest.approx(-0.55)
 
 
 @pytest.mark.parametrize("field,value", [
     ("angular_z", 0), ("angular_z", 0.56), ("angular_z", float("nan")),
     ("angular_z", float("inf")), ("angular_z", True),
-    ("linear_x", 0.01), ("linear_x", -0.01), ("reverse", True),
+    ("linear_x", 0.0), ("linear_x", -0.01), ("linear_x", 0.09),
+    ("linear_x", 0.11), ("linear_x", 0.31),
+    ("reverse", True),
 ])
 def test_turn_rejects_malformed_or_unsafe_commands(field, value):
     status = turn_status()
