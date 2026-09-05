@@ -58,6 +58,9 @@ Usage (run on Jetson with Foxglove and either observer or NavDP stack running):
       [--calibration-scene-id ID --physical-distance-m M
        --physical-yaw-deg DEG --physical-label-method METHOD]
   experiment_capture.sh status RUN_ID
+  experiment_capture.sh pause RUN_ID
+  experiment_capture.sh resume RUN_ID
+  experiment_capture.sh resume-survey RUN_ID
   experiment_capture.sh stop RUN_ID
   experiment_capture.sh attach-dashboard RUN_ID VIDEO
   experiment_capture.sh attach-third-view RUN_ID VIDEO
@@ -73,9 +76,9 @@ Profiles:
   full   Adds raw D435i RGB and aligned depth to the rosbag. Use only when disk
          bandwidth and capacity have been checked; policy authority is unchanged.
 
---allow-observer starts the recorder before the policy stack exists. It still
-requires live aligned RGB-D and Foxglove, then discovers policy topics as the
-Episode advances. This is used by the GUI so recording begins at Goal capture.
+--allow-observer permits the recorder to start before the policy stack exists.
+It still requires live aligned RGB-D and Foxglove, then discovers policy topics
+as the Episode advances. The GUI uses this for phase-gated Survey/Revisit capture.
 --onboard-episode makes the internal RGB-D/receipt bundle self-contained; an
 external dashboard or third-person video is optional rather than mandatory.
 
@@ -166,12 +169,15 @@ write_launchers() {
   local topics=("$@")
   local topic
 
+  mkdir -p "$root/rosbag"
   {
     echo '#!/usr/bin/env bash'
     echo 'set -euo pipefail'
+    echo '[[ $# -eq 1 ]] || { echo "one output path is required" >&2; exit 2; }'
+    echo 'output="$1"'
     printf 'source %q\n' "$GO2_DIR/scripts/common.sh"
     echo 'navdp_source_ros'
-    printf 'exec ros2 bag record --include-unpublished-topics -s mcap -o %q' "$root/rosbag"
+    printf 'exec ros2 bag record --include-unpublished-topics -s mcap -o "$output"'
     for topic in "${topics[@]}"; do
       printf ' %q' "$topic"
     done
@@ -222,6 +228,20 @@ stop_recorder_session() {
     return 1
   fi
   return 0
+}
+
+wait_rosbag_ready() {
+  local session="$1"
+  local log="$2"
+  local timeout_s="${3:-20}"
+  local deadline=$((SECONDS + timeout_s))
+  while (( SECONDS < deadline )); do
+    grep -Fq 'Recording...' "$log" 2>/dev/null && return 0
+    tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null \
+      | grep -Fxq rosbag || return 1
+    sleep 0.2
+  done
+  return 1
 }
 
 start_capture() {
@@ -310,7 +330,7 @@ start_capture() {
   write_launchers "$root" "${topics[@]}"
 
   tmux new-session -d -s "$session" -n rosbag \
-    "exec '$root/receipts/launch_rosbag.sh' >'$root/logs/rosbag.log' 2>&1"
+    "exec '$root/receipts/launch_rosbag.sh' '$root/rosbag/survey' >'$root/logs/rosbag_survey.log' 2>&1"
   tmux new-window -t "$session" -n receipts \
     "exec '$root/receipts/launch_receipts.sh' >'$root/logs/receipt_logger.log' 2>&1"
   sleep 3
@@ -323,6 +343,11 @@ start_capture() {
       die "$topic recorder exited during startup; inspect $root/logs"
     fi
   done
+  if ! wait_rosbag_ready "$session" "$root/logs/rosbag_survey.log" 20; then
+    stop_recorder_session "$session" 10 || true
+    python3 "$MANIFEST_TOOL" mark-captured --run-root "$root" --clean false >/dev/null
+    die "Survey recorder did not confirm Recording state; inspect $root/logs/rosbag_survey.log"
+  fi
   local event
   event="$(publish_event "$run_id" START)"
   printf '%s\n' "$event" >"$root/receipts/start_event.json"
@@ -355,6 +380,59 @@ status_capture() {
     echo "capture_session=STOPPED ($session)"
   fi
   du -sh "$root" 2>/dev/null || true
+}
+
+control_capture() {
+  local run_id="$1"
+  local action="$2"
+  validate_id "$run_id"
+  [[ "$action" =~ ^(pause|resume|resume-survey)$ ]] \
+    || die "unsupported recorder action: $action"
+  local root session windows event deadline segment segment_log
+  root="$(run_root "$run_id")"
+  session="$(session_name "$run_id")"
+  [[ -f "$root/manifest.json" ]] || die "unknown run: $run_id"
+  tmux has-session -t "$session" 2>/dev/null \
+    || die "capture session is not running: $session"
+  windows="$(tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null || true)"
+  if [[ "$action" == pause ]]; then
+    if ! grep -Fxq rosbag <<<"$windows"; then
+      echo "Experiment Survey segment is already stopped"
+      return 0
+    fi
+    tmux send-keys -t "$session:rosbag" C-c \
+      || die "could not stop the Survey rosbag segment"
+    deadline=$((SECONDS + 30))
+    while (( SECONDS < deadline )); do
+      windows="$(tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null || true)"
+      ! grep -Fxq rosbag <<<"$windows" && break
+      sleep 0.2
+    done
+    ! grep -Fxq rosbag <<<"$windows" \
+      || die "Survey rosbag segment did not stop cleanly"
+  else
+    if grep -Fxq rosbag <<<"$windows"; then
+      echo "Experiment Revisit segment is already recording"
+      return 0
+    fi
+    grep -q '"event":"PAUSE"' "$root/receipts/capture_window_events.jsonl" 2>/dev/null \
+      || die "cannot restart capture before the Survey segment stops"
+    if [[ "$action" == resume ]]; then
+      segment="revisit"
+      segment_log="$root/logs/rosbag_revisit.log"
+    else
+      segment="survey_continued_$(date -u +%Y%m%dT%H%M%SZ)"
+      segment_log="$root/logs/rosbag_${segment}.log"
+    fi
+    tmux new-window -t "$session" -n rosbag \
+      "exec '$root/receipts/launch_rosbag.sh' '$root/rosbag/$segment' >'$segment_log' 2>&1"
+    wait_rosbag_ready "$session" "$segment_log" 20 \
+      || die "$action recorder did not confirm Recording state; inspect $segment_log"
+  fi
+  event="$(publish_event "$run_id" "${action^^}")"
+  printf '%s\n' "$event" >>"$root/receipts/capture_window_events.jsonl"
+  echo "Experiment capture $action accepted"
+  echo "  run root: $root"
 }
 
 stop_capture() {
@@ -447,6 +525,9 @@ case "$action" in
   preflight) preflight "$@" ;;
   start) [[ $# -ge 1 ]] || die "start requires RUN_ID"; run_id="$1"; shift; start_capture "$run_id" "$@" ;;
   status) [[ $# -eq 1 ]] || die "status requires RUN_ID"; status_capture "$1" ;;
+  pause) [[ $# -eq 1 ]] || die "pause requires RUN_ID"; control_capture "$1" pause ;;
+  resume) [[ $# -eq 1 ]] || die "resume requires RUN_ID"; control_capture "$1" resume ;;
+  resume-survey) [[ $# -eq 1 ]] || die "resume-survey requires RUN_ID"; control_capture "$1" resume-survey ;;
   stop) [[ $# -eq 1 ]] || die "stop requires RUN_ID"; stop_capture "$1" ;;
   attach-dashboard) [[ $# -eq 2 ]] || die "attach-dashboard requires RUN_ID VIDEO"; attach_dashboard "$1" "$2" ;;
   attach-third-view) [[ $# -eq 2 ]] || die "attach-third-view requires RUN_ID VIDEO"; attach_third_view "$1" "$2" ;;

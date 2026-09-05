@@ -199,7 +199,7 @@ def main() -> None:
         "--sdk-path",
         default=os.environ.get(
             "UNITREE_SDK2PY_PATH",
-            "/home/nvidia/unitree_ws/src/unitree_sdk2_python",
+            "/home/unitree/.local/share/memnav/unitree_ws/src/unitree_sdk2_python",
         ),
     )
     parser.add_argument("--dds-topic", default="rt/lowstate")

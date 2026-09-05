@@ -402,7 +402,10 @@ def completeness(
     require_external_media: bool = True,
 ) -> dict[str, bool]:
     paths = {row["path"] for row in inventory if int(row["bytes"]) > 0}
-    rosbag_metadata = "rosbag/metadata.yaml" in paths
+    rosbag_metadata = any(
+        path.startswith("rosbag/") and Path(path).name == "metadata.yaml"
+        for path in paths
+    )
     rosbag_storage = any(
         path.startswith("rosbag/") and Path(path).suffix in {".db3", ".mcap"}
         for path in paths

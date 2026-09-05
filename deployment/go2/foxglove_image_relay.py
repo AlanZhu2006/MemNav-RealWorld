@@ -832,7 +832,7 @@ def render_status_card(
             (
                 "PLAN",
                 "n/a" if plan_age is None else f"{plan_age:.2f} s",
-                _metric_color(plan_age, good_max=1.5, danger_max=2.5),
+                _metric_color(plan_age, good_max=1.5, danger_max=5.0),
             ),
             (
                 "CLEAR",

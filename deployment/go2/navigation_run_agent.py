@@ -35,6 +35,7 @@ class PathAssessment:
     predicted_vx: float
     predicted_wz: float
     reverse: bool
+    motion_source: str = "trajectory"
 
 
 def assess_path(
@@ -73,6 +74,60 @@ def assess_path(
         predicted_vx=float(command.linear_x),
         predicted_wz=float(command.angular_z),
         reverse=bool(command.reverse),
+    )
+
+
+def assess_motion(
+    path_xy: np.ndarray,
+    status: dict,
+    *,
+    max_linear_mps: float,
+    max_angular_rps: float,
+) -> PathAssessment:
+    """Assess the adapter's effective motion, including certified pure turns.
+
+    The adapter validates the policy proof before publishing its override
+    receipt. A turn replaces the trajectory command, so a zero XY path is
+    expected. Unknown overrides and holds must never fall back to arming a
+    trajectory that the adapter will not execute.
+    """
+    override = status.get("terminal_motion_override")
+    if not override or (
+        isinstance(override, dict) and override.get("applied") is False
+    ):
+        return assess_path(
+            path_xy, max_linear_mps=max_linear_mps,
+            max_angular_rps=max_angular_rps,
+        )
+    if not isinstance(override, dict) or override.get("applied") is not True:
+        raise ValueError("invalid motion override")
+    reason = override.get("reason")
+    if reason not in {"certified_atomic_turn", "certified_long_range_atomic_turn"}:
+        raise ValueError(f"motion override does not authorize a turn: {reason}")
+    if override.get("assert_estop") is not False:
+        raise ValueError("motion override requests estop")
+    command = override.get("command")
+    if not isinstance(command, dict):
+        raise ValueError("motion override command missing")
+    values = [command.get(key) for key in ("linear_x", "angular_z")]
+    if any(
+        isinstance(value, bool) or not isinstance(value, (int, float))
+        or not math.isfinite(value) for value in values
+    ):
+        raise ValueError("motion override command is not finite")
+    vx, wz = values
+    if vx != 0.0 or command.get("reverse") is not False:
+        raise ValueError("certified turn must have zero translation")
+    if not 0.0 < abs(wz) <= max_angular_rps:
+        raise ValueError("certified turn angular speed is zero or exceeds limit")
+    path = np.asarray(path_xy, dtype=np.float64)
+    if path.ndim != 2 or path.shape[1] != 2 or len(path) < 2:
+        raise ValueError(f"selected trajectory has invalid shape {path.shape}")
+    if not np.isfinite(path).all():
+        raise ValueError("selected trajectory contains non-finite coordinates")
+    return PathAssessment(
+        poses=len(path), path_length_m=0.0, target_x_m=0.0, target_y_m=0.0,
+        predicted_vx=0.0, predicted_wz=wz, reverse=False, motion_source=reason,
     )
 
 
@@ -142,7 +197,7 @@ def live_fault(
     max_linear_mps: float,
     max_angular_rps: float,
     max_rgbd_age_s: float = 0.75,
-    max_plan_age_s: float = 2.50,
+    max_plan_age_s: float = 5.00,
 ) -> str:
     if status.get("last_error"):
         return f"adapter_error:{status['last_error']}"
@@ -328,6 +383,19 @@ class NavigationRunAgent:
             if self.path_after_reset is None:
                 last_issue = "waiting_for_post_reset_trajectory"
                 return False
+            # A cached status may describe an older turn than the fresh Path.
+            # Require an adapter plan computed after this run's boundary.
+            plan_time = self.status.get("plan_monotonic_s")
+            if (
+                self.reset_started_at is None
+                or isinstance(plan_time, bool)
+                or not isinstance(plan_time, (int, float))
+                or not math.isfinite(plan_time)
+                or not self.reset_started_at < plan_time <= self.status_received_at
+                or time.monotonic() - self.status_received_at > 2.0
+            ):
+                last_issue = "waiting_for_post_reset_plan_status"
+                return False
             if self.arrival_status is None:
                 last_issue = "waiting_for_arrival_module"
                 return False
@@ -496,15 +564,17 @@ class NavigationRunAgent:
             return 1
 
         assert self.path_after_reset is not None
-        path = assess_path(
+        path = assess_motion(
             self.path_after_reset,
+            self.status,
             max_linear_mps=self.args.max_linear_mps,
             max_angular_rps=self.args.max_angular_rps,
         )
         self._log(
             "PLAN",
-            "{} poses, {:.2f}m; first command vx={:.2f}, wz={:.2f}; "
+            "{}: {} poses, {:.2f}m; first command vx={:.2f}, wz={:.2f}; "
             "clearance={:.2f}m".format(
+                path.motion_source,
                 path.poses,
                 path.path_length_m,
                 path.predicted_vx,
@@ -542,6 +612,13 @@ class NavigationRunAgent:
             self._log("BLOCKED", f"state changed before arm: {final_issue}")
             self._operator_stop("final preflight failed")
             return 1
+
+        # Recheck the effective command as well as freshness before arming.
+        assess_motion(
+            self.path_after_reset, self.status,
+            max_linear_mps=self.args.max_linear_mps,
+            max_angular_rps=self.args.max_angular_rps,
+        )
 
         arm_result = self._arm()
         if arm_result == "arrival_latched":

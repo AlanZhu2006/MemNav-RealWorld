@@ -16,6 +16,9 @@ sys.path.insert(0, str(REPO / "deployment/go2"))
 from revisit_operator_service import (  # noqa: E402
     ContractError,
     allowed_actions_for_state,
+    capture_pause_command,
+    capture_resume_command,
+    capture_resume_survey_command,
     capture_start_command,
     capture_finalize_command,
     capture_stop_command,
@@ -147,12 +150,24 @@ def test_fixed_commands_do_not_accept_browser_arguments(tmp_path):
         "--onboard-episode",
     ]
     assert capture_stop_command(tmp_path, "episode_01")[-2:] == ["stop", "episode_01"]
+    assert capture_pause_command(tmp_path, "episode_01")[-2:] == [
+        "pause",
+        "episode_01",
+    ]
+    assert capture_resume_command(tmp_path, "episode_01")[-2:] == [
+        "resume",
+        "episode_01",
+    ]
+    assert capture_resume_survey_command(tmp_path, "episode_01")[-2:] == [
+        "resume-survey",
+        "episode_01",
+    ]
     assert capture_finalize_command(
         tmp_path, "episode_01", "success", allow_incomplete=False
     )[-3:] == [
         "success",
         "--notes",
-        "Foxglove-managed RGB-D Episode",
+        "Foxglove-managed phase-gated RGB-D Episode",
     ]
     assert capture_finalize_command(
         tmp_path, "episode_01", "failure", allow_incomplete=True

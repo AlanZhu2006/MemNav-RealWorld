@@ -28,7 +28,7 @@ navdp_go2_adapter:
     connect_timeout_s: 3.0
     request_timeout_s: 180.0
     sensor_timeout_s: 0.60
-    trajectory_timeout_s: 2.50
+    trajectory_timeout_s: 5.00
     max_rgb_depth_skew_s: 0.10
     rgbd_sync_queue_size: 15
     depth_scale_m: 0.001

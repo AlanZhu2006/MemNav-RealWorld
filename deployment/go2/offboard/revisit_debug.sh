@@ -39,7 +39,7 @@ record-start:
   the Unitree hand controller. Foxglove continuously shows M-vs-live MATCH.
 
 record-stop:
-  Requires the persistent dataset seal gates (normally >=160 memory frames and
+  Requires the persistent dataset seal gates (normally >=40 memory frames and
   exactly zero Survey candidates because M is external), then locks and stops
   both machines.
   If a seal gate is not ready, the stack stays locked and recording so history
@@ -175,37 +175,89 @@ stop_native_if_running() {
 
 launch_match_monitor() {
   local resolved="$1" goal="$2" point_label="$3"
-  local session log command
+  local session log command expected_goal_sha waiter_pid monitor_ready=false
   session="$(python3 "$CONFIG_TOOL" get --config "$resolved" sites.jetson.sessions.fullmono)"
   log="$DEBUG_ROOT/$(state_value dataset_id)/revisit_match_monitor.log"
+  expected_goal_sha="$(state_value goal_sha256)"
   mkdir -p "$(dirname "$log")"
   tmux kill-window -t "$session:arrival" 2>/dev/null || true
-  printf -v command 'exec %q --config %q --goal %q --point-label %q >>%q 2>&1' \
-    "$MONITOR_RUNNER" "$resolved" "$goal" "$point_label" "$log"
-  tmux new-window -d -t "$session:" -n m-match "$command"
 
   # ROS Humble's generated setup references variables that may be unset. Keep
   # the outer script strict, but do not let nounset abort environment loading.
   set +u
   source /opt/ros/humble/setup.bash
   set -u
-  local monitor_ready=false payload=""
-  for _ in $(seq 1 40); do
-    payload="$(timeout 2 ros2 topic echo --once /navdp/rgb_arrival_status \
-      --field data 2>/dev/null | sed '/^---$/d' || true)"
-    if python3 - "$payload" "$(state_value goal_sha256)" <<'PY' >/dev/null 2>&1
-import json, sys
-p = json.loads(sys.argv[1])
-assert p["schema"] == "memnav_revisit_goal_monitor_v1"
-assert p["authority"] == "observation_only"
-assert p["goal_sha256"] == sys.argv[2]
+
+  # Keep one typed subscriber alive across monitor startup. Repeated short-lived
+  # `ros2 topic echo` processes can continually repay DDS discovery latency on
+  # Jetson and miss the transient status sample even though the monitor is live.
+  timeout 60 python3 - "$expected_goal_sha" >/dev/null 2>&1 <<'PY' &
+import json
+import sys
+
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import (
+    DurabilityPolicy,
+    HistoryPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+)
+from std_msgs.msg import String
+
+expected_goal_sha = sys.argv[1]
+rclpy.init(args=[])
+node = Node("memnav_revisit_monitor_waiter")
+ready = False
+
+
+def on_status(message):
+    global ready
+    try:
+        payload = json.loads(message.data)
+    except (TypeError, ValueError):
+        return
+    ready = (
+        payload.get("schema") == "memnav_revisit_goal_monitor_v1"
+        and payload.get("authority") == "observation_only"
+        and payload.get("goal_sha256") == expected_goal_sha
+    )
+
+
+qos = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+)
+subscription = node.create_subscription(
+    String, "/navdp/rgb_arrival_status", on_status, qos
+)
+while rclpy.ok() and not ready:
+    rclpy.spin_once(node, timeout_sec=0.5)
+node.destroy_subscription(subscription)
+node.destroy_node()
+rclpy.shutdown()
+raise SystemExit(0 if ready else 1)
 PY
-    then
-      monitor_ready=true
+  waiter_pid=$!
+
+  printf -v command 'exec %q --config %q --goal %q --point-label %q >>%q 2>&1' \
+    "$MONITOR_RUNNER" "$resolved" "$goal" "$point_label" "$log"
+  tmux new-window -d -t "$session:" -n m-match "$command"
+
+  while kill -0 "$waiter_pid" 2>/dev/null; do
+    if ! tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null \
+        | grep -Fxq m-match; then
+      kill -TERM "$waiter_pid" 2>/dev/null || true
+      wait "$waiter_pid" 2>/dev/null || true
       break
     fi
     sleep 0.25
   done
+  if wait "$waiter_pid" 2>/dev/null; then
+    monitor_ready=true
+  fi
   [[ "$monitor_ready" == true ]] \
     || die "observation-only M match monitor did not become ready; see $log"
 }
@@ -318,16 +370,14 @@ assert p["recording"] is True and p["dataset_id"] == sys.argv[2]
 assert int(p["memory_frames"]) >= int(p["minimum_frames"])
 PY
   echo "Sealing persistent history before stopping either machine..."
-  # Freeze the writer before asking the hub to seal.  Survey has no Go2 bridge,
-  # and operator_stop is reasserted first, so removing the disabled adapter can
-  # only stop future memory appends; it cannot grant motion authority.
+  # Reassert the one-way operator lock first.  The adapter's survey_seal
+  # service then pauses and drains the current RGB transaction, atomically
+  # seals the dataset, and writes the fail-closed receipt used by Revisit.
   set +u
   source /opt/ros/humble/setup.bash
   set -u
   timeout 8 ros2 service call /navdp_go2_adapter/operator_stop \
     std_srvs/srv/Trigger '{}' >/dev/null 2>&1 || true
-  tmux kill-window -t navdp-go2-offboard:adapter 2>/dev/null || true
-  sleep 3
   if ! bash "$REVISIT" --config "$experiment" survey-seal "$dataset_id"; then
     echo >&2
     echo "revisit-debug: seal is not ready; the stack remains motion-locked and recording." >&2

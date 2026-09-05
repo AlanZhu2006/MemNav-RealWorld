@@ -148,6 +148,38 @@ class ExperimentCaptureManifestTests(unittest.TestCase):
         self.assertIs(finalized["completeness"]["third_view"], True)
         self.assertEqual(verify_manifest(root)["run_id"], "episode-01")
 
+    def test_two_phase_rosbags_satisfy_capture_completeness(self):
+        root = self.tmp_path / "episode-two-phase"
+        create_manifest(
+            root,
+            run_id="episode-two-phase",
+            dataset_id="survey-01",
+            trial_kind="revisit",
+            capture_profile="full",
+            topics=("/navdp/status", "/navdp/cec_receipt"),
+            workspace=Path(__file__).resolve().parents[3],
+            media_policy="onboard_episode",
+        )
+        for phase in ("survey", "revisit"):
+            phase_root = root / "rosbag" / phase
+            phase_root.mkdir(parents=True)
+            (phase_root / "metadata.yaml").write_text(
+                "rosbag2_bagfile_information: {}\n", encoding="utf-8"
+            )
+            (phase_root / f"{phase}_0.mcap").write_bytes(phase.encode())
+        (root / "logs" / "status.jsonl").write_text("{}\n", encoding="utf-8")
+        (root / "logs" / "cec_receipt.jsonl").write_text("{}\n", encoding="utf-8")
+        mark_captured(root, clean=True)
+
+        finalized = finalize_manifest(
+            root, outcome="success", notes="two phase capture", allow_incomplete=False
+        )
+
+        self.assertIs(finalized["completeness"]["rosbag"], True)
+        inventory = {item["path"] for item in finalized["artifact_inventory"]}
+        self.assertIn("rosbag/survey/survey_0.mcap", inventory)
+        self.assertIn("rosbag/revisit/revisit_0.mcap", inventory)
+
     def test_attached_video_is_byte_preserved(self):
         root = create_capture(self.tmp_path)
         source = self.tmp_path / "external.mov"

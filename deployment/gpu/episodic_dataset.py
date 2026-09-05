@@ -104,7 +104,7 @@ class LoadedDataset:
 class EpisodicDatasetStore:
     """Record, seal, verify and load one exact-byte causal RGB stream."""
 
-    def __init__(self, root: str | Path, *, minimum_frames: int = 64) -> None:
+    def __init__(self, root: str | Path, *, minimum_frames: int = 40) -> None:
         self.root = Path(root).expanduser().resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.minimum_frames = max(1, int(minimum_frames))

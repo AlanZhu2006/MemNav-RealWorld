@@ -151,36 +151,87 @@ navdp_start_adapter_and_wait() {
   local session="$1"
   local adapter_log="$2"
   : >"$adapter_log"
+  # Keep one typed subscriber alive across adapter/model initialization.  A
+  # sequence of short-lived `ros2 topic echo` processes repeatedly pays DDS
+  # discovery startup and can miss the transient status sample on Jetson.
+  timeout "$CFG_ADAPTER_READY_TIMEOUT_S" python3 - >/dev/null 2>&1 <<'PY' &
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import (
+    DurabilityPolicy,
+    HistoryPolicy,
+    QoSProfile,
+    ReliabilityPolicy,
+)
+from std_msgs.msg import String
+
+rclpy.init(args=[])
+node = Node("navdp_adapter_status_waiter")
+received = False
+
+def on_message(_message):
+    global received
+    received = True
+
+qos = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+)
+subscription = node.create_subscription(String, "/navdp/status", on_message, qos)
+while rclpy.ok() and not received:
+    rclpy.spin_once(node, timeout_sec=0.5)
+node.destroy_subscription(subscription)
+node.destroy_node()
+rclpy.shutdown()
+PY
+  local waiter_pid=$!
   tmux new-window -t "$session" -n adapter \
     "exec '$NAVDP_GO2_SCRIPT_DIR/run_adapter.sh' --config '$NAVDP_RUN_CONFIG' >'$adapter_log' 2>&1"
-  local adapter_ready=false
-  for _ in $(seq 1 "$CFG_ADAPTER_READY_TIMEOUT_S"); do
-    if timeout 3 ros2 topic echo --once /navdp/status >/dev/null 2>&1; then
-      adapter_ready=true
-      break
+  while kill -0 "$waiter_pid" 2>/dev/null; do
+    if ! tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null \
+        | grep -Fxq adapter; then
+      kill -TERM "$waiter_pid" 2>/dev/null || true
+      wait "$waiter_pid" 2>/dev/null || true
+      return 1
     fi
     sleep 0.25
   done
-  [[ "$adapter_ready" == true ]]
+  wait "$waiter_pid"
 }
 
 navdp_start_camera_recovery_and_wait() {
   local session="$1"
   local recovery_log="$2"
   : >"$recovery_log"
+  timeout "$CFG_ADAPTER_READY_TIMEOUT_S" python3 - >/dev/null 2>&1 <<'PY' &
+import rclpy
+from rclpy.node import Node
+from std_srvs.srv import Trigger
+
+rclpy.init(args=[])
+node = Node("navdp_camera_recovery_waiter")
+client = node.create_client(Trigger, "/navdp_camera_recovery/restart")
+while rclpy.ok() and not client.wait_for_service(timeout_sec=0.5):
+    pass
+node.destroy_client(client)
+node.destroy_node()
+rclpy.shutdown()
+PY
+  local waiter_pid=$!
   tmux new-window -t "$session" -n camera-recovery \
     "exec '$NAVDP_GO2_SCRIPT_DIR/run_camera_recovery.sh' --config '$NAVDP_RUN_CONFIG' >'$recovery_log' 2>&1"
-  local recovery_ready=false
-  for _ in $(seq 1 "$CFG_ADAPTER_READY_TIMEOUT_S"); do
-    if [[ "$(timeout 2 ros2 service type \
-        /navdp_camera_recovery/restart 2>/dev/null || true)" \
-        == "std_srvs/srv/Trigger" ]]; then
-      recovery_ready=true
-      break
+  while kill -0 "$waiter_pid" 2>/dev/null; do
+    if ! tmux list-windows -t "$session" -F '#{window_name}' 2>/dev/null \
+        | grep -Fxq camera-recovery; then
+      kill -TERM "$waiter_pid" 2>/dev/null || true
+      wait "$waiter_pid" 2>/dev/null || true
+      return 1
     fi
     sleep 0.25
   done
-  [[ "$recovery_ready" == true ]]
+  wait "$waiter_pid"
 }
 
 navdp_start_foxglove_windows() {

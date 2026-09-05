@@ -51,9 +51,12 @@ def test_operator_controls_expose_only_fixed_fail_closed_services():
     assert "clear_estop" not in source
 
 
-def test_episode_capture_starts_from_observer_and_records_full_rgbd():
+def test_episode_capture_is_full_rgbd_but_phase_gated_to_survey_and_revisit():
     source = (
         REPO / "deployment/go2/offboard/experiment_capture.sh"
+    ).read_text(encoding="utf-8")
+    operator = (
+        REPO / "deployment/go2/revisit_operator_service.py"
     ).read_text(encoding="utf-8")
     logger = (
         REPO / "deployment/go2/experiment_topic_logger.py"
@@ -64,8 +67,28 @@ def test_episode_capture_starts_from_observer_and_records_full_rgbd():
     assert "/camera/camera/aligned_depth_to_color/image_raw" in source
     assert "/camera/camera/depth/metadata" in source
     assert "/navdp/operator/episode_event" in source
+    assert "'$root/rosbag/survey'" in source
+    assert "'$root/rosbag/$segment'" in source
     assert '"/navdp/operator/episode_event"' in logger
     assert '"/navdp/operator/revisit_workflow"' in logger
+    goal_capture = operator[
+        operator.index("def _run_goal_capture"):operator.index("def _start_survey")
+    ]
+    survey_start = operator[
+        operator.index("def _run_survey_start"):operator.index("def _stop_survey")
+    ]
+    survey_stop = operator[
+        operator.index("def _run_survey_stop"):operator.index("def _start_revisit")
+    ]
+    revisit = operator[
+        operator.index("def _run_transaction"):operator.index("def close")
+    ]
+    assert "capture_start_command" not in goal_capture
+    assert "capture_start_command" in survey_start
+    assert "capture_pause_command" in survey_stop
+    assert "capture_resume_command" in revisit
+    assert revisit.index("capture_resume_command") < revisit.index("navigation_command")
+    assert revisit.index("_finish_capture") < revisit.index("_cleanup_stack")
 
 
 def test_revisit_supervisor_is_installed_as_an_idle_boot_service():

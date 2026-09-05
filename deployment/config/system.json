@@ -2,13 +2,13 @@
   "schema": "memnav-realworld-system-v1",
   "sites": {
     "jetson": {
-      "hostname": "nyush-jetson-dog",
-      "repository": "/home/nvidia/twork/MemNav-RealWorld",
-      "python": "/home/nvidia/twork/MemNav-RealWorld/.venv-navdp/bin/python",
+      "hostname": "unitree-dog",
+      "repository": "/home/unitree/MemNav-RealWorld",
+      "python": "/home/unitree/MemNav-RealWorld/.venv-navdp/bin/python",
       "ros_setup": "/opt/ros/humble/setup.bash",
-      "realsense_setup": "/home/nvidia/twork/realsense_ws/install/setup.bash",
-      "message_filters_setup": "/home/nvidia/twork/message_filters_ws/install/local_setup.bash",
-      "runtime_root": "/home/nvidia/twork/MemNav-RealWorld/runtime/go2",
+      "realsense_setup": "/home/unitree/.local/share/memnav/realsense_ws/install/setup.bash",
+      "message_filters_setup": "/home/unitree/.local/share/memnav/message_filters_ws/install/local_setup.bash",
+      "runtime_root": "/home/unitree/MemNav-RealWorld/runtime/go2",
       "sessions": {
         "native": "navdp-go2",
         "fullmono": "navdp-go2-offboard"
@@ -23,10 +23,10 @@
         "camera_info_topic": "/camera/camera/color/camera_info"
       },
       "unitree": {
-        "network_interface": "eth0",
-        "sdk_python_path": "/home/nvidia/unitree_ws/src/unitree_sdk2_python",
-        "cyclonedds_home": "/home/nvidia/twork/cyclonedds/install",
-        "python": "/home/nvidia/twork/tinynav/.venv/bin/python",
+        "network_interface": "enP8p1s0",
+        "sdk_python_path": "/home/unitree/.local/share/memnav/unitree_ws/src/unitree_sdk2_python",
+        "cyclonedds_home": "/home/unitree/.local/share/memnav/cyclonedds/install",
+        "python": "/home/unitree/.local/share/memnav/tinynav/.venv/bin/python",
         "cmd_topic": "/navdp/cmd_vel",
         "timeout_s": 0.35,
         "max_vx": 0.3,
@@ -122,7 +122,7 @@
       "goal_min_frame_gap": 16,
       "goal_min_inliers": 16,
       "goal_max_cos": 0.9,
-      "episodic_dataset_min_frames": 160,
+      "episodic_dataset_min_frames": 40,
       "eager_depth_cache": false
     },
     "arrival": {
@@ -132,7 +132,7 @@
       "max_image_scale": 1.45
     },
     "evidence": {
-      "capture_root": "/home/nvidia/twork/MemNav-RealWorld/runtime/go2/experiment_capture",
+      "capture_root": "/home/unitree/MemNav-RealWorld/runtime/go2/experiment_capture",
       "session_prefix": "navdp-capture"
     }
   }

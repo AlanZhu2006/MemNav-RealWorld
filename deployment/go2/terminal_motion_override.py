@@ -10,6 +10,8 @@ from trajectory_control import VelocityCommand
 
 
 EXPECTED_HANDOFF_SCHEMA = "cec_direct_bearing_handoff_v2_20260824"
+EXPECTED_POINT_TOKEN_SUPPORT_DEG = 60.0
+POINT_TOKEN_HANDOFF_MARGIN_DEG = 5.0
 
 
 @dataclass(frozen=True)
@@ -34,6 +36,19 @@ def _finite(value: object) -> float | None:
     except (TypeError, ValueError, OverflowError):
         return None
     return parsed if math.isfinite(parsed) else None
+
+
+def _finite_direction(value: object) -> tuple[float, float] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return None
+    x = _finite(value[0])
+    y = _finite(value[1])
+    if x is None or y is None:
+        return None
+    norm = math.hypot(x, y)
+    if norm <= 1e-8:
+        return None
+    return x / norm, y / norm
 
 
 def terminal_motion_override(
@@ -64,7 +79,52 @@ def terminal_motion_override(
 
     disposition = receipt.get("terminal_handoff_disposition")
     latched = receipt.get("terminal_local_latched") is True
-    if disposition in (None, "long_range", "bearing_local") and not latched:
+    if disposition == "long_range" and not latched:
+        # Frozen NavDP clips a negative forward PointGoal component to zero
+        # and its measured point-token transfer support is only +/-60 degrees.
+        # A certified long-range bearing outside that support must therefore
+        # turn at the actuator boundary before the mixed policy can consume it.
+        certificate = receipt.get("cec_certificate")
+        support_deg = _finite(receipt.get("terminal_point_token_support_deg"))
+        direction = _finite_direction(receipt.get("memory_bearing_unit"))
+        if (
+            not isinstance(certificate, Mapping)
+            or certificate.get("accepted") is not True
+            or support_deg is None
+            or not math.isclose(
+                support_deg, EXPECTED_POINT_TOKEN_SUPPORT_DEG, abs_tol=1e-6
+            )
+            or direction is None
+        ):
+            return TerminalMotionOverride(
+                True,
+                VelocityCommand(),
+                False,
+                "invalid_long_range_turn_receipt",
+            )
+        bearing_rad = math.atan2(direction[1], direction[0])
+        handoff_deg = support_deg - POINT_TOKEN_HANDOFF_MARGIN_DEG
+        if abs(math.degrees(bearing_rad)) > handoff_deg:
+            gain = _finite(rotate_gain)
+            limit = _finite(max_angular_rps)
+            if gain is None or limit is None or gain <= 0.0 or limit <= 0.0:
+                return TerminalMotionOverride(
+                    True,
+                    VelocityCommand(),
+                    False,
+                    "invalid_long_range_turn_limits",
+                )
+            angular = max(-limit, min(limit, gain * bearing_rad))
+            return TerminalMotionOverride(
+                True,
+                VelocityCommand(angular_z=angular),
+                False,
+                "certified_long_range_atomic_turn",
+            )
+        return TerminalMotionOverride(
+            False, None, False, "long_range_inside_point_token_support"
+        )
+    if disposition in (None, "bearing_local") and not latched:
         return TerminalMotionOverride(False, None, False, "long_range_controller")
     if disposition == "bearing_local":
         return TerminalMotionOverride(False, None, False, "bearing_local_controller")
@@ -97,7 +157,9 @@ def terminal_motion_override(
 
 
 __all__ = [
+    "EXPECTED_POINT_TOKEN_SUPPORT_DEG",
     "EXPECTED_HANDOFF_SCHEMA",
+    "POINT_TOKEN_HANDOFF_MARGIN_DEG",
     "TerminalMotionOverride",
     "terminal_motion_override",
 ]

@@ -262,7 +262,8 @@ def main() -> None:
     parser.add_argument(
         "--sdk-path",
         default=os.environ.get(
-            "UNITREE_SDK2PY_PATH", "/home/nvidia/unitree_ws/src/unitree_sdk2_python"
+            "UNITREE_SDK2PY_PATH",
+            "/home/unitree/.local/share/memnav/unitree_ws/src/unitree_sdk2_python",
         ),
     )
     args, ros_args = parser.parse_known_args()

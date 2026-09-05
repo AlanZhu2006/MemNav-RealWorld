@@ -326,14 +326,33 @@ survey_seal() {
   validate_id "$dataset_id"
   load_base_config
   force_motion_lock
-  sleep 1
-  local receipt
-  receipt="$(hub_post_json /dataset/seal '{}')"
-  local active collection_mode
+  local active collection_mode receipt receipt_path service_output status_after
   active="$(active_config)"
   collection_mode="$(python3 "$CONFIG_TOOL" get \
     --config "$active" dataset.metadata.collection_mode)"
-  python3 - "$dataset_id" "$receipt" "$collection_mode" <<'PY'
+  receipt_path="$RUNTIME_ROOT/$dataset_id/survey_seal.json"
+  service_output="$RUNTIME_ROOT/$dataset_id/survey_seal_service.txt"
+  mkdir -p "$(dirname "$receipt_path")"
+
+  # The adapter owns the atomic seal transition because it can pause the
+  # in-flight RGB writer and prove disabled + estop in the same receipt.  A
+  # direct hub /dataset/seal call lacks those safety fields and produces a
+  # receipt that the subsequent Revisit contract must reject.
+  navdp_source_ros
+  if ! timeout 45 ros2 service call /navdp_go2_adapter/survey_seal \
+      std_srvs/srv/Trigger '{}' >"$service_output" 2>&1; then
+    cat "$service_output" >&2 || true
+    die "adapter Survey seal service failed"
+  fi
+  if ! grep -Eq 'success[=:][[:space:]]*[Tt]rue' "$service_output"; then
+    cat "$service_output" >&2 || true
+    die "adapter rejected Survey seal"
+  fi
+  [[ -f "$receipt_path" ]] \
+    || die "adapter did not write Survey seal receipt: $receipt_path"
+  receipt="$(cat "$receipt_path")"
+  status_after="$(hub_get /dataset/status)"
+  python3 - "$dataset_id" "$receipt" "$collection_mode" "$status_after" <<'PY'
 import json, sys
 p = json.loads(sys.argv[2])
 assert p["dataset_id"] == sys.argv[1]
@@ -344,8 +363,20 @@ else:
     assert int(p["goal_candidates"]) >= 1
 assert int(p["goal_memory_exact_sha_overlap"]) == 0
 assert p["evaluation_depth_consumed_by_policy"] is False
+assert p["recording_active"] is False
+assert p["motion_enabled"] is False
+assert p["estop"] is True
+
+status = json.loads(sys.argv[4])
+assert status.get("recording") is False
+sealed = {
+    item.get("dataset_id"): item
+    for item in status.get("sealed_datasets", [])
+    if isinstance(item, dict)
+}
+assert sys.argv[1] in sealed
+assert sealed[sys.argv[1]].get("manifest_sha256") == p.get("manifest_sha256")
 PY
-  write_receipt "$RUNTIME_ROOT/$dataset_id/survey_seal.json" "$receipt"
   echo "$receipt" | python3 -m json.tool
   echo
   echo "Dataset is sealed.  The current in-memory session may be inspected, but"

@@ -16,13 +16,54 @@ def receipt(disposition, **updates):
     return value
 
 
-def test_long_range_and_bearing_local_leave_navdp_command_untouched():
-    for disposition in ("long_range", "bearing_local"):
-        result = terminal_motion_override(
-            receipt(disposition), rotate_gain=1.5, max_angular_rps=0.35
-        )
+def certified_long_range(bearing):
+    return receipt(
+        "long_range",
+        cec_certificate={"accepted": True},
+        memory_bearing_unit=bearing,
+        terminal_point_token_support_deg=60.0,
+    )
+
+
+def test_front_long_range_and_bearing_local_leave_navdp_command_untouched():
+    results = (
+        terminal_motion_override(
+            certified_long_range([1.0, 0.2]),
+            rotate_gain=1.5,
+            max_angular_rps=0.35,
+        ),
+        terminal_motion_override(
+            receipt("bearing_local"), rotate_gain=1.5, max_angular_rps=0.35
+        ),
+    )
+    for result in results:
         assert result.applied is False
         assert result.command is None
+
+
+def test_certified_rear_long_range_requests_bounded_atomic_turn():
+    result = terminal_motion_override(
+        certified_long_range([-0.96, -0.28]),
+        rotate_gain=1.5,
+        max_angular_rps=0.35,
+    )
+    assert result.applied is True
+    assert result.command.linear_x == 0.0
+    assert result.command.angular_z == pytest.approx(-0.35)
+    assert result.assert_estop is False
+    assert result.reason == "certified_long_range_atomic_turn"
+
+
+def test_malformed_long_range_turn_receipt_fails_closed():
+    result = terminal_motion_override(
+        receipt("long_range", cec_certificate={"accepted": True}),
+        rotate_gain=1.5,
+        max_angular_rps=0.35,
+    )
+    assert result.applied is True
+    assert result.command.linear_x == 0.0
+    assert result.command.angular_z == 0.0
+    assert result.reason == "invalid_long_range_turn_receipt"
 
 
 def test_rear_target_turn_is_bounded_and_keeps_translation_zero():

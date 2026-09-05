@@ -372,6 +372,33 @@ def capture_stop_command(repo_root: Path, episode_id: str) -> list[str]:
     ]
 
 
+def capture_pause_command(repo_root: Path, episode_id: str) -> list[str]:
+    return [
+        "bash",
+        str(repo_root / "deployment/go2/offboard/experiment_capture.sh"),
+        "pause",
+        episode_id,
+    ]
+
+
+def capture_resume_command(repo_root: Path, episode_id: str) -> list[str]:
+    return [
+        "bash",
+        str(repo_root / "deployment/go2/offboard/experiment_capture.sh"),
+        "resume",
+        episode_id,
+    ]
+
+
+def capture_resume_survey_command(repo_root: Path, episode_id: str) -> list[str]:
+    return [
+        "bash",
+        str(repo_root / "deployment/go2/offboard/experiment_capture.sh"),
+        "resume-survey",
+        episode_id,
+    ]
+
+
 def capture_finalize_command(
     repo_root: Path, episode_id: str, outcome: str, *, allow_incomplete: bool
 ) -> list[str]:
@@ -382,7 +409,7 @@ def capture_finalize_command(
         episode_id,
         outcome,
         "--notes",
-        "Foxglove-managed RGB-D Episode",
+        "Foxglove-managed phase-gated RGB-D Episode",
     ]
     if allow_incomplete:
         command.append("--allow-incomplete")
@@ -805,6 +832,7 @@ class RevisitOperatorService:
                 "capture_profile": "full",
                 "capture_root": str((self.capture_root / episode_id).resolve()),
                 "capture_active": False,
+                "capture_phase": "awaiting_survey",
                 "outcome": None,
             }
             self._write_episode()
@@ -818,38 +846,15 @@ class RevisitOperatorService:
                 captured_utc=captured_utc,
             )
             _atomic_write_json(episode_dir / "goal_capture.json", goal)
-            self._episode = {
-                **self._episode,
-                "detail": "Starting full RGB-D Episode recording",
-                "updated_utc": utc_now(),
-                "goal": goal,
-            }
+            self._episode = {**self._episode, "updated_utc": utc_now(), "goal": goal}
             self._write_episode()
             self._append_episode_event("goal_frame_frozen")
-            self._set_status(
-                "capturing_goal", "Starting full RGB-D Episode recording"
-            )
             self._publish_goal()
-            log_path = episode_dir / "operator.log"
-            with log_path.open("ab", buffering=0) as log:
-                code = self._run_command(
-                    capture_start_command(self.repo_root, episode_id, dataset_id),
-                    log,
-                )
-            if code != 0 or self._cancel.is_set():
-                self._finish_capture("aborted")
-                state = "cancelled" if self._cancel.is_set() else "failed"
-                detail = (
-                    "Goal capture cancelled"
-                    if self._cancel.is_set()
-                    else "RGB-D recorder could not start"
-                )
-                self._transition(state, detail, capture_active=False, outcome="aborted")
-                return
             self._transition(
                 "goal_captured",
                 "Goal captured · return to the Survey start",
-                capture_active=True,
+                capture_active=False,
+                capture_phase="awaiting_survey",
             )
             self._publish_goal()
         except Exception as exc:
@@ -912,18 +917,35 @@ class RevisitOperatorService:
             )
             _atomic_write_json(self.state_path, active)
             self._publish_goal()
+            self._set_status(
+                "survey_preparing", "Survey ready · starting RGB-D capture"
+            )
+            with log_path.open("ab", buffering=0) as log:
+                code = self._run_command(
+                    capture_start_command(
+                        self.repo_root,
+                        str(self._episode["episode_id"]),
+                        dataset_id,
+                    ),
+                    log,
+                )
+            if code != 0 or self._cancel.is_set():
+                raise ContractError(f"Survey RGB-D recorder exited with code {code}")
             self._call_trigger_service("/navdp_go2_adapter/survey_start", 20.0)
             self._assert_motion_lock()
             self._transition(
                 "surveying",
                 "Survey recording · drive with the Unitree controller",
                 survey_started_utc=utc_now(),
+                capture_active=True,
+                capture_phase="survey",
+                survey_capture_started_utc=utc_now(),
             )
         except Exception as exc:
             self._lock_until = time.monotonic() + 30.0
             self._request_adapter_stop()
-            self._cleanup_stack_path(log_path)
             self._finish_capture("system_failure")
+            self._cleanup_stack_path(log_path)
             self._transition(
                 "failed",
                 f"Survey start failed: {exc}",
@@ -947,8 +969,32 @@ class RevisitOperatorService:
 
     def _run_survey_stop(self) -> None:
         log_path = self._episode_dir() / "operator.log"
+        paused = False
         try:
-            self._transition("survey_stopping", "Sealing and validating Survey data")
+            self._transition("survey_stopping", "Stopping Survey RGB-D capture")
+            with log_path.open("ab", buffering=0) as log:
+                code = self._run_command(
+                    capture_pause_command(
+                        self.repo_root, str(self._episode["episode_id"])
+                    ),
+                    log,
+                )
+            if code != 0:
+                raise ContractError(f"Survey RGB-D recorder pause exited with code {code}")
+            paused = True
+            self._episode = {
+                **self._episode,
+                "capture_active": False,
+                "capture_phase": "paused_between_segments",
+                "survey_capture_stopped_utc": utc_now(),
+                "detail": "Survey RGB-D stopped · sealing and validating data",
+                "updated_utc": utc_now(),
+            }
+            self._write_episode()
+            self._set_status(
+                "survey_stopping",
+                "Survey RGB-D stopped · sealing and validating data",
+            )
             self._lock_until = time.monotonic() + 30.0
             self._request_adapter_stop()
             with log_path.open("ab", buffering=0) as log:
@@ -956,9 +1002,24 @@ class RevisitOperatorService:
             if self._cancel.is_set():
                 raise ContractError("Survey stop was cancelled")
             if code != 0:
+                with log_path.open("ab", buffering=0) as log:
+                    resume_code = self._run_command(
+                        capture_resume_survey_command(
+                            self.repo_root, str(self._episode["episode_id"])
+                        ),
+                        log,
+                    )
+                if resume_code != 0:
+                    raise ContractError(
+                        f"Survey stop failed and RGB-D resume exited with code {resume_code}"
+                    )
+                self._call_trigger_service("/navdp_go2_adapter/survey_start", 20.0)
+                paused = False
                 self._transition(
                     "surveying",
                     "Survey is not ready to stop · continue until at least 40 frames",
+                    capture_active=True,
+                    capture_phase="survey",
                 )
                 return
             active = _load_object(self.state_path, "active Revisit state")
@@ -974,7 +1035,38 @@ class RevisitOperatorService:
             if self._cancel.is_set():
                 self._abort_episode("Stopped by operator")
             else:
-                self._transition("surveying", f"Survey stop failed: {exc}")
+                if paused:
+                    try:
+                        with log_path.open("ab", buffering=0) as log:
+                            resume_code = self._run_command(
+                                capture_resume_survey_command(
+                                    self.repo_root, str(self._episode["episode_id"])
+                                ),
+                                log,
+                            )
+                        if resume_code != 0:
+                            raise ContractError(
+                                f"RGB-D resume exited with code {resume_code}"
+                            )
+                        self._call_trigger_service(
+                            "/navdp_go2_adapter/survey_start", 20.0
+                        )
+                    except Exception as resume_exc:
+                        self._finish_capture("system_failure")
+                        self._cleanup_stack_path(log_path)
+                        self._transition(
+                            "failed",
+                            f"Survey stop failed and capture could not resume: {resume_exc}",
+                            capture_active=False,
+                            outcome="system_failure",
+                        )
+                        return
+                self._transition(
+                    "surveying",
+                    f"Survey stop failed: {exc}",
+                    capture_active=True,
+                    capture_phase="survey",
+                )
 
     def _start_revisit(self, _request: Any, response: Any) -> Any:
         if self._worker_is_active():
@@ -1267,8 +1359,8 @@ class RevisitOperatorService:
         self._request_adapter_stop()
         log_path = self._episode_dir() / "operator.log"
         self._transition("stopping", "Stopping Episode · motion remains locked")
-        self._cleanup_stack_path(log_path)
         self._finish_capture("aborted")
+        self._cleanup_stack_path(log_path)
         self._transition(
             "cancelled", detail, capture_active=False, outcome="aborted"
         )
@@ -1314,18 +1406,34 @@ class RevisitOperatorService:
                 if self._cancel.is_set():
                     raise ContractError("Cancelled before motion preflight")
 
+                self._set_status(
+                    "revisit_preparing", "Stack ready · starting Revisit RGB-D capture"
+                )
+                code = self._run_command(
+                    capture_resume_command(
+                        self.repo_root, str(self._episode["episode_id"])
+                    ),
+                    log,
+                )
+                if code != 0 or self._cancel.is_set():
+                    raise ContractError(f"Revisit RGB-D recorder resume exited with code {code}")
                 self._lock_until = 0.0
                 self._transition(
                     "revisiting",
                     "Stack ready; supervised Revisit preflight/navigation active",
                     run_id=run_id,
+                    capture_active=True,
+                    capture_phase="revisit",
+                    revisit_capture_started_utc=utc_now(),
                 )
                 code = self._run_command(
                     navigation_command(self.repo_root, formal_config, self.timeout_s), log
                 )
                 if self._cancel.is_set():
-                    self._cleanup_stack(log)
+                    self._lock_until = time.monotonic() + 180.0
+                    self._request_adapter_stop()
                     self._finish_capture("aborted")
+                    self._cleanup_stack(log)
                     self._transition(
                         "cancelled",
                         "Stopped by operator",
@@ -1333,8 +1441,10 @@ class RevisitOperatorService:
                         outcome="aborted",
                     )
                 elif code == 0:
-                    self._cleanup_stack(log)
+                    self._lock_until = time.monotonic() + 180.0
+                    self._request_adapter_stop()
                     self._finish_capture("success")
+                    self._cleanup_stack(log)
                     self._transition(
                         "complete",
                         "Episode complete · Revisit arrived and motion is locked",
@@ -1343,10 +1453,10 @@ class RevisitOperatorService:
                         completed_utc=utc_now(),
                     )
                 else:
-                    self._lock_until = time.monotonic() + 10.0
+                    self._lock_until = time.monotonic() + 180.0
                     self._request_adapter_stop()
-                    self._cleanup_stack(log)
                     self._finish_capture("failure")
+                    self._cleanup_stack(log)
                     self._transition(
                         "failed",
                         f"Revisit stopped with navigation code {code}",
@@ -1354,12 +1464,12 @@ class RevisitOperatorService:
                         outcome="failure",
                     )
         except Exception as exc:
-            self._lock_until = time.monotonic() + 30.0
+            self._lock_until = time.monotonic() + 180.0
             self._request_adapter_stop()
-            self._cleanup_stack_path(log_path)
             self._finish_capture(
                 "aborted" if self._cancel.is_set() else "system_failure"
             )
+            self._cleanup_stack_path(log_path)
             state = "cancelled" if self._cancel.is_set() else "failed"
             self._transition(
                 state,

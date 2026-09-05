@@ -3,7 +3,30 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
-navdp_require_config_arg "$@"
+ATTACH_EXISTING_HUB=false
+REVISIT_IMAGE_GOAL_OVERRIDE=""
+CONFIG_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --attach-existing-hub)
+      ATTACH_EXISTING_HUB=true
+      shift
+      ;;
+    --revisit-image-goal)
+      [[ $# -ge 2 ]] || {
+        echo "--revisit-image-goal requires a path" >&2
+        exit 2
+      }
+      REVISIT_IMAGE_GOAL_OVERRIDE="$2"
+      shift 2
+      ;;
+    *)
+      CONFIG_ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+navdp_require_config_arg "${CONFIG_ARGS[@]}"
 navdp_load_config "$NAVDP_RUN_CONFIG"
 navdp_source_ros
 navdp_activate_venv
@@ -20,6 +43,13 @@ MAX_LINEAR_MPS="$CFG_MAX_LINEAR_MPS"
 MAX_ANGULAR_RPS="$CFG_MAX_ANGULAR_RPS"
 IMAGE_GOAL_PATH="$CFG_IMAGE_GOAL"
 REVISIT_IMAGE_GOAL_PATH="$CFG_REVISIT_IMAGE_GOAL"
+if [[ -n "$REVISIT_IMAGE_GOAL_OVERRIDE" ]]; then
+  [[ -f "$REVISIT_IMAGE_GOAL_OVERRIDE" ]] || {
+    echo "Revisit image goal not found: $REVISIT_IMAGE_GOAL_OVERRIDE" >&2
+    exit 2
+  }
+  REVISIT_IMAGE_GOAL_PATH="$(readlink -f "$REVISIT_IMAGE_GOAL_OVERRIDE")"
+fi
 SELECTED_GOAL_IMAGE_PATH="$CFG_SELECTED_GOAL_IMAGE"
 SELECTED_GOAL_DEPTH_PATH="$CFG_SELECTED_GOAL_DEPTH"
 TWO_PHASE="$CFG_TWO_PHASE"
@@ -36,6 +66,10 @@ if [[ -n "$SURVEY_DATASET_ID" ]]; then
   SURVEY_SEAL_RECEIPT_PATH="$CFG_JETSON_RUNTIME_ROOT/two_pass_revisit/$SURVEY_DATASET_ID/survey_seal.json"
 fi
 EXTRA_PARAMS=()
+
+if [[ "$ATTACH_EXISTING_HUB" == true ]]; then
+  EXTRA_PARAMS+=(-p attach_existing_hub_on_start:=true)
+fi
 
 if [[ -n "$MAX_LINEAR_MPS" ]]; then
   EXTRA_PARAMS+=(-p max_linear_mps:="$MAX_LINEAR_MPS")

@@ -1767,7 +1767,7 @@ def main() -> None:
     parser.add_argument(
         "--episodic-dataset-min-frames",
         type=int,
-        default=160,
+        default=40,
         help="minimum exact RGB frames required before a survey can be sealed",
     )
     parser.add_argument(

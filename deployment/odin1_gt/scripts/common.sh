@@ -3,7 +3,7 @@
 ODIN_GT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ODIN_GT_ROOT="$(cd "$ODIN_GT_SCRIPT_DIR/.." && pwd)"
 NAVDP_ROOT="$(cd "$ODIN_GT_ROOT/../.." && pwd)"
-ODIN_WS="${ODIN_WS:-/home/nvidia/twork/odin_ws}"
+ODIN_WS="${ODIN_WS:-/home/unitree/.local/share/memnav/odin_ws}"
 ODIN_DRIVER_ROOT="${ODIN_DRIVER_ROOT:-$ODIN_WS/src/odin_ros_driver}"
 ODIN_ROS_SETUP="${ODIN_ROS_SETUP:-/opt/ros/humble/setup.bash}"
 ODIN_RUNTIME_ROOT="${ODIN_RUNTIME_ROOT:-$NAVDP_ROOT/runtime/odin1_gt}"

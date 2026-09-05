@@ -180,7 +180,7 @@ TopoFocus曾验证的0.13.1冷启动方案仍以`legacy_0_13_1`兼容profile保�
 安装依赖、udev、clone、patch和build：
 
 ```bash
-cd /home/nvidia/twork/MemNav-RealWorld
+cd /home/unitree/MemNav-RealWorld
 bash deployment/odin1_gt/scripts/odin_gt.sh setup --install-deps
 ```
 
@@ -197,13 +197,13 @@ bash deployment/odin1_gt/scripts/odin_gt.sh setup \
   --driver-profile legacy_0_13_1
 ```
 
-安装成功会写`/home/nvidia/twork/odin_ws/.memnav_odin_driver_profile.json`；后续preflight
+安装成功会写`/home/unitree/.local/share/memnav/odin_ws/.memnav_odin_driver_profile.json`；后续preflight
 验证commit、patch和所有被修改驱动文件的SHA，拒绝“源码已变但仍沿用旧build”的状态。
 
 默认workspace：
 
 ```text
-/home/nvidia/twork/odin_ws
+/home/unitree/.local/share/memnav/odin_ws
   src/odin_ros_driver
   build/
   install/
@@ -265,7 +265,7 @@ obstacle_max_z_m = <实测>
 示例中的数值必须替换为实测值：
 
 ```bash
-cd /home/nvidia/twork/MemNav-RealWorld
+cd /home/unitree/MemNav-RealWorld
 bash deployment/odin1_gt/scripts/odin_gt.sh start-map scene01_survey_v1 \
   --sensor-serial <reported-serial> \
   --firmware-version <exact-0.14.x-version> \
@@ -487,7 +487,7 @@ Foxglove dashboard在操作电脑录制并通过`attach-dashboard`导入；正�
 截至2026-08-28本轮代码完成时：
 
 - Jetson上ROS 2 Humble、D435i和现有NavDP栈可用；
-- 官方`v0.14.0`原生Mode1 driver已在`/home/nvidia/twork/odin_ws`编译并通过无硬件
+- 官方`v0.14.0`原生Mode1 driver已在`/home/unitree/.local/share/memnav/odin_ws`编译并通过无硬件
   preflight；
 - 操作员报告当前0.14固件下Mode1此前已经正常出数；本机也保存TopoFocus的0.13.1历史
   补丁和校准经验，但旧补丁不再作为默认方案；

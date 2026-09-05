@@ -114,6 +114,8 @@ class NavDPGo2Adapter(Node):
             self.connect_timeout_s,
             self.request_timeout_s,
         )
+        if self.attach_existing_hub_on_start:
+            self._attach_existing_hub()
 
         command_qos = QoSProfile(depth=10)
         state_qos = QoSProfile(
@@ -238,6 +240,7 @@ class NavDPGo2Adapter(Node):
             "auto_goal_candidate_post_guard_frames": 4,
             "auto_goal_candidate_capture_enabled": True,
             "auto_select_goal_candidate": True,
+            "attach_existing_hub_on_start": False,
             "survey_dataset_id": "",
             "survey_seal_receipt_path": "",
             "planning_rate_hz": 2.0,
@@ -245,7 +248,7 @@ class NavDPGo2Adapter(Node):
             "connect_timeout_s": 3.0,
             "request_timeout_s": 180.0,
             "sensor_timeout_s": 0.60,
-            "trajectory_timeout_s": 1.25,
+            "trajectory_timeout_s": 5.00,
             "max_rgb_depth_skew_s": 0.10,
             "rgbd_sync_queue_size": 15,
             "depth_scale_m": 0.001,
@@ -313,6 +316,9 @@ class NavDPGo2Adapter(Node):
         )
         self.auto_select_goal_candidate = bool(
             self.get_parameter("auto_select_goal_candidate").value
+        )
+        self.attach_existing_hub_on_start = bool(
+            self.get_parameter("attach_existing_hub_on_start").value
         )
         if self.navigate_during_memory_recording and not self.two_phase_episode:
             raise ValueError(
@@ -580,11 +586,85 @@ class NavDPGo2Adapter(Node):
                 )
         event = action if success else f"{action}_rejected"
         self._publish_receipt(event, payload)
-        log = self.get_logger().info if success else self.get_logger().warning
-        log(summary)
+        # Keep the two severity calls on distinct Python call sites.  rclpy
+        # keys logger call-site state by source location and rejects changing
+        # severity when one indirect call site is reused for INFO and WARN.
+        if success:
+            self.get_logger().info(summary)
+        else:
+            self.get_logger().warning(summary)
         response.success = bool(success)
         response.message = json.dumps(payload, ensure_ascii=False)
         return response
+
+    def _attach_existing_hub(self) -> None:
+        """Fail-closed recovery for an already initialized two-phase hub.
+
+        This is intentionally opt-in.  It exists for recovering the Jetson ROS
+        adapter after a local process failure without resetting or overwriting
+        a non-empty RTX Survey.  Recording always reattaches paused and motion
+        authority remains governed by the normal disabled + estop defaults.
+        """
+
+        if not self.two_phase_episode:
+            raise RuntimeError(
+                "attach_existing_hub_on_start requires two_phase_episode"
+            )
+        health = self._client.health()
+        if health.get("initialized") is not True:
+            raise RuntimeError("cannot attach: hub is not initialized")
+        phase = str(health.get("phase", ""))
+        if phase not in {"memory_recording", "revisit_query"}:
+            raise RuntimeError(f"cannot attach: unsupported hub phase {phase!r}")
+
+        dataset = health.get("episodic_dataset")
+        if not isinstance(dataset, dict):
+            raise RuntimeError("cannot attach: hub omitted episodic dataset status")
+        if phase == "memory_recording" and self.survey_dataset_id:
+            if (
+                dataset.get("recording") is not True
+                or dataset.get("dataset_id") != self.survey_dataset_id
+            ):
+                raise RuntimeError(
+                    "cannot attach: active hub dataset does not match the "
+                    f"resolved Survey {self.survey_dataset_id!r}"
+                )
+
+        self._server_initialized = True
+        self._reset_requested = False
+        self._phase = phase
+        self._frames_recorded = int(health.get("frames_recorded", 0))
+        self._goal_candidates_captured = int(
+            health.get("goal_candidates_captured", 0)
+        )
+        active_goal_id = health.get("active_goal_id")
+        self._active_goal_id = (
+            None if active_goal_id is None else int(active_goal_id)
+        )
+        active_goal_sha256 = health.get("active_goal_sha256")
+        self._active_goal_sha256 = (
+            None if active_goal_sha256 is None else str(active_goal_sha256)
+        )
+        if phase == "memory_recording":
+            self.pause_memory_recording = True
+            self._stop_reason = "memory_recording_paused"
+        else:
+            if self._revisit_image_goal is None or self._active_goal_sha256 is None:
+                raise RuntimeError(
+                    "cannot attach to revisit_query without the frozen Revisit "
+                    "goal and an active hub goal identity"
+                )
+            self._image_goal = self._revisit_image_goal.copy()
+            prepare = health.get("last_prepare_receipt")
+            self._last_phase_receipt = (
+                dict(prepare) if isinstance(prepare, dict) else {}
+            )
+            self._stop_reason = "disabled"
+        self.get_logger().warning(
+            "Attached to existing initialized hub without reset: "
+            f"phase={phase}, frames={self._frames_recorded}; recording PAUSED; "
+            "motion LOCKED"
+        )
 
     def _survey_start_service(self, _request, response):
         """Start or resume an already prepared Survey without arming motion.
@@ -842,6 +922,16 @@ class NavDPGo2Adapter(Node):
                 self._inference_busy = False
 
     def _reset_policy_service(self, _request, response):
+        if self.attach_existing_hub_on_start:
+            with self._lock:
+                self._reset_requested = False
+            self._publish_zero("attached_hub_reset_rejected")
+            response.success = False
+            response.message = (
+                "policy reset is disabled while attached to an existing hub; "
+                "restart the complete stack for a new episode"
+            )
+            return response
         with self._lock:
             self._reset_requested = True
             self._server_initialized = False
@@ -1006,6 +1096,8 @@ class NavDPGo2Adapter(Node):
             return response
         with self._lock:
             self._phase = "revisit_query"
+            self._server_initialized = True
+            self._reset_requested = False
             self.pause_memory_recording = False
             self._inference_busy = False
             self._frames_recorded = int(
@@ -1138,6 +1230,13 @@ class NavDPGo2Adapter(Node):
                 continue
 
             rgb, depth_m, intrinsic, goal_condition, reset_requested = snapshot
+            if reset_requested and self.attach_existing_hub_on_start:
+                # An attached adapter must never reset the authoritative RTX
+                # episode.  Clear stale/local reset requests and continue with
+                # the already verified hub phase.
+                with self._lock:
+                    self._reset_requested = False
+                reset_requested = False
             with self._lock:
                 if self._inference_busy:
                     continue
@@ -1715,6 +1814,8 @@ class NavDPGo2Adapter(Node):
                     self._revisit_image_goal is not None
                 ),
                 "plan_age_s": self._age(now, self._plan_monotonic),
+                # Adapter and run supervisor share this Jetson monotonic clock.
+                "plan_monotonic_s": self._plan_monotonic,
                 "last_inference_s": round(self._last_inference_s, 3),
                 "candidate_count": int(self._candidate_trajectories.shape[0]),
                 "clearance_m": None if clearance is None else round(clearance, 3),

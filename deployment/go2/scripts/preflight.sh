@@ -30,7 +30,7 @@ fail() { printf '[FAIL] %s\n' "$*"; failures=$((failures + 1)); }
 [[ -f "$NAVDP_ROS_SETUP" ]] && pass "ROS 2 Humble setup" || fail "ROS setup missing"
 [[ -f "$NAVDP_REALSENSE_SETUP" ]] && pass "RealSense ROS workspace" || fail "RealSense workspace missing"
 if [[ "$CFG_WITH_FOXGLOVE" == true ]]; then
-  if command -v ros2 >/dev/null 2>&1 && navdp_source_ros >/dev/null 2>&1 \
+  if navdp_source_ros >/dev/null 2>&1 && command -v ros2 >/dev/null 2>&1 \
       && ros2 pkg prefix foxglove_bridge >/dev/null 2>&1; then
     pass "Foxglove Bridge package"
   else
