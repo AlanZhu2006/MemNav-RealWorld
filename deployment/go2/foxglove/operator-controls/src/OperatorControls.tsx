@@ -9,9 +9,7 @@ type ActionId =
   | "start-survey"
   | "stop-survey"
   | "revisit"
-  | "stop-navigation"
-  | "review-success"
-  | "review-failure";
+  | "stop-navigation";
 type Tone = "capture" | "primary" | "neutral" | "revisit" | "danger";
 
 type Action = {
@@ -36,7 +34,6 @@ type WorkflowStatus = {
   detail: string;
   episode_id?: string;
   episode_state?: string;
-  evaluation?: { outcome?: string };
   goal_captured_utc?: string;
   state: string;
 };
@@ -83,22 +80,6 @@ const ACTIONS: readonly Action[] = [
     serviceNames: ["/memnav_operator/operator_stop"],
     title: "Stop motion and save recording; this does not mark the experiment as failed",
     tone: "danger",
-  },
-  {
-    id: "review-success",
-    label: "MARK SUCCESS",
-    pendingLabel: "SAVING…",
-    serviceNames: ["/memnav_operator/review_success"],
-    title: "Human judgment: success, including after a manual Stop; does not move the robot",
-    tone: "primary",
-  },
-  {
-    id: "review-failure",
-    label: "MARK FAILURE",
-    pendingLabel: "SAVING…",
-    serviceNames: ["/memnav_operator/review_failure"],
-    title: "Human judgment: failure; keeps the original recording and stop reason",
-    tone: "neutral",
   },
 ] as const;
 
@@ -171,7 +152,6 @@ function workflowFromFrame(
           episode_id: typeof payload.episode_id === "string" ? payload.episode_id : undefined,
           episode_state:
             typeof payload.episode_state === "string" ? payload.episode_state : undefined,
-          evaluation: payload.evaluation,
           goal_captured_utc:
             typeof payload.goal_captured_utc === "string" ? payload.goal_captured_utc : undefined,
           state: payload.state,
@@ -290,14 +270,6 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
   const stageLabel = (workflow?.episode_state ?? workflow?.state ?? "idle")
     .replace(/_/g, " ")
     .toUpperCase();
-  const reviewMode = ["stopped", "complete", "failed", "cancelled"].includes(
-    workflow?.episode_state ?? "",
-  );
-  const visibleActions = ACTIONS.filter((action) =>
-    reviewMode
-      ? ["capture-goal", "review-success", "review-failure", "stop-navigation"].includes(action.id)
-      : !action.id.startsWith("review-"),
-  );
 
   return (
     <div className="operator-controls" data-color-scheme={colorScheme ?? "dark"}>
@@ -305,18 +277,11 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
         <span className="episode-id" title={workflow?.episode_id ?? "No active Episode"}>
           {episodeLabel}
         </span>
-        <span className="episode-stage">
-          {reviewMode
-            ? `STOPPED · HUMAN: ${workflow?.evaluation?.outcome?.toUpperCase() ?? "UNREVIEWED"}`
-            : stageLabel}
-        </span>
+        <span className="episode-stage">{stageLabel}</span>
         {workflow?.capture_active === true && <span className="recording-badge">REC RGB-D</span>}
       </div>
-      <div
-        className="control-row"
-        style={reviewMode ? { gridTemplateColumns: "repeat(4, minmax(0, 1fr))" } : undefined}
-      >
-        {visibleActions.map((action) => {
+      <div className="control-row">
+        {ACTIONS.map((action) => {
           const isPending = pending.has(action.id);
           const disabled =
             !servicesAvailable ||

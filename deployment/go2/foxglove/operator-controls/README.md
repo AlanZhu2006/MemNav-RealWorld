@@ -17,11 +17,10 @@ repeatable Episode sequence through fixed ROS 2 services:
 - `STOP` calls `/memnav_operator/operator_stop`, cancelling any
   stage, locking motion, closing the MCAP and hash-finalizing the Episode.
   It does not declare experiment failure.
-- Once capture is saved, the row offers `MARK SUCCESS` and `MARK FAILURE`.
-  These call `/memnav_operator/review_success` and `/memnav_operator/review_failure`
-  for the displayed Episode. They only annotate data and never change motion.
-  A manual Stop can be marked successful. Labels can be corrected; each revision
-  retains the earlier judgment and its timestamp.
+
+Experiment results are judged offline by the operator. The GUI has no result
+labeling buttons or success/failure annotation services; its five controls stay
+in one row after stopping as well. A manual Stop can still be judged successful.
 
 The Episode ID, stage and `REC RGB-D` state remain visible in the control panel.
 Buttons are enabled only for the next valid state transition. The extension
@@ -49,7 +48,7 @@ manifest SHA with reviewer, notes and revision history. That annotation is
 explicitly outside the immutable sensor artifact inventory, so re-labeling does
 not rehash or rewrite multi-GB recordings. Old records are not relabeled on upgrade.
 
-For a previous run or a separately recorded retry, use its exact capture path:
+For optional offline annotation of any run, use its exact capture path:
 
 ```bash
 python3 deployment/go2/experiment_capture_manifest.py review \
