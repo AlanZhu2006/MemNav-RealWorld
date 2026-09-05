@@ -14,21 +14,32 @@ Jetson adapter and GPU NavDP server after deploying this schema.
 | Policy input | `pointgoal_diagnostic.received_xyz` versus `processed_xyz`, including forward-component clipping |
 | Local plan | Full selected XY path, all postprocessing candidate endpoints/lengths/critic scores, lookahead bearing and its signed difference from the memory bearing |
 | Observation | Input RGB/depth ROS stamps, authoritative pair source stamp and source age, pair reception in ROS and monotonic time, plan completion in monotonic time, and subsampled center/left/right/bottom depth statistics |
-| Control | `/navdp/status`: `plan_monotonic_s`, `target_command_before_safety`, terminal override, action phase/reason/integrated translation and heading, actual `cmd_vx/cmd_wz`, stop reason and latest `rgbd_diagnostic` |
+| Control | `/navdp/status`: `plan_monotonic_s`, `target_command_before_safety`, terminal override, measured trajectory progress and heading error, action phase/reason, published `cmd_vx/cmd_wz`, stop reason and latest `rgbd_diagnostic` |
 
 Use the plan's input stamps to retrieve the exact RGB and depth frames from a
 full rosbag. Use its completion time to join status/command records. Calculate
 pair reception minus sensor stamp only in the ROS clock; calculate processing
 and execution intervals only in the shared Jetson monotonic clock.
 
-Ordinary trajectory control uses event-driven stop-plan-act execution. Its action clock
-starts with the first nonzero command actually published, not with inference
-completion. The command stops after 0.10 m integrated translation, 10 degrees
-integrated heading, or a final 0.80 s wall-clock bound. After the explicit zero
-and 0.15 s settle interval, a new plan can use only an RGB-D pair whose sensor
-capture timestamp is newer than the zero-command timestamp. A queued pre-stop
-frame cannot qualify merely because its callback arrived late, and the previous
-command is never held through inference.
+Ordinary trajectory execution freezes each full local path in `go2_odom`,
+using the SportModeState XY position and yaw aligned to the input RGB exposure.
+At 20 Hz the controller projects measured position onto that path, advances
+lookahead, and recomputes velocity in the current body frame. It stops when
+both remaining arc length and endpoint distance are within 8 cm. That is an
+endpoint tolerance, not a repeated displacement budget. There is no 10 cm,
+10 degree, or 0.80 second action slicing. Acceleration limits smooth startup;
+speed tapers near the path endpoint. The experiment-wide run timeout remains.
+
+`/navdp/go2/odometry` uses locally received SportModeState with increasing
+robot source timestamps; the robot clock is not synchronized to Jetson time.
+Missing/stale position or discontinuities fail closed. This local estimator
+is used only for path execution, not policy inference or independent GT.
+`status.trajectory_execution` reports measured progress, remaining distance,
+endpoint distance, phase and feedback age. After completion, an explicit zero
+and 0.15 second settle precede admission of a newly captured RGB-D frame.
+Queued pre-stop images cannot start the next plan. No previous velocity is
+held through inference, and in-flight results crossing execution/stop boundaries
+are discarded. The frozen 2.5 m memory bearing is not used as a path endpoint.
 
 Rear-goal turns use a separate continuous body-heading feedback controller.
 The bridge publishes `/navdp/go2/body_heading` from `LowState.imu_state.rpy[2]`

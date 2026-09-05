@@ -29,6 +29,7 @@ AUDIT_TOPICS=(
   /navdp/operator/revisit_workflow
   /navdp/go2/battery
   /navdp/go2/body_heading
+  /navdp/go2/odometry
   /rt/sportmodestate
   /camera/camera/color/camera_info
 )

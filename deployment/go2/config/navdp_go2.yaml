@@ -48,15 +48,10 @@ navdp_go2_adapter:
     max_linear_accel_mps2: 0.45
     max_angular_accel_rps2: 1.00
 
-    # Event-driven stop-plan-act execution: start the clock at the first
-    # command actually published; stop after 0.10 m, 10 deg, or 0.80 s; wait
-    # for the body to settle; then require RGB-D captured after the stop.
+    # Track each full local trajectory against measured body pose. Only its
+    # endpoint (or an interruption) ends execution; then admit post-stop RGB-D.
     latency_motion_guard_enabled: true
     latency_max_plan_input_age_s: 1.50
-    stop_plan_act_enabled: true
-    command_execution_max_s: 0.80
-    command_translation_budget_m: 0.10
-    command_heading_budget_rad: 0.17453292519943295  # 10 deg
     settle_before_sense_s: 0.15
 
     # Rear goals use continuous pure-yaw control with measured Go2 IMU

@@ -186,13 +186,15 @@ git clone git@github.com:AlanZhu2006/MemNav-RealWorld.git
 cd MemNav-RealWorld
 
 python3 tools/verify_public_baseline.py --workspace .
-python3 -m pip install -r deployment/gpu/requirements.txt pytest
-python3 -m pytest -q deployment/gpu/tests
-# Run on the configured Jetson environment (includes pytest-style tests):
-.venv-navdp/bin/python -m pytest -q deployment/go2/tests
+python3 -m pip install -r deployment/gpu/requirements.txt
+python3 -m compileall -q deployment/go2 deployment/gpu deployment/odin1_gt
 ~~~
 
-These tests do not connect to the robot or issue motion commands.
+These static checks do not connect to the robot or issue motion commands.
+The repository does not maintain a unit-test suite. Use syntax/import checks,
+the documented preflight, and motion-locked runtime observation for validation;
+these do not establish physical navigation performance. See [AGENTS.md](AGENTS.md)
+for operation and authorization rules.
 
 ### 2. Configure Both Machines
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Engineering M-point workflow:
 #   record-start -> manual Unitree hand-controller drive -> record-stop
-#   -> later revisit-prepare -> explicit onsite motion authorization.
+#   -> later revisit-prepare -> user-requested motion (no repeated confirmation).
 # Survey motion is always policy-locked and the live matcher is observation-only.
 
 OFFBOARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -465,8 +465,8 @@ revisit_prepare() {
   update_state formal_ready "$dataset_sha" "$run_id"
   echo
   echo "M-point Revisit is formal-ready and MOTION-LOCKED."
-  echo "Return to the system operator for the final trajectory/safety check and"
-  echo "explicit onsite motion authorization. This command never arms the robot."
+  echo "Preparation never arms the robot. After automated preflight, an existing"
+  echo "user request to start Revisit is sufficient; no second confirmation is needed."
 }
 
 stop_debug() {

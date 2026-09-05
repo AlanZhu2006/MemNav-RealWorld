@@ -320,7 +320,7 @@ def visual_convergence_metrics(
     result.update(_robust_affine(reference, query, reference_hw, query_hw))
 
     # Refit the homography only for the optional photometric diagnostic.  It
-    # is never used to grant STOP and is omitted in unit tests without paths.
+    # is never used to grant STOP and is omitted when paths are unavailable.
     gray_mae: float | None = None
     gray_overlap = 0.0
     if (

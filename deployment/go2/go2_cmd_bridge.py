@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from geometry_msgs.msg import Twist, Vector3Stamped
+from nav_msgs.msg import Odometry
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -113,6 +114,9 @@ class Go2CmdBridge(Node):
             Vector3Stamped, "/navdp/go2/body_heading", 1
         )
         self._next_heading_sample_monotonic = 0.0
+        self._pose_publisher = self.create_publisher(Odometry, "/navdp/go2/odometry", 1)
+        self._next_pose_sample_monotonic = 0.0
+        self._last_sport_stamp_ns = 0
         battery_qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -136,6 +140,7 @@ class Go2CmdBridge(Node):
         self.create_timer(1.0 / max(1.0, self.rate_hz), self.publish_to_go2)
         self.create_timer(1.0 / battery_publish_rate_hz, self.publish_battery)
         self.setup_remote_priority()
+        self.setup_position_feedback()
 
         self.get_logger().info(
             "Go2 bridge ready: "
@@ -200,6 +205,41 @@ class Go2CmdBridge(Node):
             if max(abs(axis) for axis in axes) > self.remote_deadband:
                 self.latest_remote_stamp = time.monotonic()
         except Exception:
+            return
+
+    def setup_position_feedback(self) -> None:
+        from unitree_sdk2py.core.channel import ChannelSubscriber
+        from unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_
+
+        self.position_subscriber = ChannelSubscriber("rt/sportmodestate", SportModeState_)
+        self.position_subscriber.Init(self.on_sport_state, 1)
+
+    def on_sport_state(self, msg) -> None:
+        now = time.monotonic()
+        if now < self._next_pose_sample_monotonic:
+            return
+        self._next_pose_sample_monotonic = now + 0.02
+        try:
+            source_ns = msg.stamp.sec * 1_000_000_000 + msg.stamp.nanosec
+            if source_ns <= self._last_sport_stamp_ns:
+                return  # Never turn a repeated or reset source into fresh pose.
+            x, y = float(msg.position[0]), float(msg.position[1])
+            yaw = float(msg.imu_state.rpy[2])
+            if not all(math.isfinite(v) for v in (x, y, yaw)):
+                return
+            self._last_sport_stamp_ns = source_ns
+            pose = Odometry()
+            # Go2's clock is not synchronized to the Jetson. Use local DDS
+            # reception to align to RGB; source progression is checked above.
+            pose.header.stamp = self.get_clock().now().to_msg()
+            pose.header.frame_id = "go2_odom"
+            pose.child_frame_id = "base_link"
+            pose.pose.pose.position.x = x
+            pose.pose.pose.position.y = y
+            pose.pose.pose.orientation.z = math.sin(yaw / 2)
+            pose.pose.pose.orientation.w = math.cos(yaw / 2)
+            self._pose_publisher.publish(pose)
+        except (AttributeError, IndexError, TypeError, ValueError):
             return
 
     def publish_battery(self) -> None:

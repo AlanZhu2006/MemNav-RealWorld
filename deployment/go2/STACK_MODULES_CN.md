@@ -63,5 +63,6 @@ Full-Mono 还会把同一字节序列复制到 4090；两端 revision 或 config
 启动。
 
 `start` 成功仍是 `disabled + estop`。`run` 只供现场监督运行：该命令自动验证 reset 后
-的新轨迹并执行两步授权，同时输出各阶段耗时；任何失败、超时或中断都调用单向
+的新轨迹并依次完成 clear-estop 和 enable，同时输出各阶段耗时。用户的启动请求即为
+本轮授权，无需二次确认；两个内部状态转换不等于两次用户授权。任何失败、超时或中断都调用单向
 `operator_stop`。Foxglove仍不暴露 reset、clear-estop 或 enable。

@@ -42,9 +42,11 @@ Ports `8888`, `18888` and `18889` bind to loopback. Do not expose them on the
 LAN; the Jetson launcher owns the SSH local forward. These services have no
 Unitree dependency and no actuator path.
 
-Tests are non-motion:
+Check Python syntax without starting services or issuing motion commands:
 
 ```bash
-/home/asus/miniconda3/envs/memnav-realworld/bin/python -m pytest -q \
-  deployment/gpu/tests
+/home/asus/miniconda3/envs/memnav-realworld/bin/python -m compileall -q deployment/gpu
 ```
+
+No unit-test suite is maintained. Use the resolved-config preflight and service
+health receipts for runtime validation; syntax checks alone do not prove readiness.

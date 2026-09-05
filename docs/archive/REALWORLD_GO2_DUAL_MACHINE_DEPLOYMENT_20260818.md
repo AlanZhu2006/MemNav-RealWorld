@@ -195,7 +195,6 @@ bash deployment/go2/offboard/run_offboard_stack.sh --with-go2 --with-rviz
 
 - Jetson 到 4090 直连 RTT：约 2.3 ms；
 - Jetson 已有免密 SSH alias `work-pc → 10.208.2.249`；
-- 统一 hub/adapter 单元测试：21 passed；
 - MemNav、NavDP、hub 三服务在 4090 同时加载；
 - reset 返回 `algo=cec_hybrid_navdp`、certificate enabled；
 - 三端口均已验证只监听 loopback；

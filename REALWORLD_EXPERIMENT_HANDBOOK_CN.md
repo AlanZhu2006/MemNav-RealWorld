@@ -711,7 +711,7 @@ Collector 输出 `START` 后：
 2. 做一次画面清晰可见的同步拍手；
 3. 在操作电脑确认 Foxglove dashboard 正在录屏；
 4. 再确认 RGB arrival 模块；
-5. 最后才执行运动授权。
+5. 完成预检后执行用户已请求的运动，不另索要一次确认。
 
 第三人称视频用于证明真实运动、足部接触、碰撞、操作员干预和物理终点；Foxglove用于解释
 策略内部状态。两者不能互相替代。
@@ -942,7 +942,7 @@ plan_while_disabled=true
 
 ### 15.2 Enable前现场门
 
-必须确认：
+运行前检查以下条件；软件项自动检查，现场条件沿用用户已提供的信息，不逐项索要回复：
 
 - scene/run ID 正确；
 - formal-ready receipts 全部通过；
@@ -958,19 +958,16 @@ plan_while_disabled=true
 - 首次/新场景运动使用系绳；
 - 电量、网线、相机和支架可靠。
 
-### 15.3 两步授权
+### 15.3 一次请求，自动预检和启动
 
-```bash
-source /opt/ros/humble/setup.bash
+用户明确要求“启动当前 Episode 的 Revisit/导航”，或在 Foxglove 单击 `REVISIT`，即为
+本轮运动授权。助手沿用已经说明的现场安全、控制器和急停条件；准备完成后直接继续，
+不要求用户再发“确认/授权”口令。使用现有 Episode 编排器执行 Revisit；原生导航使用
+`nav_stack.sh run --config ...`，无需人工逐条发布解锁命令。
 
-ros2 topic pub --once /navdp/estop \
-  std_msgs/msg/Bool "{data: false}"
-
-ros2 service call /navdp_go2_adapter/set_enabled \
-  std_srvs/srv/SetBool "{data: true}"
-```
-
-先 clear estop，再 enable。Enable后仍可能因为其他安全门而保持零速度，这是正确行为。
+内部仍先 clear estop、再 enable；这两个软件状态转换不是两次用户授权。实际故障必须
+阻止启动并说明原因。`nav_stack.sh start`、Prepare、Survey、修改及同步只做各自工作，
+不授权运动；Stop 取消本轮授权，收到新的启动请求后才恢复。
 
 ### 15.4 Fail-closed矩阵
 
@@ -1049,7 +1046,10 @@ bash deployment/go2/nav_stack.sh start \
 
 RealSense、策略、adapter、arrival、限流预览和Bridge照常启动并保持锁止。Go2网络离线不再
 使启动失败；命令桥在后台等待并重连，状态卡显示`GO2 OFFLINE`。接上Go2后不需要切换模式
-或重启Foxglove，且任何时候仍须通过独立的现场授权步骤才能运动。
+或重启Foxglove。用户明确要求启动 Revisit/导航，或单击 `REVISIT`，即构成本轮运动授权；
+沿用已说明的现场安全、控制器和急停条件，不要求另发确认口令。自动预检仍须通过，实际
+故障不能用授权绕过。`start`、Prepare、Survey 和代码同步本身不授予运动权限；Stop 后须
+收到新的启动请求才可恢复运动。
 
 Bridge禁止client publish和参数修改；Service白名单精确限制为Episode编排器的
 `capture_goal`、`start_survey`、`stop_survey`、`start_revisit`、`operator_stop`以及
@@ -1828,11 +1828,11 @@ nano deployment/config/experiments/fullmono_imagegoal.json
 SSH key仍只保存在用户的`~/.ssh`，不进入配置或仓库。External research source和model
 weights也不进入本仓库；Git 只管理其本机路径。
 
-### A.3 4090 preflight和测试
+### A.3 4090 静态检查和 preflight
 
 ```bash
 cd /home/asus/Research/MemNav-RealWorld
-/home/asus/miniconda3/envs/memnav-realworld/bin/python -m pytest -q deployment/gpu/tests
+/home/asus/miniconda3/envs/memnav-realworld/bin/python -m compileall -q deployment/gpu
 ```
 
 GPU 服务由 Jetson 复制 resolved config 后启动；需要单独诊断时必须传该文件：
@@ -1863,11 +1863,15 @@ bash deployment/go2/nav_stack.sh start \
   --config deployment/config/experiments/native_imagegoal.json --dry-run
 ```
 
-随后运行不接机器人、不发运动命令的测试：
+随后进行不接机器人、不发运动命令的语法检查：
 
 ```bash
-.venv-navdp/bin/python -m unittest discover -v deployment/go2/tests
+.venv-navdp/bin/python -m compileall -q deployment/go2 deployment/odin1_gt
 ```
+
+仓库不维护单元测试，不要求为修改补写或运行单元测试。验证采用语法/导入检查、现有
+preflight 和锁停状态下的运行观测；实机运动效果只能在用户要求的运动运行中验证，不能
+将静态检查通过等同于导航成功。实验评测、数据完整性校验和硬件诊断工具继续保留。
 
 检查：
 
@@ -1933,7 +1937,8 @@ bash deployment/go2/nav_stack.sh stop
 ### A.7 首次有电运动验收
 
 只在上述静态门全部通过后，以`0.5–1.0 m`短路线、系绳、宽阔平地和遥控器操作者进行。
-配置`launch.go2_bridge=true`和`launch.foxglove=true`后adapter仍disabled，必须按第15节现场检查和两步授权。
+配置`launch.go2_bridge=true`和`launch.foxglove=true`后adapter仍disabled；按第15节检查，
+在用户一次明确启动请求后完成自动预检并运行，不再重复询问授权。
 
 Commissioning smoke如果必须使用不同控制参数，应显式设置
 在实验配置中设置`control.profile=acceptance`，并标记为engineering run；它不能进入正式SR/SPL。

@@ -96,6 +96,12 @@ def assess_motion(
     if not override or (
         isinstance(override, dict) and override.get("applied") is False
     ):
+        execution = status.get("trajectory_execution") or {}
+        age = execution.get("feedback_age_s")
+        if (status.get("position_reference_available") is not True
+                or not isinstance(age, (int, float)) or isinstance(age, bool)
+                or not math.isfinite(age) or not 0 <= age <= 0.35):
+            raise ValueError("fresh position aligned to the plan observation is required")
         return assess_path(
             path_xy, max_linear_mps=max_linear_mps,
             max_angular_rps=max_angular_rps,
@@ -221,15 +227,20 @@ def live_fault(
         if (not isinstance(age, (int, float)) or isinstance(age, bool)
                 or not math.isfinite(age) or not 0 <= age <= 0.35):
             return "heading_feedback_stale"
+    elif (status.get("trajectory_execution") or {}).get("active") is True:
+        age = status["trajectory_execution"].get("feedback_age_s")
+        if (not isinstance(age, (int, float)) or isinstance(age, bool)
+                or not math.isfinite(age) or not 0 <= age <= 0.35):
+            return "position_feedback_stale"
     else:
         plan_age = status.get("plan_age_s")
-        completed_age = heading.get("completed_age_s")
-        post_turn_replan = (
-            heading.get("phase") == "complete"
-            and isinstance(completed_age, (int, float))
-            and 0 <= completed_age <= max_plan_age_s
+        post_execution_replan = any(
+            receipt.get("phase") == "complete"
+            and isinstance(receipt.get("completed_age_s"), (int, float))
+            and 0 <= receipt["completed_age_s"] <= max_plan_age_s
+            for receipt in (heading, status.get("trajectory_execution") or {})
         )
-        if not post_turn_replan and (plan_age is None or float(plan_age) > float(max_plan_age_s)):
+        if not post_execution_replan and (plan_age is None or float(plan_age) > float(max_plan_age_s)):
             return "trajectory_stale"
     if status.get("stop_reason") in {
         "obstacle_stop",
@@ -531,6 +542,19 @@ class NavigationRunAgent:
                             math.degrees(float(heading.get("error_rad") or 0)),
                             float(heading.get("feedback_age_s") or 0),
                             float(status.get("cmd_wz") or 0),
+                        ),
+                    )
+                    next_report = now + 1.0
+                    continue
+                execution = status.get("trajectory_execution") or {}
+                if execution.get("active") is True:
+                    self._log(
+                        "TRACKING",
+                        "remaining={:.2f}m endpoint={:.2f}m pose={:.3f}s vx={:.2f} wz={:.2f}".format(
+                            float(execution.get("remaining_m") or 0),
+                            float(execution.get("endpoint_distance_m") or 0),
+                            float(execution.get("feedback_age_s") or 0),
+                            float(status.get("cmd_vx") or 0), float(status.get("cmd_wz") or 0),
                         ),
                     )
                     next_report = now + 1.0

@@ -22,7 +22,11 @@ Buttons are enabled only for the next valid state transition. The extension
 never calls a service on mount and never accepts browser-provided file paths or
 motion parameters. Clicking Revisit is the explicit onsite motion authorization;
 the operator must already have a clear area, the Unitree controller in hand,
-and the emergency stop ready. Structured service responses are reduced to a
+and the emergency stop ready. A direct user request to the assistant to start
+Revisit also authorizes that run; do not require a second confirmation phrase.
+Automatic preflight and fault stops still apply. Preparation alone does not arm
+the robot, and Stop requires a new start request before resuming.
+Structured service responses are reduced to a
 short operator summary, so the status strip never displays raw JSON.
 
 Each Episode stores lossless goal RGB/depth PNGs, exact RGB/depth header stamps,
