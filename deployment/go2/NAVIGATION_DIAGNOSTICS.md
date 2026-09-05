@@ -14,7 +14,7 @@ Jetson adapter and GPU NavDP server after deploying this schema.
 | Policy input | `pointgoal_diagnostic.received_xyz` versus `processed_xyz`, including forward-component clipping |
 | Local plan | Full selected XY path, all postprocessing candidate endpoints/lengths/critic scores, lookahead bearing and its signed difference from the memory bearing |
 | Observation | Input RGB/depth ROS stamps, pair reception in ROS and monotonic time, plan completion in monotonic time, and subsampled center/left/right/bottom depth statistics |
-| Control | `/navdp/status`: `plan_monotonic_s`, `target_command_before_safety`, terminal override, actual `cmd_vx/cmd_wz`, stop reason and latest `rgbd_diagnostic` |
+| Control | `/navdp/status`: `plan_monotonic_s`, `target_command_before_safety`, terminal override, `latency_motion_guard` decision, actual `cmd_vx/cmd_wz`, stop reason and latest `rgbd_diagnostic` |
 
 Use the plan's input stamps to retrieve the exact RGB and depth frames from a
 full rosbag. Use its completion time to join status/command records. Calculate

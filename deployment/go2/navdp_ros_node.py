@@ -28,6 +28,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from debug_visualization import ranked_candidates, score_rgb
 from image_goal_io import load_rgb_image
+from latency_motion_guard import LatencyMotionGuard, LatencyMotionGuardConfig
 from navdp_client import NavDPClient
 from navigation_diagnostics import plan_diagnostics
 from terminal_motion_override import terminal_motion_override
@@ -83,6 +84,10 @@ class NavDPGo2Adapter(Node):
         self._candidate_values = np.empty((0,), dtype=np.float32)
         self._target_command = VelocityCommand()
         self._last_command = VelocityCommand()
+        self._latency_motion_guard = LatencyMotionGuard(
+            self.latency_motion_guard_config
+        )
+        self._latency_motion_receipt: dict = {}
         self._plan_monotonic = 0.0
         self._last_inference_s = 0.0
         self._last_error = ""
@@ -265,6 +270,13 @@ class NavDPGo2Adapter(Node):
             "reverse_lateral_angle_rad": 0.55,
             "max_linear_accel_mps2": 0.50,
             "max_angular_accel_rps2": 1.20,
+            "latency_motion_guard_enabled": True,
+            "latency_max_open_loop_heading_rad": math.radians(10.0),
+            "latency_max_plan_input_age_s": 1.50,
+            "latency_turn_in_place_after_s": 0.45,
+            "latency_turning_translation_cutoff_rps": 0.12,
+            "latency_reversal_deadband_rps": 0.08,
+            "latency_reversal_confirmation_plans": 2,
             "depth_hard_stop_m": 0.45,
             "depth_slow_distance_m": 0.80,
             "depth_percentile": 10.0,
@@ -417,6 +429,33 @@ class NavDPGo2Adapter(Node):
             fail_closed=bool(self.get_parameter("depth_fail_closed").value),
             protect_reverse=True,
             protect_rotation=True,
+        )
+        self.latency_motion_guard_config = LatencyMotionGuardConfig(
+            enabled=bool(
+                self.get_parameter("latency_motion_guard_enabled").value
+            ),
+            max_open_loop_heading_rad=float(
+                self.get_parameter("latency_max_open_loop_heading_rad").value
+            ),
+            max_plan_input_age_s=float(
+                self.get_parameter("latency_max_plan_input_age_s").value
+            ),
+            turn_in_place_after_s=float(
+                self.get_parameter("latency_turn_in_place_after_s").value
+            ),
+            turning_translation_cutoff_rps=float(
+                self.get_parameter(
+                    "latency_turning_translation_cutoff_rps"
+                ).value
+            ),
+            reversal_deadband_rps=float(
+                self.get_parameter("latency_reversal_deadband_rps").value
+            ),
+            reversal_confirmation_plans=int(
+                self.get_parameter(
+                    "latency_reversal_confirmation_plans"
+                ).value
+            ),
         )
 
     @staticmethod
@@ -961,6 +1000,8 @@ class NavDPGo2Adapter(Node):
             self._last_phase_receipt = {}
             self._last_plan_receipt = {}
             self._terminal_motion_receipt = {}
+            self._latency_motion_guard.reset()
+            self._latency_motion_receipt = {}
             self._last_receipt_event = ""
             self._survey_seal_receipt = {}
             self._survey_last_action = ""
@@ -1276,6 +1317,8 @@ class NavDPGo2Adapter(Node):
                         self._last_phase_receipt = {}
                         self._last_plan_receipt = {}
                         self._terminal_motion_receipt = {}
+                        self._latency_motion_guard.reset()
+                        self._latency_motion_receipt = {}
                         self._last_receipt_event = ""
                         self._survey_seal_receipt = {}
                         self._survey_last_action = ""
@@ -1463,6 +1506,18 @@ class NavDPGo2Adapter(Node):
                     assert terminal.command is not None
                     target = terminal.command
                 finished = time.monotonic()
+                pair_received = input_timing.get("pair_received_monotonic_s")
+                plan_input_age_s = (
+                    None
+                    if pair_received is None
+                    else finished - float(pair_received)
+                )
+                guarded = self._latency_motion_guard.apply(
+                    target,
+                    plan_input_age_s=plan_input_age_s,
+                    max_angular_rps=self.controller_config.max_angular_rps,
+                )
+                target = guarded.command
                 with self._lock:
                     self._trajectory = path
                     self._candidate_trajectories = candidates
@@ -1474,6 +1529,7 @@ class NavDPGo2Adapter(Node):
                     self._stop_reason = "ready"
                     self._last_plan_receipt = plan_receipt
                     self._terminal_motion_receipt = terminal.audit_dict()
+                    self._latency_motion_receipt = guarded.audit_dict()
                     if terminal.assert_estop:
                         self._estop = True
                         self._enabled = False
@@ -1918,6 +1974,7 @@ class NavDPGo2Adapter(Node):
                     "terminal_stop_authorized"
                 ),
                 "terminal_motion_override": self._terminal_motion_receipt,
+                "latency_motion_guard": self._latency_motion_receipt,
                 "monocular_depth_receipt": self._last_plan_receipt.get(
                     "monocular_depth_receipt"
                 ),

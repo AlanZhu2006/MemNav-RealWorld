@@ -45,6 +45,17 @@ navdp_go2_adapter:
     max_linear_accel_mps2: 0.45
     max_angular_accel_rps2: 1.00
 
+    # Remote planning currently takes roughly 0.8-1.0 s.  Bound the angular
+    # travel executed per stale observation, turn before translating, and
+    # require two plans to agree before reversing steering direction.
+    latency_motion_guard_enabled: true
+    latency_max_open_loop_heading_rad: 0.17453292519943295  # 10 deg
+    latency_max_plan_input_age_s: 1.50
+    latency_turn_in_place_after_s: 0.45
+    latency_turning_translation_cutoff_rps: 0.12
+    latency_reversal_deadband_rps: 0.08
+    latency_reversal_confirmation_plans: 2
+
     depth_hard_stop_m: 0.45
     depth_slow_distance_m: 0.80
     depth_percentile: 10.0
