@@ -465,6 +465,14 @@ class NavDPGo2Adapter(Node):
             )
             return
 
+        # Timing diagnostics are observation-only: an unavailable ROS clock
+        # must never prevent an otherwise valid synchronized pair from being
+        # admitted (including in clock-free unit-test adapters).
+        try:
+            pair_received_ros_s = self.get_clock().now().nanoseconds / 1e9
+        except (AttributeError, RuntimeError):
+            pair_received_ros_s = None
+
         with self._lock:
             self._rgb = rgb.copy()
             self._depth_m = depth_m.copy()
@@ -474,7 +482,7 @@ class NavDPGo2Adapter(Node):
                 "rgb_stamp_s": rgb_stamp_s,
                 "depth_stamp_s": depth_stamp_s,
                 "pair_received_monotonic_s": self._rgbd_monotonic,
-                "pair_received_ros_s": self.get_clock().now().nanoseconds / 1e9,
+                "pair_received_ros_s": pair_received_ros_s,
             }
 
     def _on_camera_info(self, msg: CameraInfo) -> None:

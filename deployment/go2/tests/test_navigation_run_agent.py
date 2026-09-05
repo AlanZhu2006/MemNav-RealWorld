@@ -240,7 +240,12 @@ def test_live_monitor_faults_are_fail_closed():
         live_fault(status, max_linear_mps=0.30, max_angular_rps=0.55) == ""
     )
 
+    # A sub-second Jetson scheduling hiccup is tolerated after arming.
     status["rgbd_age_s"] = 0.80
+    assert live_fault(
+        status, max_linear_mps=0.30, max_angular_rps=0.55
+    ) == ""
+    status["rgbd_age_s"] = 1.01
     assert live_fault(
         status, max_linear_mps=0.30, max_angular_rps=0.55
     ) == "rgbd_stale"
@@ -254,6 +259,15 @@ def test_live_monitor_faults_are_fail_closed():
     assert live_fault(
         status, max_linear_mps=0.30, max_angular_rps=0.55
     ) == "angular_command_limit_violation"
+
+
+def test_rgbd_runtime_grace_does_not_relax_locked_preflight():
+    status = ready_status()
+    status["rgbd_age_s"] = 0.80
+    assert (
+        locked_preflight_issue(status, min_clearance_m=0.8)
+        == "rgbd_not_fresh"
+    )
 
 
 def test_live_plan_freshness_limit_is_five_seconds_but_preflight_stays_strict():

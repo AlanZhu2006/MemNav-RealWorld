@@ -196,7 +196,7 @@ def live_fault(
     *,
     max_linear_mps: float,
     max_angular_rps: float,
-    max_rgbd_age_s: float = 0.75,
+    max_rgbd_age_s: float = 1.00,
     max_plan_age_s: float = 5.00,
 ) -> str:
     if status.get("last_error"):
