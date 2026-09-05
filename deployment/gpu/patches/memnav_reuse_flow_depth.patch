@@ -1,0 +1,177 @@
+diff --git a/NavDP/baselines/memnav/policy_agent.py b/NavDP/baselines/memnav/policy_agent.py
+--- a/NavDP/baselines/memnav/policy_agent.py
++++ b/NavDP/baselines/memnav/policy_agent.py
+@@ -414,6 +414,11 @@ class MemNavAgent:
+         self._first40_scale_receipt = None
+         self._first40_scale_freeze_ms = None
+         self._last_frame_jpg_sha256 = None
++        # The flow gate already predicts depth for every post-warmup frame.
++        # Retain only that newest immutable tensor so the MDTEC transaction
++        # can serialize it without running the same depth head a second time.
++        self._last_stream_depth_frame_index = None
++        self._last_stream_relative_depth = None
+         # tower-1 live capture: the current frame's post-GCT tokens + agg list from the
+         # CONTINUOUS stream. Training used window_forward's cold-cache recompute only
+         # because samples load from disk; at eval the live stream supersedes it.
+@@ -1041,6 +1046,10 @@ class MemNavAgent:
+             executed_left_m=None, executor_local_se2_source=None):
+         """Ingest one RGB frame (jpg bytes). Returns the frame index."""
+         idx = self.n
++        # A failed or partial append must never expose the preceding frame's
++        # depth under the new RGB SHA/frame binding.
++        self._last_stream_depth_frame_index = None
++        self._last_stream_relative_depth = None
+         if executed_translation_m is None and executed_yaw_rad is None:
+             if (executed_forward_m is not None
+                     or executed_left_m is not None
+@@ -1261,6 +1270,10 @@ class MemNavAgent:
+                             self._certified_route_live_depth_cache):
+                         if stale < oldest:
+                             del self._certified_route_live_depth_cache[stale]
++            if prediction is not None:
++                self._last_stream_relative_depth = prediction[
++                    "depth"][0, -1, ..., 0].float().detach()
++                self._last_stream_depth_frame_index = int(idx)
+             if (self.certified_eager_depth_cache
+                     and self._certified_dense_stream_snapshot is not None):
+                 self._update_certified_eager_depth(idx, img)
+@@ -1316,6 +1329,7 @@ class MemNavAgent:
+     def monocular_depth_observation(self):
+         """Return current raw LingBot depth under the frozen MDTEC contract."""
+ 
++        started = time.perf_counter()
+         if self.n < 1 or self._last_frame_jpg_sha256 is None:
+             raise RuntimeError("monocular depth requires one streamed RGB frame")
+         from PIL import Image
+@@ -1331,6 +1345,8 @@ class MemNavAgent:
+ 
+         relative_depth = None
+         depth_shape = (source_height, source_width)
++        cache_hit = False
++        prediction_runtime_ms = 0.0
+         if frame_index >= ACTIVE_FROM_FRAME_INDEX:
+             if self._first40_scale_receipt is None:
+                 raise RuntimeError(
+@@ -1339,13 +1355,26 @@ class MemNavAgent:
+             if self._first40_scale_receipt["scale_valid"] is True:
+                 if self._last_agg is None or self._psi is None:
+                     raise RuntimeError("LingBot current-frame depth state is absent")
+-                prediction = self.lb.model._predict_depth(
+-                    self._last_agg,
+-                    self._window_imgs[-1][None, None].to(self.device),
+-                    self._psi,
++                cache_hit = (
++                    self._last_stream_depth_frame_index == frame_index
++                    and self._last_stream_relative_depth is not None
+                 )
+-                relative_depth = prediction[
+-                    "depth"][0, -1, ..., 0].float().cpu().numpy()
++                if cache_hit:
++                    relative_depth = (
++                        self._last_stream_relative_depth.cpu().numpy()
++                    )
++                else:
++                    prediction_started = time.perf_counter()
++                    prediction = self.lb.model._predict_depth(
++                        self._last_agg,
++                        self._window_imgs[-1][None, None].to(self.device),
++                        self._psi,
++                    )
++                    relative_depth = prediction[
++                        "depth"][0, -1, ..., 0].float().cpu().numpy()
++                    prediction_runtime_ms = 1000.0 * (
++                        time.perf_counter() - prediction_started
++                    )
+                 depth_shape = tuple(int(value) for value in relative_depth.shape)
+ 
+         payload = build_monocular_depth_payload(
+@@ -1357,6 +1386,13 @@ class MemNavAgent:
+         )
+         payload["first40_scale_freeze_ms"] = self._first40_scale_freeze_ms
+         payload["stream_observation_count"] = int(self.n)
++        payload["depth_prediction_cache_hit"] = bool(cache_hit)
++        payload["depth_prediction_runtime_ms"] = float(
++            prediction_runtime_ms
++        )
++        payload["depth_materialization_runtime_ms"] = 1000.0 * (
++            time.perf_counter() - started
++        )
+         return payload
+ 
+     def monocular_depth_status(self):
+diff --git a/NavDP/baselines/memnav/memnav_server.py b/NavDP/baselines/memnav/memnav_server.py
+--- a/NavDP/baselines/memnav/memnav_server.py
++++ b/NavDP/baselines/memnav/memnav_server.py
+@@ -61,6 +61,7 @@ import json
+ import math
+ import os
+ import sys
++import time
+ 
+ # must precede any torch import (policy_agent): reduces fragmentation OOMs from
+ # the large KV-cache alloc/free cycle each plan() runs.
+@@ -483,6 +484,7 @@ def navigator_reset_env():
+ def append_request_frame():
+     """Append the uploaded RGB and optionally bind its current depth."""
+ 
++    started = time.perf_counter()
+     global monocular_depth_transactions
+     materialize = request.form.get("materialize_monocular_depth", "0")
+     if materialize not in {"0", "1"}:
+@@ -530,6 +532,7 @@ def append_request_frame():
+         executed_left_m=left,
+         executor_local_se2_source=se2_source,
+     )
++    add_frame_runtime_ms = 1000.0 * (time.perf_counter() - started)
+     response = {
+         "frame_idx": idx,
+         "image_sha256": image_digest,
+@@ -580,7 +583,20 @@ def append_request_frame():
+             "monocular_depth_transaction_token": token,
+             "monocular_depth_frame_index": int(payload["frame_index"]),
+             "monocular_depth_png_sha256": payload["depth_png_sha256"],
++            "monocular_depth_cache_hit": payload.get(
++                "depth_prediction_cache_hit"
++            ),
++            "monocular_depth_prediction_runtime_ms": payload.get(
++                "depth_prediction_runtime_ms"
++            ),
++            "monocular_depth_materialization_runtime_ms": payload.get(
++                "depth_materialization_runtime_ms"
++            ),
+         })
++    response["add_frame_runtime_ms"] = float(add_frame_runtime_ms)
++    response["append_request_runtime_ms"] = 1000.0 * (
++        time.perf_counter() - started
++    )
+     return response
+ 
+ 
+@@ -808,7 +824,9 @@ def posegoal_query():
+ @app.route("/retrieval_probe_step", methods=["POST"])
+ def retrieval_probe_step():
+     """Append a frame and return scores without allocating a goal-pose cache."""
++    started = time.perf_counter()
+     append_receipt = append_request_frame()
++    append_finished = time.perf_counter()
+     forced_anchor = request.form.get("forced_anchor")
+     forced_gate = request.form.get("forced_gate")
+     out = agent.plan(
+@@ -818,8 +836,17 @@ def retrieval_probe_step():
+         retrieval_only=True,
+         candidate_ceiling_override=candidate_ceiling_override(),
+     )
++    plan_finished = time.perf_counter()
+     out = with_goal_session_receipt(out)
+     out.update(append_receipt)
++    out["retrieval_probe_timing"] = {
++        "append_ms": 1000.0 * (append_finished - started),
++        "retrieval_ms": 1000.0 * (plan_finished - append_finished),
++        "total_ms": 1000.0 * (plan_finished - started),
++        "monocular_depth_cache_hit": append_receipt.get(
++            "monocular_depth_cache_hit"
++        ),
++    }
+     return jsonify(out)
+ 
+ 

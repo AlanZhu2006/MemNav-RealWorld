@@ -15,6 +15,7 @@ fail() { printf '[FAIL] %s\n' "$*"; failures=$((failures + 1)); }
 MEMNAV_SERVER="$CFG_MEMNAV_SOURCE_ROOT/NavDP/baselines/memnav/memnav_server.py"
 MEMNAV_DEPTH_RUNTIME="$CFG_MEMNAV_SOURCE_ROOT/MemNavData/monocular_depth_runtime.py"
 REPO_DEPTH_RUNTIME="$REPO_ROOT/deployment/gpu/monocular_depth_runtime.py"
+MEMNAV_LATENCY_PATCH="$REPO_ROOT/deployment/gpu/patches/memnav_reuse_flow_depth.patch"
 [[ -f "$MEMNAV_SERVER" ]] \
   && pass "MemNav server" || fail "MEMNAV_SERVER"
 [[ -f "$MEMNAV_DEPTH_RUNTIME" ]] \
@@ -35,6 +36,13 @@ grep -q 'goal_candidate_support' \
   2>/dev/null \
   && pass "MemNav read-only goal support endpoint" \
   || fail "MemNav server lacks /goal_candidate_support"
+if [[ -f "$MEMNAV_LATENCY_PATCH" ]] \
+    && git -C "$CFG_MEMNAV_SOURCE_ROOT" apply --reverse --check \
+      "$MEMNAV_LATENCY_PATCH" >/dev/null 2>&1; then
+  pass "MemNav current-frame depth reuse patch"
+else
+  fail "MemNav latency patch missing; run apply_memnav_source_patch.sh"
+fi
 [[ -f "$CFG_LINGBOT_WEIGHTS" ]] && pass "LingBot weights" || fail "LingBot weights"
 [[ -d "$CFG_LIGHTGLUE_REPO" ]] && pass "LightGlue source" || fail "LightGlue source"
 [[ -f "$REPO_ROOT/baselines/navdp/navdp_server.py" ]] \
