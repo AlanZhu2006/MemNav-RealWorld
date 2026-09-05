@@ -155,7 +155,8 @@ def test_shell_contract_has_explicit_imagegoal_and_no_legacy_names(tmp_path):
     assert "CFG_FOXGLOVE_LAYOUT=" in exports
     assert "CFG_FOXGLOVE_PORT=8765" in exports
     assert "CFG_FOXGLOVE_PREVIEW_RGB_TOPIC=/navdp/foxglove/rgb/compressed" in exports
-    assert "CFG_FOXGLOVE_PREVIEW_DEPTH_FPS=10" in exports
+    assert "CFG_FOXGLOVE_PREVIEW_RGB_FPS=10" in exports
+    assert "CFG_FOXGLOVE_PREVIEW_DEPTH_FPS=5" in exports
     assert "CFG_FOXGLOVE_PREVIEW_GOAL_TOPIC=/navdp/foxglove/goal/compressed" in exports
     assert "CFG_FOXGLOVE_PREVIEW_ARRIVAL_FPS=5" in exports
     assert "CFG_FOXGLOVE_PREVIEW_STATUS_TOPIC=/navdp/foxglove/status/compressed" in exports

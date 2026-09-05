@@ -113,11 +113,17 @@ class Go2BatteryMonitor(Node):
         super().__init__("navdp_go2_battery_monitor")
         self.declare_parameter("battery_topic", "/navdp/go2/battery")
         self.declare_parameter("publish_rate_hz", 2.0)
+        self.declare_parameter("sample_rate_hz", 5.0)
         self.declare_parameter("offline_timeout_s", 2.0)
         self.battery_topic = str(self.get_parameter("battery_topic").value)
         publish_rate_hz = max(
             0.2, float(self.get_parameter("publish_rate_hz").value)
         )
+        sample_rate_hz = max(
+            publish_rate_hz, float(self.get_parameter("sample_rate_hz").value)
+        )
+        self._sample_period_s = 1.0 / sample_rate_hz
+        self._next_sample_monotonic = 0.0
         self.offline_timeout_s = max(
             0.2, float(self.get_parameter("offline_timeout_s").value)
         )
@@ -139,7 +145,14 @@ class Go2BatteryMonitor(Node):
         self._dds_subscriber = subscriber
 
     def on_low_state(self, message) -> None:
-        sample = sample_from_low_state(message)
+        # Go2 lowstate is substantially faster than the operator-facing
+        # battery signal. Avoid parsing every high-rate DDS sample on the
+        # four-core Jetson while retaining ample headroom for the 2 Hz output.
+        now = time.monotonic()
+        if now < self._next_sample_monotonic:
+            return
+        self._next_sample_monotonic = now + self._sample_period_s
+        sample = sample_from_low_state(message, received_monotonic=now)
         with self._lock:
             self._sample = sample
 

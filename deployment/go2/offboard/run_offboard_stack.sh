@@ -112,6 +112,9 @@ if [[ "$CFG_WITH_CAMERA" == true ]]; then
   fi
 fi
 navdp_start_optional_windows "$SESSION"
+if [[ "$reuse_boot_observer" == true ]]; then
+  navdp_handoff_boot_battery_to_go2
+fi
 navdp_stamp_session_contract "$SESSION"
 start_complete=true
 trap - EXIT

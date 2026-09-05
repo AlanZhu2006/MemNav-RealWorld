@@ -31,4 +31,5 @@ exec "$CFG_GO2_PYTHON" "$NAVDP_GO2_DIR/go2_battery_monitor.py" \
   --ros-args \
   -p battery_topic:=/navdp/go2/battery \
   -p publish_rate_hz:=2.0 \
+  -p sample_rate_hz:=5.0 \
   -p offline_timeout_s:=2.0

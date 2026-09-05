@@ -237,8 +237,6 @@ PY
 navdp_start_foxglove_windows() {
   local session="$1"
   if [[ "$CFG_WITH_FOXGLOVE" == true ]]; then
-    tmux new-window -t "$session" -n battery \
-      "exec '$NAVDP_GO2_SCRIPT_DIR/run_go2_battery_monitor.sh' --config '$NAVDP_RUN_CONFIG'"
     tmux new-window -t "$session" -n fox-preview \
       "exec '$NAVDP_GO2_SCRIPT_DIR/run_foxglove_preview.sh' --config '$NAVDP_RUN_CONFIG'"
     tmux new-window -t "$session" -n foxglove \
@@ -315,6 +313,25 @@ navdp_boot_observer_is_healthy() {
   for unit in "${NAVDP_BOOT_OBSERVER_UNITS[@]}"; do
     systemctl --user is-active --quiet "$unit" || return 1
   done
+}
+
+navdp_boot_observer_visuals_are_healthy() {
+  command -v systemctl >/dev/null 2>&1 || return 1
+  systemctl --user is-active --quiet "$NAVDP_BOOT_OBSERVER_TARGET" || return 1
+  local unit
+  for unit in memnav-observer-camera.service \
+      memnav-observer-preview.service memnav-observer-foxglove.service; do
+    systemctl --user is-active --quiet "$unit" || return 1
+  done
+}
+
+navdp_handoff_boot_battery_to_go2() {
+  [[ "$CFG_WITH_GO2" == true ]] || return 0
+  command -v systemctl >/dev/null 2>&1 || return 0
+  if systemctl --user is-active --quiet memnav-observer-battery.service; then
+    systemctl --user stop memnav-observer-battery.service
+    echo "Reused Go2 lowstate in the command bridge; stopped duplicate battery DDS subscriber."
+  fi
 }
 
 navdp_pause_boot_observer() {

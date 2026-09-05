@@ -158,7 +158,7 @@ native_session_is_current_and_healthy() {
   [[ "$CFG_ARRIVAL_MODULE" != rgb-homography ]] || required+=(arrival)
   [[ "$CFG_WITH_GO2" != true ]] || required+=(go2)
   [[ "$CFG_WITH_FOXGLOVE" != true ]] \
-    || required+=(battery fox-preview foxglove)
+    || required+=(fox-preview foxglove)
   local window
   for window in "${required[@]}"; do
     grep -Fxq "$window" <<<"$windows" || return 1
@@ -189,14 +189,19 @@ fullmono_session_is_current_and_healthy() {
   [[ "$CFG_WITH_GO2" != true ]] || required+=(go2)
   if [[ "$CFG_WITH_FOXGLOVE" == true \
       && "$uses_boot_observer" != true ]]; then
-    required+=(battery fox-preview foxglove)
+    required+=(fox-preview foxglove)
   fi
   local window
   for window in "${required[@]}"; do
     grep -Fxq "$window" <<<"$windows" || return 1
   done
-  [[ "$uses_boot_observer" != true ]] || navdp_boot_observer_is_healthy \
-    || return 1
+  if [[ "$uses_boot_observer" == true ]]; then
+    if [[ "$CFG_WITH_GO2" == true ]]; then
+      navdp_boot_observer_visuals_are_healthy || return 1
+    else
+      navdp_boot_observer_is_healthy || return 1
+    fi
+  fi
   curl -fsS --max-time 2 \
     "http://127.0.0.1:${CFG_TUNNEL_LOCAL_PORT}/healthz" >/dev/null 2>&1
 }

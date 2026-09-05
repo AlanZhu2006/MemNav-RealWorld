@@ -2,17 +2,21 @@ import math
 from pathlib import Path
 from types import SimpleNamespace
 import sys
+import threading
 
 import pytest
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import go2_battery_monitor as battery_monitor_module  # noqa: E402
 from go2_battery_monitor import (  # noqa: E402
     battery_message,
+    Go2BatteryMonitor,
     network_link_ready,
     sample_from_low_state,
 )
+from go2_cmd_bridge import Go2CmdBridge  # noqa: E402
 
 
 def _low_state(*, soc=73, voltage=28.7, current=-1.4):
@@ -67,6 +71,45 @@ def test_invalid_unitree_soc_is_not_presented_as_a_percentage():
 
     assert message.present is True
     assert math.isnan(message.percentage)
+
+
+def test_high_rate_lowstate_is_sampled_without_losing_battery_freshness(monkeypatch):
+    monitor = object.__new__(Go2BatteryMonitor)
+    monitor._sample_period_s = 0.2
+    monitor._next_sample_monotonic = 0.0
+    monitor._lock = threading.Lock()
+    monitor._sample = None
+    now = [10.0]
+    monkeypatch.setattr(battery_monitor_module.time, "monotonic", lambda: now[0])
+
+    monitor.on_low_state(_low_state(soc=73))
+    assert monitor._sample.soc_pct == 73
+    assert monitor._sample.received_monotonic == 10.0
+
+    now[0] = 10.1
+    monitor.on_low_state(_low_state(soc=20))
+    assert monitor._sample.soc_pct == 73
+
+    now[0] = 10.21
+    monitor.on_low_state(_low_state(soc=72))
+    assert monitor._sample.soc_pct == 72
+    assert monitor._sample.received_monotonic == 10.21
+
+
+def test_command_bridge_reuses_its_lowstate_subscription_for_battery(monkeypatch):
+    bridge = object.__new__(Go2CmdBridge)
+    bridge._battery_sample_period_s = 0.2
+    bridge._next_battery_sample_monotonic = 0.0
+    bridge._battery_lock = threading.Lock()
+    bridge._battery_sample = None
+    bridge.remote_deadband = 0.12
+    bridge.latest_remote_stamp = 0.0
+    monkeypatch.setattr(battery_monitor_module.time, "monotonic", lambda: 10.0)
+
+    bridge.on_low_state(_low_state(soc=68))
+
+    assert bridge._battery_sample.soc_pct == 68
+    assert bridge._battery_sample.received_monotonic == 10.0
 
 
 def test_network_link_requires_interface_carrier(tmp_path):

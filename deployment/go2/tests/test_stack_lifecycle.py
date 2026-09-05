@@ -223,6 +223,7 @@ tmux() {{
   esac
 }}
 navdp_boot_observer_is_healthy() {{ return 0; }}
+navdp_boot_observer_visuals_are_healthy() {{ return 0; }}
 curl() {{ return 0; }}
 if fullmono_session_is_current_and_healthy; then
   echo healthy

@@ -62,6 +62,10 @@ bridge_command=(
   -p remote_hold_sec:=0.8
   -p log_commands:=true
   -p log_interval_sec:=0.5
+  -p battery_topic:=/navdp/go2/battery
+  -p battery_publish_rate_hz:=2.0
+  -p battery_sample_rate_hz:=5.0
+  -p battery_offline_timeout_s:=2.0
 )
 
 last_offline_reason=""

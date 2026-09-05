@@ -8,6 +8,7 @@ import os
 import signal
 import struct
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,10 @@ from geometry_msgs.msg import Twist
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from sensor_msgs.msg import BatteryState
+
+from go2_battery_monitor import battery_message, sample_from_low_state
 
 
 @dataclass
@@ -60,6 +65,10 @@ class Go2CmdBridge(Node):
         self.declare_parameter("remote_hold_sec", 0.8)
         self.declare_parameter("log_commands", True)
         self.declare_parameter("log_interval_sec", 0.5)
+        self.declare_parameter("battery_topic", "/navdp/go2/battery")
+        self.declare_parameter("battery_publish_rate_hz", 2.0)
+        self.declare_parameter("battery_sample_rate_hz", 5.0)
+        self.declare_parameter("battery_offline_timeout_s", 2.0)
 
         self.cmd_vel_topic = str(self.get_parameter("cmd_vel_topic").value)
         self.rate_hz = float(self.get_parameter("rate_hz").value)
@@ -84,6 +93,30 @@ class Go2CmdBridge(Node):
         self.remote_hold_sec = float(self.get_parameter("remote_hold_sec").value)
         self.log_commands = bool(self.get_parameter("log_commands").value)
         self.log_interval_sec = float(self.get_parameter("log_interval_sec").value)
+        battery_publish_rate_hz = max(
+            0.2, float(self.get_parameter("battery_publish_rate_hz").value)
+        )
+        battery_sample_rate_hz = max(
+            battery_publish_rate_hz,
+            float(self.get_parameter("battery_sample_rate_hz").value),
+        )
+        self.battery_offline_timeout_s = max(
+            0.2, float(self.get_parameter("battery_offline_timeout_s").value)
+        )
+        self._battery_sample_period_s = 1.0 / battery_sample_rate_hz
+        self._next_battery_sample_monotonic = 0.0
+        self._battery_lock = threading.Lock()
+        self._battery_sample = None
+        battery_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self._battery_publisher = self.create_publisher(
+            BatteryState,
+            str(self.get_parameter("battery_topic").value),
+            battery_qos,
+        )
 
         self.latest_cmd: Optional[TimedTwist] = None
         self.last_sent = (None, None, None)
@@ -95,6 +128,7 @@ class Go2CmdBridge(Node):
 
         self.create_subscription(Twist, self.cmd_vel_topic, self.on_cmd_vel, 10)
         self.create_timer(1.0 / max(1.0, self.rate_hz), self.publish_to_go2)
+        self.create_timer(1.0 / battery_publish_rate_hz, self.publish_battery)
         self.setup_remote_priority()
 
         self.get_logger().info(
@@ -127,6 +161,14 @@ class Go2CmdBridge(Node):
             self.get_logger().warning(f"Hand-controller priority unavailable: {exc}")
 
     def on_low_state(self, msg) -> None:
+        now = time.monotonic()
+        if now >= self._next_battery_sample_monotonic:
+            self._next_battery_sample_monotonic = (
+                now + self._battery_sample_period_s
+            )
+            sample = sample_from_low_state(msg, received_monotonic=now)
+            with self._battery_lock:
+                self._battery_sample = sample
         try:
             data = bytes(msg.wireless_remote)
             if len(data) < 24:
@@ -141,6 +183,17 @@ class Go2CmdBridge(Node):
                 self.latest_remote_stamp = time.monotonic()
         except Exception:
             return
+
+    def publish_battery(self) -> None:
+        with self._battery_lock:
+            sample = self._battery_sample
+        message = battery_message(
+            sample,
+            now_monotonic=time.monotonic(),
+            offline_timeout_s=self.battery_offline_timeout_s,
+        )
+        message.header.stamp = self.get_clock().now().to_msg()
+        self._battery_publisher.publish(message)
 
     def remote_is_active(self) -> bool:
         return self.remote_priority and (
