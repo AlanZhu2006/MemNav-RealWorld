@@ -284,7 +284,7 @@ M点单程工程流程现在全部由`Operate`页完成，不再为每轮实验�
 2. 面板生成唯一Episode/Dataset ID，冻结当前lossless RGB和aligned-depth PNG，并把
    RGB立即显示在`Revisit Goal`面板；
 3. 系统同时从该时刻启动full MCAP，连续记录D435i原始RGB、aligned depth、CameraInfo、
-   RealSense metadata、策略/安全/轨迹/CEC收据和Episode事件；Survey/Revisit阶段复用同一
+   RealSense metadata、电量、策略/安全/轨迹/CEC收据和Episode事件；Survey/Revisit阶段复用同一
    常驻相机publisher，因此正常阶段切换不会产生相机重启缺口；
 4. 用Unitree手柄回到Survey起点，点击`START SURVEY`。后台自动准备RTX/Jetson栈并在
    运动锁定状态开始causal RGB memory；
@@ -312,6 +312,11 @@ Episode合同。
 只有全部通过才解除软件estop并enable。到达、超时、异常或点击`STOP NAVIGATION`都会重新
 锁止并发送零速度。
 STOP也会取消仍在重启/重放阶段的事务，不会在停止后延迟取得运动权限。
+
+封存Dataset为每个memory index记录对应RGB/aligned-depth的ROS纳秒时间戳；完全相同的
+memory JPEG只存一份，但回放仍按原始index序列逐帧追加。Revisit的CEC收据还保存在线
+top-k检索分数、所选anchor图像SHA、DINO/LightGlue共视统计、PnP数值证据和query JPEG
+SHA。它们是有界JSON，不复制RGB-D，可直接用于离线论文分析。
 
 `REVISIT`只适用于上述已经由GUI冻结外部M点并seal Survey的工程流程，不替代正式配对实验的
 预注册、证据采集和独立现场监督。

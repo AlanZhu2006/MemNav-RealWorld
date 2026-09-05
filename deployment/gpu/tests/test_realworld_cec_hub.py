@@ -264,6 +264,24 @@ def test_certificate_accept_projects_to_frozen_radius_and_calls_mixed():
             "pointgoal_units": "lingbot_raw_direction_only",
             "aux_pose": [3.0, 4.0],
             "selected_anchor": 2,
+            "selected_dino_rank": 1,
+            "selected_proposal_source": "geometry",
+            "selected_anchor_image_sha256": "b" * 64,
+            "ranked_candidates": [{
+                "anchor": 2,
+                "dino_cosine": 0.9,
+                "lightglue_matches": 42,
+                "fundamental_inliers": 30,
+                "fundamental_query_hull_coverage": 0.4,
+                "fundamental_reference_hull_coverage": 0.5,
+            }],
+            "proposal_attempts": [{
+                "selected_anchor": 2,
+                "accepted": True,
+            }],
+            "pnp": {"status": "ok", "inliers": 24, "rmse_px": 1.1},
+            "reference_depth_cache": {"cache_hit": True},
+            "cached": False,
         }),
         local_reject_response(),
         nav_result("mixed"),
@@ -274,6 +292,27 @@ def test_certificate_accept_projects_to_frozen_radius_and_calls_mixed():
     result = router.plan_imagegoal(image=b"i", goal=b"g", depth=b"d")
     assert result["marker"] == "mixed"
     assert result["cec_takeover"] is True
+    assert result["cec_relocalization_trace"] == {
+        "schema": "cec_online_relocalization_trace_v1",
+        "selected_dino_rank": 1,
+        "selected_proposal_source": "geometry",
+        "selected_anchor_image_sha256": "b" * 64,
+        "ranked_candidates": [{
+            "anchor": 2,
+            "dino_cosine": 0.9,
+            "lightglue_matches": 42,
+            "fundamental_inliers": 30,
+            "fundamental_query_hull_coverage": 0.4,
+            "fundamental_reference_hull_coverage": 0.5,
+        }],
+        "proposal_attempts": [{
+            "selected_anchor": 2,
+            "accepted": True,
+        }],
+        "pnp": {"status": "ok", "inliers": 24, "rmse_px": 1.1},
+        "reference_depth_cache": {"cache_hit": True},
+        "cached": False,
+    }
     mixed_data = session.calls[-1][1]["data"]
     point = json.loads(mixed_data["goal_data"])
     assert point == {"goal_x": [1.5], "goal_y": [2.0]}
@@ -746,7 +785,22 @@ def test_prepared_goal_requires_client_ack_and_overrides_uploaded_bytes():
         warmup_response(),
             FakeResponse({
                 "frame_idx": 3,
-                "certified_visual_candidates": [],
+                "image_sha256": "a" * 64,
+                "retrieved_anchor": 1,
+                "raw_score": 0.81,
+                "retrieval_second_score": 0.70,
+                "visual_anchor": 1,
+                "visual_score": 0.84,
+                "visual_second_score": 0.72,
+                "selected_anchor_score": 0.81,
+                "predicted_gate": 0.65,
+                "current_goal_cos": 0.40,
+                "candidate_count": 2,
+                "goal_start_frame": 3,
+                "candidate_ceiling": 2,
+                "certified_visual_candidates": [
+                    {"anchor": 1, "score": 0.84}
+                ],
                 "add_frame_runtime_ms": 12.5,
                 "append_request_runtime_ms": 14.0,
                 "monocular_depth_cache_hit": True,
@@ -800,6 +854,22 @@ def test_prepared_goal_requires_client_ack_and_overrides_uploaded_bytes():
         "retrieval_ms": 22.0,
         "total_ms": 36.0,
         "monocular_depth_cache_hit": True,
+    }
+    assert result["cec_retrieval_trace"] == {
+        "schema": "cec_online_retrieval_trace_v1",
+        "retrieved_anchor": 1,
+        "raw_score": 0.81,
+        "retrieval_second_score": 0.70,
+        "visual_anchor": 1,
+        "visual_score": 0.84,
+        "visual_second_score": 0.72,
+        "selected_anchor_score": 0.81,
+        "predicted_gate": 0.65,
+        "current_goal_cos": 0.40,
+        "candidate_count": 2,
+        "goal_start_frame": 3,
+        "candidate_ceiling": 2,
+        "certified_visual_candidates": [{"anchor": 1, "score": 0.84}],
     }
 
 
@@ -963,8 +1033,21 @@ def test_sealed_dataset_replay_keeps_long_memory_out_of_navdp_fifo(tmp_path):
         dataset_store=store,
     )
     do_reset(recording)
-    recording.start_dataset("out-back")
-    recording.memory_step(b"historical-memory")
+    recording.start_dataset(
+        "out-back",
+        metadata={
+            "source_observation_contract": "memnav_rgbd_source_observation_v1"
+        },
+    )
+    recording.memory_step(
+        b"historical-memory",
+        source_observation={
+            "schema": "memnav_rgbd_source_observation_v1",
+            "rgb_stamp_ns": 123,
+            "depth_stamp_ns": 124,
+            "pair_received_ros_ns": 130,
+        },
+    )
     recording.goal_candidate(
         b"memory-excluded-goal",
         evaluation_depth=b"evaluator-depth",
@@ -984,6 +1067,8 @@ def test_sealed_dataset_replay_keeps_long_memory_out_of_navdp_fifo(tmp_path):
     assert loaded["frames_replayed"] == 1
     assert loaded["navdp_fifo_replayed_from_dataset"] is False
     assert replay.goal_candidates[0]["evaluation_depth_scale_m"] == 1.0e-3
+    loaded_record, _ = next(store.load("out-back").memory_frames())
+    assert loaded_record["source_observation"]["rgb_stamp_ns"] == 123
     switch = replay.begin_revisit(query_start_image=b"physical-query-start")
     assert switch["navdp_warmup_mode"] == "independent_formal_query_start"
     assert switch["navdp_warmup_frame_indices"] == ["query_start_current"]

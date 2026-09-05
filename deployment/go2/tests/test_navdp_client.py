@@ -3,6 +3,7 @@ import sys
 import unittest
 import base64
 import hashlib
+import json
 
 import cv2
 import numpy as np
@@ -125,6 +126,24 @@ class NavDPClientPhaseProtocolTests(unittest.TestCase):
         url, files, _ = session.calls[0]
         self.assertEqual(url, "http://127.0.0.1:18889/memory_step")
         self.assertEqual(set(files), {"image"})
+
+    def test_memory_step_binds_source_rgbd_stamps_without_copying_depth(self):
+        client, session = self._client(
+            [_PhaseResponse({"phase": "memory_recording", "frame_idx": 0,
+                             "frames_recorded": 1})]
+        )
+        rgb = np.full((8, 12, 3), 90, dtype=np.uint8)
+        source = {
+            "schema": "memnav_rgbd_source_observation_v1",
+            "rgb_stamp_ns": 123,
+            "depth_stamp_ns": 124,
+            "pair_received_ros_ns": 130,
+        }
+
+        client.memory_step(rgb, source_observation=source)
+
+        self.assertEqual(json.loads(session.data[0]["source_observation"]), source)
+        self.assertEqual(set(session.calls[0][1]), {"image"})
 
     def test_novel_imagegoal_step_uses_atomic_recording_endpoint(self):
         client, session = self._client([_PhaseResponse({

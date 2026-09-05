@@ -66,6 +66,7 @@ def test_episode_capture_is_full_rgbd_but_phase_gated_to_survey_and_revisit():
     assert "/camera/camera/color/image_raw" in source
     assert "/camera/camera/aligned_depth_to_color/image_raw" in source
     assert "/camera/camera/depth/metadata" in source
+    assert "/navdp/go2/battery" in source
     assert "/navdp/operator/episode_event" in source
     assert "/navdp/foxglove/arrival/compressed" in source
     assert "/navdp/image_goal|/navdp/rgb_arrival_debug" in source

@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import math
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 import cv2
 import numpy as np
@@ -72,11 +73,17 @@ class NavDPClient:
             depth_m, EVALUATION_DEPTH_PNG_SCALE_M
         )
 
-    def _post_phase_endpoint(self, route: str, files: Optional[dict] = None) -> dict:
+    def _post_phase_endpoint(
+        self,
+        route: str,
+        files: Optional[dict] = None,
+        data: Optional[dict] = None,
+    ) -> dict:
         """POST a protocol-v3 phase endpoint, surfacing hub contract errors."""
         response = self.session.post(
             f"{self.server_url}{route}",
             files=files,
+            data=data,
             timeout=self.timeout,
         )
         if response.status_code >= 400:
@@ -89,11 +96,26 @@ class NavDPClient:
             )
         return response.json()
 
-    def memory_step(self, rgb: np.ndarray) -> dict:
+    def memory_step(
+        self,
+        rgb: np.ndarray,
+        *,
+        source_observation: Mapping[str, Any] | None = None,
+    ) -> dict:
         """Protocol v3: record-only causal RGB append (memory_recording phase)."""
+        data = None
+        if source_observation is not None:
+            data = {
+                "source_observation": json.dumps(
+                    dict(source_observation),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            }
         return self._post_phase_endpoint(
             "/memory_step",
             files={"image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg")},
+            data=data,
         )
 
     def novel_imagegoal_step(
@@ -101,6 +123,8 @@ class NavDPClient:
         goal_rgb: np.ndarray,
         rgb: np.ndarray,
         depth_m: np.ndarray,
+        *,
+        source_observation: Mapping[str, Any] | None = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Record one causal frame while native NavDP executes a Novel goal."""
         files = {
@@ -109,9 +133,19 @@ class NavDPClient:
             # Wire compatibility only; the hub never forwards metric depth.
             "depth": ("depth.png", self._encode_depth(depth_m), "image/png"),
         }
+        data = None
+        if source_observation is not None:
+            data = {
+                "source_observation": json.dumps(
+                    dict(source_observation),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            }
         response = self.session.post(
             f"{self.server_url}/novel_imagegoal_step",
             files=files,
+            data=data,
             timeout=self.timeout,
         )
         if response.status_code >= 400:

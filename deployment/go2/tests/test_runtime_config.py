@@ -143,6 +143,9 @@ def test_one_way_external_goal_debug_is_explicitly_labeled(tmp_path):
         "operator_frozen_external_required"
     )
     assert payload["dataset"]["metadata"]["goal_candidates_required"] is False
+    assert payload["dataset"]["metadata"]["source_observation_contract"] == (
+        "memnav_rgbd_source_observation_v1"
+    )
     assert payload["launch"]["go2_bridge"] is False
 
 

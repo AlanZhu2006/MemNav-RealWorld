@@ -69,6 +69,7 @@ The recommended `audit` profile records:
 
 - `/navdp/status`, `/navdp/cec_receipt` and `/navdp/rgb_arrival_status`;
 - selected/candidate paths, command velocity, enable/estop state and Go2 state;
+- Go2 battery state for the complete Survey/Revisit capture window;
 - ImageGoal, RGB-arrival debug image, camera calibration and Foxglove markers.
 
 The collector is intentionally headless. On the operator workstation, connect
@@ -105,6 +106,15 @@ evidence: the frozen ImageGoal is stored once as a hash-bound PNG under
 `media/`, and RGB-arrival visualization uses the bounded compressed Foxglove
 topic in MCAP instead of the raw debug image. External formal captures retain
 the original audit topic set because their goal evidence is managed separately.
+
+New Survey datasets content-address exact duplicate memory JPEGs: every causal
+frame index is retained for identical policy replay, while repeated bytes point
+to one stored file. Each memory entry carries the synchronized source RGB and
+aligned-depth ROS timestamps, which join it to the full MCAP without copying
+depth into the policy dataset. Revisit CEC receipts preserve the bounded online
+top-k retrieval scores, selected memory identity, numeric co-visibility/PnP
+evidence and query JPEG hash. These JSON fields are small compared with RGB-D
+and make paper analysis independent of a later model rerun.
 
 For the optional independent Odin1 evaluation lane, start it first and wait
 for `reference_ready=true`, then replace the last flag with

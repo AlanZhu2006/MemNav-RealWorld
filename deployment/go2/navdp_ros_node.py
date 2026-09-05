@@ -47,6 +47,9 @@ from trajectory_control import (
 )
 
 
+SOURCE_OBSERVATION_SCHEMA = "memnav_rgbd_source_observation_v1"
+
+
 class NavDPGo2Adapter(Node):
     """Run NavDP asynchronously and publish fail-closed velocity commands."""
 
@@ -485,9 +488,28 @@ class NavDPGo2Adapter(Node):
     def _stamp_to_seconds(stamp) -> float:
         return float(stamp.sec) + float(stamp.nanosec) * 1e-9
 
+    @staticmethod
+    def _stamp_to_nanoseconds(stamp) -> int:
+        return int(stamp.sec) * 1_000_000_000 + int(stamp.nanosec)
+
+    @staticmethod
+    def _source_observation(input_timing: dict) -> Optional[dict]:
+        rgb_stamp_ns = input_timing.get("rgb_stamp_ns")
+        depth_stamp_ns = input_timing.get("depth_stamp_ns")
+        if not isinstance(rgb_stamp_ns, int) or not isinstance(depth_stamp_ns, int):
+            return None
+        return {
+            "schema": SOURCE_OBSERVATION_SCHEMA,
+            "rgb_stamp_ns": rgb_stamp_ns,
+            "depth_stamp_ns": depth_stamp_ns,
+            "pair_received_ros_ns": input_timing.get("pair_received_ros_ns"),
+        }
+
     def _on_rgbd(self, rgb_msg: Image, depth_msg: Image) -> None:
         rgb_stamp_s = self._stamp_to_seconds(rgb_msg.header.stamp)
         depth_stamp_s = self._stamp_to_seconds(depth_msg.header.stamp)
+        rgb_stamp_ns = self._stamp_to_nanoseconds(rgb_msg.header.stamp)
+        depth_stamp_ns = self._stamp_to_nanoseconds(depth_msg.header.stamp)
         skew_s = abs(rgb_stamp_s - depth_stamp_s)
         if skew_s > self.max_rgb_depth_skew_s:
             self._warn_throttled(
@@ -531,8 +553,10 @@ class NavDPGo2Adapter(Node):
         # must never prevent an otherwise valid synchronized pair from being
         # admitted (including in clock-free unit-test adapters).
         try:
-            pair_received_ros_s = self.get_clock().now().nanoseconds / 1e9
+            pair_received_ros_ns = int(self.get_clock().now().nanoseconds)
+            pair_received_ros_s = pair_received_ros_ns / 1e9
         except (AttributeError, RuntimeError):
+            pair_received_ros_ns = None
             pair_received_ros_s = None
 
         with self._lock:
@@ -543,8 +567,11 @@ class NavDPGo2Adapter(Node):
             self._rgbd_diagnostic = {
                 "rgb_stamp_s": rgb_stamp_s,
                 "depth_stamp_s": depth_stamp_s,
+                "rgb_stamp_ns": rgb_stamp_ns,
+                "depth_stamp_ns": depth_stamp_ns,
                 "pair_received_monotonic_s": self._rgbd_monotonic,
                 "pair_received_ros_s": pair_received_ros_s,
+                "pair_received_ros_ns": pair_received_ros_ns,
             }
 
     def _on_camera_info(self, msg: CameraInfo) -> None:
@@ -1465,7 +1492,12 @@ class NavDPGo2Adapter(Node):
                         with self._client_lock:
                             trajectory, all_trajectories, all_values = (
                                 self._client.novel_imagegoal_step(
-                                    goal_condition, rgb, depth_m
+                                    goal_condition,
+                                    rgb,
+                                    depth_m,
+                                    source_observation=self._source_observation(
+                                        input_timing
+                                    ),
                                 )
                             )
                             plan_receipt = dict(self._client.last_plan_receipt)
@@ -1478,7 +1510,12 @@ class NavDPGo2Adapter(Node):
                         planned_in_recording = True
                     else:
                         with self._client_lock:
-                            receipt = self._client.memory_step(rgb)
+                            receipt = self._client.memory_step(
+                                rgb,
+                                source_observation=self._source_observation(
+                                    input_timing
+                                ),
+                            )
                         finished = time.monotonic()
                         with self._lock:
                             self._frames_recorded = int(

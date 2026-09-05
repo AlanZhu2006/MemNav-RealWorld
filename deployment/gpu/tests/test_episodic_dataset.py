@@ -5,6 +5,7 @@ import pytest
 from deployment.gpu.episodic_dataset import (
     DatasetContractError,
     EpisodicDatasetStore,
+    SOURCE_OBSERVATION_SCHEMA,
 )
 
 
@@ -67,6 +68,67 @@ def test_exact_goal_memory_jpeg_is_rejected_before_seal(tmp_path):
         store.append_candidate(
             record=candidate(image=b"same"), image=b"same"
         )
+
+
+def test_duplicate_memory_content_is_stored_once_but_replayed_twice(tmp_path):
+    store = EpisodicDatasetStore(tmp_path, minimum_frames=2)
+    store.start("content-addressed")
+    first = store.append_memory(
+        frame_index=0, image=b"same", upstream_sha256=None
+    )
+    second = store.append_memory(
+        frame_index=1, image=b"same", upstream_sha256=None
+    )
+    store.append_candidate(record=candidate(image=b"goal"), image=b"goal")
+    receipt = store.seal(protocol={})
+
+    assert first["path"] == second["path"]
+    assert receipt["memory_frames"] == 2
+    assert receipt["unique_memory_images"] == 1
+    root = tmp_path / "content-addressed"
+    assert len(list((root / "memory").glob("*.jpg"))) == 1
+    assert [payload for _, payload in store.load("content-addressed").memory_frames()] == [
+        b"same",
+        b"same",
+    ]
+
+
+def test_memory_source_observation_binds_rgbd_stamps(tmp_path):
+    store = EpisodicDatasetStore(tmp_path, minimum_frames=1)
+    store.start(
+        "timestamped",
+        metadata={"source_observation_contract": SOURCE_OBSERVATION_SCHEMA},
+    )
+    record = store.append_memory(
+        frame_index=0,
+        image=b"memory",
+        upstream_sha256=None,
+        source_observation={
+            "schema": SOURCE_OBSERVATION_SCHEMA,
+            "rgb_stamp_ns": 123,
+            "depth_stamp_ns": 124,
+            "pair_received_ros_ns": 130,
+        },
+    )
+    store.append_candidate(record=candidate(image=b"goal"), image=b"goal")
+    receipt = store.seal(protocol={})
+
+    assert receipt["source_observations"] == 1
+    assert record["source_observation"]["rgb_stamp_ns"] == 123
+    loaded_record, _ = next(store.load("timestamped").memory_frames())
+    assert loaded_record["source_observation"]["depth_stamp_ns"] == 124
+
+
+def test_required_memory_source_observation_cannot_be_omitted(tmp_path):
+    store = EpisodicDatasetStore(tmp_path, minimum_frames=1)
+    store.start(
+        "missing-timestamp",
+        metadata={"source_observation_contract": SOURCE_OBSERVATION_SCHEMA},
+    )
+    store.append_memory(frame_index=0, image=b"memory", upstream_sha256=None)
+    store.append_candidate(record=candidate(image=b"goal"), image=b"goal")
+    with pytest.raises(DatasetContractError, match="contract is incomplete"):
+        store.seal(protocol={})
 
 
 def test_short_or_candidate_free_dataset_cannot_be_sealed(tmp_path):

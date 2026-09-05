@@ -78,6 +78,8 @@ NAVIGATION_SENSOR_CONTRACT = "causal_monocular_rgb_v1"
 NAVDP_DEPTH_SOURCE = "monocular_sidecar"
 CLIENT_DEPTH_CONTRACT = "local_safety_only_not_forwarded"
 AUTHORITY_MODES = ("cec", "native")
+RETRIEVAL_TRACE_SCHEMA = "cec_online_retrieval_trace_v1"
+RELOCALIZATION_TRACE_SCHEMA = "cec_online_relocalization_trace_v1"
 
 
 class HybridBackendError(RuntimeError):
@@ -120,6 +122,50 @@ def _json_object(response: requests.Response, label: str) -> dict[str, Any]:
 
 def _file(name: str, payload: bytes, media_type: str) -> tuple[str, io.BytesIO, str]:
     return (name, io.BytesIO(payload), media_type)
+
+
+def _retrieval_trace(probe: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep the bounded online retrieval evidence that cannot be recreated exactly."""
+
+    keys = (
+        "retrieved_anchor",
+        "raw_score",
+        "retrieval_second_score",
+        "visual_anchor",
+        "visual_score",
+        "visual_second_score",
+        "selected_anchor_score",
+        "predicted_gate",
+        "forced_gate",
+        "current_goal_cos",
+        "candidate_count",
+        "goal_start_frame",
+        "candidate_ceiling",
+        "certified_visual_candidates",
+    )
+    return {
+        "schema": RETRIEVAL_TRACE_SCHEMA,
+        **{key: probe[key] for key in keys if key in probe},
+    }
+
+
+def _relocalization_trace(certificate: Mapping[str, Any]) -> dict[str, Any]:
+    """Keep numeric co-visibility/PnP evidence without copying image payloads."""
+
+    keys = (
+        "selected_dino_rank",
+        "selected_proposal_source",
+        "selected_anchor_image_sha256",
+        "ranked_candidates",
+        "proposal_attempts",
+        "pnp",
+        "reference_depth_cache",
+        "cached",
+    )
+    return {
+        "schema": RELOCALIZATION_TRACE_SCHEMA,
+        **{key: certificate[key] for key in keys if key in certificate},
+    }
 
 
 def _bind_monocular_depth_transaction(
@@ -468,6 +514,7 @@ class CecHybridRouter:
         image: bytes,
         *,
         materialize_monocular_depth: bool = False,
+        source_observation: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Append one causal RGB frame to the shared stream, with no goal."""
         if not self.initialized:
@@ -513,6 +560,7 @@ class CecHybridRouter:
                     frame_index=self.frames_recorded - 1,
                     image=image,
                     upstream_sha256=payload.get("image_sha256"),
+                    source_observation=source_observation,
                 )
             except (DatasetContractError, OSError) as error:
                 # MemNav has already advanced.  Losing the exact-byte dataset
@@ -545,6 +593,7 @@ class CecHybridRouter:
         image: bytes,
         goal: bytes,
         form: Mapping[str, str] | None = None,
+        source_observation: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Advance Novel navigation with an optional direct-bearing handoff.
 
@@ -562,7 +611,9 @@ class CecHybridRouter:
                 "reset is required"
             )
         memory = self.memory_step(
-            image, materialize_monocular_depth=True
+            image,
+            materialize_monocular_depth=True,
+            source_observation=source_observation,
         )
         navdp_form = _bind_monocular_depth_transaction(
             dict(form or {}), memory, image
@@ -1310,6 +1361,10 @@ class CecHybridRouter:
                 "cec_frame_idx": probe.get("frame_idx"),
                 "cec_selected_anchor": None,
                 "cec_certificate": None,
+                "cec_retrieval_trace": (
+                    _retrieval_trace(probe) if self.step_index == 1 else None
+                ),
+                "cec_relocalization_trace": None,
                 "cec_relocalization_ms": None,
                 "cec_retrieval_probe_timing": probe.get(
                     "retrieval_probe_timing"
@@ -1425,6 +1480,13 @@ class CecHybridRouter:
             "cec_frame_idx": probe.get("frame_idx"),
             "cec_selected_anchor": certificate.get("selected_anchor"),
             "cec_certificate": certificate.get("certificate"),
+            "cec_retrieval_trace": (
+                _retrieval_trace(probe) if self.step_index == 1 else None
+            ),
+            "cec_relocalization_trace": (
+                _relocalization_trace(certificate)
+                if self.step_index == 1 else None
+            ),
             "cec_relocalization_ms": certificate.get("relocalization_ms"),
             "cec_retrieval_probe_timing": probe.get(
                 "retrieval_probe_timing"
@@ -1517,7 +1579,22 @@ def create_app(router: CecHybridRouter) -> Flask:
             return jsonify({"error": "hub_busy"}), 409
         try:
             try:
-                return jsonify(router.memory_step(request.files["image"].read()))
+                source_observation = None
+                raw_source_observation = request.form.get("source_observation")
+                if raw_source_observation is not None:
+                    source_observation = json.loads(raw_source_observation)
+                    if not isinstance(source_observation, dict):
+                        raise ValueError("source_observation must be an object")
+                return jsonify(
+                    router.memory_step(
+                        request.files["image"].read(),
+                        source_observation=source_observation,
+                    )
+                )
+            except json.JSONDecodeError as error:
+                return jsonify({
+                    "error": f"source_observation is invalid JSON: {error}"
+                }), 400
             except ValueError as error:
                 return jsonify({"error": str(error)}), 400
             except HybridBackendError as error:
@@ -1534,10 +1611,18 @@ def create_app(router: CecHybridRouter) -> Flask:
             return jsonify({"error": "hub_busy"}), 409
         try:
             try:
+                form = request.form.to_dict(flat=True)
+                source_observation = None
+                raw_source_observation = form.pop("source_observation", None)
+                if raw_source_observation is not None:
+                    source_observation = json.loads(raw_source_observation)
+                    if not isinstance(source_observation, dict):
+                        raise ValueError("source_observation must be an object")
                 result = router.plan_novel_and_record(
                     image=request.files["image"].read(),
                     goal=request.files["goal"].read(),
-                    form=request.form.to_dict(flat=True),
+                    form=form,
+                    source_observation=source_observation,
                 )
                 app.logger.info(
                     "novel_recording_plan frames=%s queue=%s",
@@ -1545,6 +1630,11 @@ def create_app(router: CecHybridRouter) -> Flask:
                     result.get("queue_lengths"),
                 )
                 return jsonify(result)
+            except json.JSONDecodeError as error:
+                return jsonify({
+                    "error": f"source_observation is invalid JSON: {error}",
+                    "phase": router.phase,
+                }), 400
             except ValueError as error:
                 return jsonify({"error": str(error), "phase": router.phase}), 400
             except HybridBackendError as error:

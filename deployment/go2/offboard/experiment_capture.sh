@@ -27,6 +27,7 @@ AUDIT_TOPICS=(
   /navdp/experiment_event
   /navdp/operator/episode_event
   /navdp/operator/revisit_workflow
+  /navdp/go2/battery
   /rt/sportmodestate
   /camera/camera/color/camera_info
 )
@@ -131,6 +132,8 @@ require_live_topics() {
   topics="$(timeout 8 ros2 topic list 2>/dev/null || true)"
   grep -Fxq /navdp/status <<<"$topics" || die "/navdp/status is not live"
   grep -Fxq /navdp/cec_receipt <<<"$topics" || die "/navdp/cec_receipt is not live"
+  grep -Fxq /navdp/go2/battery <<<"$topics" \
+    || die "/navdp/go2/battery is not live"
   if [[ "$gt_source" == odin1 ]]; then
     grep -Fxq /navdp/gt/status <<<"$topics" || die "/navdp/gt/status is not live"
     grep -Fxq /odin1/odometry <<<"$topics" || die "/odin1/odometry is not live"
@@ -147,6 +150,8 @@ require_observer_topics() {
     || die "D435i RGB is not live"
   grep -Fxq /camera/camera/aligned_depth_to_color/image_raw <<<"$topics" \
     || die "D435i aligned depth is not live"
+  grep -Fxq /navdp/go2/battery <<<"$topics" \
+    || die "/navdp/go2/battery is not live"
   grep -Fxq /foxglove_bridge <<<"$(ros2 node list 2>/dev/null || true)" \
     || die "Foxglove Bridge is not running"
 }

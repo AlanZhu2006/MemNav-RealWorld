@@ -21,6 +21,7 @@ from typing import Any, Iterable, Mapping
 
 
 SCHEMA_VERSION = "cec_realworld_episodic_dataset_v1_20260825"
+SOURCE_OBSERVATION_SCHEMA = "memnav_rgbd_source_observation_v1"
 _DATASET_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 ONE_WAY_EXTERNAL_GOAL_MODE = "manual_one_way_external_goal_debug"
 EXTERNAL_GOAL_CONTRACT = "operator_frozen_external_required"
@@ -53,6 +54,38 @@ def _public_record(record: Mapping[str, Any]) -> dict[str, Any]:
         for key, value in record.items()
         if key not in {"image", "evaluation_depth", "path"}
     }
+
+
+def _source_observation(value: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Validate the compact ROS-stamp join key stored beside one memory JPEG."""
+
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise DatasetContractError("source observation must be an object")
+    if value.get("schema") != SOURCE_OBSERVATION_SCHEMA:
+        raise DatasetContractError("source observation has an invalid schema")
+    result: dict[str, Any] = {"schema": SOURCE_OBSERVATION_SCHEMA}
+    for key in ("rgb_stamp_ns", "depth_stamp_ns"):
+        item = value.get(key)
+        if isinstance(item, bool) or not isinstance(item, int) or item < 0:
+            raise DatasetContractError(
+                f"source observation {key} must be a non-negative integer"
+            )
+        result[key] = item
+    pair_received_ros_ns = value.get("pair_received_ros_ns")
+    if pair_received_ros_ns is not None:
+        if (
+            isinstance(pair_received_ros_ns, bool)
+            or not isinstance(pair_received_ros_ns, int)
+            or pair_received_ros_ns < 0
+        ):
+            raise DatasetContractError(
+                "source observation pair_received_ros_ns must be null or a "
+                "non-negative integer"
+            )
+        result["pair_received_ros_ns"] = pair_received_ros_ns
+    return result
 
 
 def validate_dataset_id(dataset_id: str) -> str:
@@ -115,6 +148,7 @@ class EpisodicDatasetStore:
         self._memory_frames: list[dict[str, Any]] = []
         self._goal_candidates: list[dict[str, Any]] = []
         self._memory_hashes: set[str] = set()
+        self._memory_paths_by_hash: dict[str, str] = {}
 
     @property
     def recording(self) -> bool:
@@ -157,6 +191,7 @@ class EpisodicDatasetStore:
         self._memory_frames = []
         self._goal_candidates = []
         self._memory_hashes = set()
+        self._memory_paths_by_hash = {}
         return self.status()
 
     @staticmethod
@@ -173,6 +208,7 @@ class EpisodicDatasetStore:
         frame_index: int,
         image: bytes,
         upstream_sha256: str | None,
+        source_observation: Mapping[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         if not self.recording:
             return None
@@ -185,15 +221,26 @@ class EpisodicDatasetStore:
         digest = _sha256(image)
         if upstream_sha256 is not None and str(upstream_sha256) != digest:
             raise DatasetContractError("upstream and dataset frame SHA-256 disagree")
-        name = f"{expected_index:06d}_{digest[:16]}.jpg"
-        relative = Path("memory") / name
-        self._write_exact(self._staging_root / relative, image)
+        existing_path = self._memory_paths_by_hash.get(digest)
+        if existing_path is None:
+            name = f"{expected_index:06d}_{digest[:16]}.jpg"
+            relative = Path("memory") / name
+            self._write_exact(self._staging_root / relative, image)
+            self._memory_paths_by_hash[digest] = relative.as_posix()
+        else:
+            # Preserve the causal sequence entry while content-addressing an
+            # exact duplicate to the already stored JPEG.  Replaying the
+            # dataset still appends the same bytes at every original index.
+            relative = Path(existing_path)
         record = {
             "frame_index": expected_index,
             "path": relative.as_posix(),
             "sha256": digest,
             "bytes": len(image),
         }
+        observation = _source_observation(source_observation)
+        if observation is not None:
+            record["source_observation"] = observation
         self._memory_frames.append(record)
         self._memory_hashes.add(digest)
         return dict(record)
@@ -289,6 +336,17 @@ class EpisodicDatasetStore:
             raise DatasetContractError(
                 "goal/memory exact-JPEG overlap detected: " + ",".join(overlap)
             )
+        source_observations = sum(
+            "source_observation" in row for row in self._memory_frames
+        )
+        if (
+            self._metadata.get("source_observation_contract")
+            == SOURCE_OBSERVATION_SCHEMA
+            and source_observations != len(self._memory_frames)
+        ):
+            raise DatasetContractError(
+                "dataset source-observation contract is incomplete"
+            )
         manifest = {
             "schema_version": SCHEMA_VERSION,
             "dataset_id": self._dataset_id,
@@ -298,6 +356,8 @@ class EpisodicDatasetStore:
             "protocol": dict(protocol),
             "summary": {
                 "memory_frames": len(self._memory_frames),
+                "unique_memory_images": len(self._memory_hashes),
+                "source_observations": source_observations,
                 "goal_candidates": len(self._goal_candidates),
                 "goal_memory_exact_sha_overlap": 0,
                 "evaluation_depth_consumed_by_policy": False,
@@ -332,6 +392,7 @@ class EpisodicDatasetStore:
         self._memory_frames = []
         self._goal_candidates = []
         self._memory_hashes = set()
+        self._memory_paths_by_hash = {}
         return result
 
     def load(self, dataset_id: str) -> LoadedDataset:
@@ -376,6 +437,8 @@ class EpisodicDatasetStore:
                 raise DatasetContractError(f"memory byte count changed: {path}")
             if _sha256(payload) != record.get("sha256"):
                 raise DatasetContractError(f"memory SHA-256 changed: {path}")
+            if "source_observation" in record:
+                _source_observation(record["source_observation"])
             memory_hashes.add(record["sha256"])
 
         candidates = manifest.get("goal_candidates", [])

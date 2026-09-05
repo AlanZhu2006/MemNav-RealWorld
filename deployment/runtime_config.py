@@ -621,6 +621,9 @@ def _derive(
                 "robot": "unitree_go2",
                 "motion_authority": "unitree_hand_controller_only",
                 "adapter_enabled": False,
+                "source_observation_contract": (
+                    "memnav_rgbd_source_observation_v1"
+                ),
                 "candidate_contract": (
                     "external_frozen_goal_only_no_survey_candidate"
                     if one_way_external_debug
