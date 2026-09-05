@@ -213,13 +213,28 @@ def live_fault(
     *,
     max_linear_mps: float,
     max_angular_rps: float,
-    max_rgbd_age_s: float = 1.00,
+    max_rgbd_age_s: float = 2.00,
     max_plan_age_s: float = 5.00,
 ) -> str:
     if status.get("last_error"):
         return f"adapter_error:{status['last_error']}"
+    if status.get("stop_reason") in {"obstacle_stop", "depth_unavailable_stop", "inference_error"}:
+        return str(status["stop_reason"])
+    if (status.get("rgbd_recovery") or {}).get("pending") is True:
+        # This is a zero-command pause inside the same run, not a failure.
+        # Do not mistake the intentionally consumed old plan for stale inference.
+        velocities = (status.get("cmd_vx"), status.get("cmd_wz"))
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                   and math.isfinite(v) and abs(v) < 1e-3 for v in velocities):
+            return "rgbd_pause_nonzero_command"
+        return ""
     rgbd_age = status.get("rgbd_age_s")
-    if rgbd_age is None or float(rgbd_age) > float(max_rgbd_age_s):
+    # New adapters own the 20 Hz camera-age pause transaction. Do not abort
+    # on a status sampled just before that control tick commits its pause.
+    # Legacy adapters without this contract still get the stale-data fault.
+    if "rgbd_recovery" not in status and (
+        rgbd_age is None or float(rgbd_age) > float(max_rgbd_age_s)
+    ):
         return "rgbd_stale"
     heading = status.get("heading_turn") or {}
     if heading.get("active") is True:
@@ -242,12 +257,6 @@ def live_fault(
         )
         if not post_execution_replan and (plan_age is None or float(plan_age) > float(max_plan_age_s)):
             return "trajectory_stale"
-    if status.get("stop_reason") in {
-        "obstacle_stop",
-        "depth_unavailable_stop",
-        "inference_error",
-    }:
-        return str(status["stop_reason"])
     if abs(float(status.get("cmd_vx") or 0.0)) > float(max_linear_mps) + 0.01:
         return "linear_command_limit_violation"
     if abs(float(status.get("cmd_wz") or 0.0)) > float(max_angular_rps) + 0.01:
@@ -534,6 +543,11 @@ class NavigationRunAgent:
                 return 1, "status_stale"
             now = time.monotonic()
             if now >= next_report:
+                recovery = status.get("rgbd_recovery") or {}
+                if recovery.get("pending") is True:
+                    self._log("WAIT-RGBD", "motion paused; waiting for fresh post-stop RGB-D and a new plan")
+                    next_report = now + 1.0
+                    continue
                 heading = status.get("heading_turn") or {}
                 if heading.get("active") is True:
                     self._log(

@@ -41,6 +41,17 @@ Queued pre-stop images cannot start the next plan. No previous velocity is
 held through inference, and in-flight results crossing execution/stop boundaries
 are discarded. The frozen 2.5 m memory bearing is not used as a path endpoint.
 
+Runtime RGB-D reception or source age above 2.0 seconds pauses with zero
+commands, abandoning the current path/turn. `status.rgbd_recovery` records the
+pending pause, cause, elapsed time and threshold. Only a post-stop RGB-D pair
+and newly accepted plan clear this pause. The supervisor logs `WAIT-RGBD` and
+does not treat the deliberately abandoned old plan as a trajectory timeout.
+Foxglove displays `PAUSED · WAIT RGB-D`; local feedback execution does not show
+an intentionally held plan as a policy freshness error. No second authorization
+is needed within this still-active run. Stop, estop, feedback faults, inference
+errors and the experiment-wide timeout still terminate motion. Initial arming
+retains its 0.60 second freshness check; this change is the runtime pause limit.
+
 Rear-goal turns use a separate continuous body-heading feedback controller.
 The bridge publishes `/navdp/go2/body_heading` from `LowState.imu_state.rpy[2]`
 at up to 50 Hz, stamped on local DDS reception. The adapter aligns that yaw

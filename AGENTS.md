@@ -31,6 +31,11 @@ counterpart on `work-pc`.
 - A user Stop request cancels the current motion authorization. Keep the robot
   locked until the user issues a new motion request; do not auto-resume after a
   fault or deploy merely because an earlier run was authorized.
+- Exception explicitly requested by the user: a temporary RGB-D freshness pause
+  inside an active run preserves that run's authorization. At age >2 seconds,
+  command zero, discard the old action, wait for post-stop RGB-D and a new
+  accepted plan, then continue. This never clears estop or re-enables a stopped
+  run. Hard faults and the existing overall run timeout still terminate it.
 - `nav_stack.sh start` remains observation-only: `enabled=false`, `estop=true`.
   Do not change this default. Only use `run`, clear estop, enable execution, or
   publish motion commands within a user-requested motion run.

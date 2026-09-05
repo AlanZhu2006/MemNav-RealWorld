@@ -27,10 +27,10 @@ navdp_go2_adapter:
     control_rate_hz: 20.0
     connect_timeout_s: 3.0
     request_timeout_s: 180.0
-    # Admit a short Jetson RGB-D scheduling hiccup during inference.  The run
-    # supervisor still requires <=0.60 s freshness before arming, while both
-    # layers fail closed if delivery remains stale for a full second.
-    sensor_timeout_s: 1.00
+    # Runtime RGB-D age >2 s pauses motion. Fresh post-stop RGB-D and a new
+    # accepted plan resume this run; explicit Stop and hard faults stay latched.
+    # Initial arming still requires <=0.60 s freshness.
+    sensor_timeout_s: 2.00
     trajectory_timeout_s: 5.00
     max_rgb_depth_skew_s: 0.10
     # Keep only a small pairing backlog. Post-stop admission below uses source

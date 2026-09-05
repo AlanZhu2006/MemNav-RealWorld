@@ -975,9 +975,9 @@ plan_while_disabled=true
 | --- | --- |
 | adapter disabled | 发布零速度 |
 | estop asserted | 发布零速度 |
-| RGB-D age `>0.60 s` | `rgbd_stale`，零速度 |
+| 运行中 RGB-D 接收或源帧年龄 `>2.00 s` | 归零暂停；等待停下后的新 RGB-D 和新规划后继续本轮，不自动解除急停。首次启动预检仍为 `0.60 s` |
 | RGB/depth skew过大 | 不接受该帧对，最终freshness stop |
-| trajectory age `>2.50 s` | `trajectory_stale`，零速度 |
+| 未执行、非 RGB-D 恢复等待时 trajectory age `>5.00 s` | `trajectory_stale`；实测反馈跟踪期间允许保持该规划，RGB-D 暂停不再被误判为旧轨迹故障 |
 | inference exception | `inference_error`，零速度 |
 | local depth不可用 | `depth_unavailable_stop` |
 | clearance `<=0.45 m` | `obstacle_stop` |

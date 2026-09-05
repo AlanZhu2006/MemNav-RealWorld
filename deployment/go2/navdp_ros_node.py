@@ -98,6 +98,8 @@ class NavDPGo2Adapter(Node):
             self.latency_motion_guard_config
         )
         self._plan_cycle = PlanCycle(self.settle_before_sense_s)
+        self._rgbd_pause_reason = ""
+        self._rgbd_pause_started_s = None
         self._trajectory_execution = TrajectoryExecution()
         self._latency_motion_receipt: dict = {}
         self._heading_turn = HeadingTurn()
@@ -272,7 +274,7 @@ class NavDPGo2Adapter(Node):
             "control_rate_hz": 20.0,
             "connect_timeout_s": 3.0,
             "request_timeout_s": 180.0,
-            "sensor_timeout_s": 0.60,
+            "sensor_timeout_s": 2.00,
             "trajectory_timeout_s": 5.00,
             "max_rgb_depth_skew_s": 0.10,
             "rgbd_sync_queue_size": 5,
@@ -580,6 +582,8 @@ class NavDPGo2Adapter(Node):
 
     def _reset_motion_guards_locked(self) -> None:
         # Keep emergency/episode locking usable during partial initialization.
+        self._rgbd_pause_reason = ""
+        self._rgbd_pause_started_s = None
         plan_cycle = getattr(self, "_plan_cycle", None)
         if plan_cycle is not None:
             plan_cycle.reset()
@@ -1639,6 +1643,10 @@ class NavDPGo2Adapter(Node):
                             and int(input_timing.get("rgb_stamp_ns") or 0) <= self._plan_cycle.sense_after_ns)
                     ):
                         continue
+                    if self._rgbd_pause_reason and guarded.reason not in {"pass", "disabled"}:
+                        # Stay paused and try another fresh observation; do not
+                        # consume the recovery gate with an inadmissible plan.
+                        continue
                     self._trajectory = path
                     self._trajectory_execution.reset()
                     self._candidate_trajectories = candidates
@@ -1646,6 +1654,8 @@ class NavDPGo2Adapter(Node):
                     self._target_command = target
                     self._plan_monotonic = finished
                     self._plan_cycle.install_plan(finished)
+                    self._rgbd_pause_reason = ""
+                    self._rgbd_pause_started_s = None
                     self._last_inference_s = finished - started
                     self._last_error = ""
                     self._stop_reason = "ready"
@@ -1705,6 +1715,8 @@ class NavDPGo2Adapter(Node):
                 return "rgbd_source_stale"
         if self._image_goal is None:
             return "waiting_for_image_goal"
+        if self._rgbd_pause_reason:
+            return "awaiting_rgbd_replan"
         # A latched body-heading target is executed by fresh IMU feedback.
         # No new visual plan is needed during this single continuous turn.
         if self._heading_turn.active:
@@ -1744,6 +1756,27 @@ class NavDPGo2Adapter(Node):
             reason = self._motion_block_reason(now)
             depth = None if self._depth_m is None else self._depth_m.copy()
             target = self._target_command
+
+        if reason in {"rgbd_stale", "rgbd_source_stale"}:
+            with self._lock:
+                self._publish_zero(reason)
+                if not self._rgbd_pause_reason:
+                    self._rgbd_pause_reason = reason
+                    self._rgbd_pause_started_s = now
+                    # Abandon both the path and any latched rear-goal turn.
+                    # Recovery must use an observation captured after stopping.
+                    self._heading_turn.reset()
+                    self._trajectory_execution.reset()
+                    self._target_command = VelocityCommand()
+                    self._terminal_motion_receipt = {}
+                    self._plan_cycle.install_plan(now)
+                    self._note_action_stopped_after_zero(now)
+            return
+
+        if reason == "awaiting_rgbd_replan":
+            self._publish_zero(reason)
+            self._request_inference()
+            return
 
         if reason == "awaiting_fresh_plan":
             self._request_inference()
@@ -2248,6 +2281,13 @@ class NavDPGo2Adapter(Node):
                 "command_execution_mode": "measured_trajectory",
                 "command_execution_phase": command_execution["phase"],
                 "command_execution": command_execution,
+                "rgbd_recovery": {
+                    "pending": bool(self._rgbd_pause_reason),
+                    "reason": self._rgbd_pause_reason,
+                    "pause_age_s": (None if self._rgbd_pause_started_s is None
+                                    else now - self._rgbd_pause_started_s),
+                    "timeout_s": self.sensor_timeout_s,
+                },
                 "trajectory_execution": self._trajectory_execution.audit(self._ros_now_ns() or 0, now),
                 "position_reference_available": self._trajectory_execution.reference(self._turn_image_ns) is not None,
                 "settle_before_sense_s": self.settle_before_sense_s,

@@ -460,6 +460,12 @@ def build_operator_diagnostics(
     initialized = bool(payload.get("server_initialized"))
     arrived = bool(payload.get("arrival_latched"))
     rgbd_age = _number(payload.get("rgbd_age_s"))
+    source_age = _number(payload.get("rgbd_source_age_s"))
+    if source_age is not None:
+        rgbd_age = source_age if rgbd_age is None else max(rgbd_age, source_age)
+    recovery = payload.get("rgbd_recovery") or {}
+    rgbd_paused = recovery.get("pending") is True
+    rgbd_timeout = _number(recovery.get("timeout_s")) or 2.0
     rgbd_skew = _number(payload.get("rgb_depth_skew_s"))
     clearance = _number(payload.get("clearance_m"))
     hard_stop_m = _number(payload.get("depth_hard_stop_m"))
@@ -472,7 +478,7 @@ def build_operator_diagnostics(
 
     if rgbd_age is None:
         image_level, image_message = DiagnosticStatus.STALE, "OFFLINE"
-    elif rgbd_age > 0.75:
+    elif rgbd_age > rgbd_timeout:
         image_level, image_message = (
             DiagnosticStatus.ERROR,
             f"STALE · {rgbd_age:.2f} s",
@@ -507,6 +513,11 @@ def build_operator_diagnostics(
         policy_level, policy_message = DiagnosticStatus.OK, "DONE"
     elif not initialized:
         policy_level, policy_message = DiagnosticStatus.ERROR, "OFFLINE"
+    elif rgbd_paused:
+        policy_level, policy_message = DiagnosticStatus.WARN, "WAIT · RGB-D / REPLAN"
+    elif ((payload.get("trajectory_execution") or {}).get("active") is True
+          or (payload.get("heading_turn") or {}).get("active") is True):
+        policy_level, policy_message = DiagnosticStatus.OK, "LOCAL CONTROL · PLAN HELD"
     elif plan_age is None and state["mode"] == "SURVEY":
         policy_level, policy_message = DiagnosticStatus.OK, "STANDBY"
     elif plan_age is None:
@@ -554,6 +565,8 @@ def build_operator_diagnostics(
         mode_level, mode_message = DiagnosticStatus.WARN, "OFFLINE"
     elif arrived:
         mode_level, mode_message = DiagnosticStatus.OK, "ARRIVED"
+    elif rgbd_paused:
+        mode_level, mode_message = DiagnosticStatus.WARN, f"{state['mode']} · WAIT RGB-D"
     elif state["mode"] == "SURVEY":
         survey_step = {
             "ACTIVE": "RECORDING",
@@ -582,6 +595,8 @@ def build_operator_diagnostics(
         overall_level, overall_message = DiagnosticStatus.ERROR, "FAULT"
     elif state["safety"] == "INCONSISTENT":
         overall_level, overall_message = DiagnosticStatus.ERROR, "CHECK SAFETY"
+    elif rgbd_paused:
+        overall_level, overall_message = DiagnosticStatus.WARN, "PAUSED · WAIT RGB-D"
     elif depth_level == DiagnosticStatus.ERROR:
         overall_level, overall_message = DiagnosticStatus.ERROR, "STOP"
     elif image_level in {DiagnosticStatus.ERROR, DiagnosticStatus.STALE}:
