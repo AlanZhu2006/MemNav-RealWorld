@@ -31,7 +31,11 @@ from image_goal_io import load_rgb_image
 from latency_motion_guard import LatencyMotionGuard, LatencyMotionGuardConfig
 from navdp_client import NavDPClient
 from navigation_diagnostics import plan_diagnostics
-from terminal_motion_override import terminal_motion_override
+from terminal_motion_override import (
+    CERTIFIED_TURN_REASONS,
+    CertifiedTurnBootstrap,
+    terminal_motion_override,
+)
 from trajectory_control import (
     ControllerConfig,
     DepthSafetyConfig,
@@ -88,6 +92,10 @@ class NavDPGo2Adapter(Node):
             self.latency_motion_guard_config
         )
         self._latency_motion_receipt: dict = {}
+        self._certified_turn_bootstrap = CertifiedTurnBootstrap(
+            self.certified_turn_bootstrap_s
+        )
+        self._certified_turn_bootstrap_receipt: dict = {}
         self._plan_monotonic = 0.0
         self._last_inference_s = 0.0
         self._last_error = ""
@@ -277,7 +285,8 @@ class NavDPGo2Adapter(Node):
             "latency_turning_translation_cutoff_rps": 0.12,
             "latency_reversal_deadband_rps": 0.08,
             "latency_reversal_confirmation_plans": 2,
-            "depth_hard_stop_m": 0.45,
+            "certified_turn_bootstrap_s": 0.60,
+            "depth_hard_stop_m": 0.35,
             "depth_slow_distance_m": 0.80,
             "depth_percentile": 10.0,
             "depth_roi_left": 0.35,
@@ -374,6 +383,7 @@ class NavDPGo2Adapter(Node):
             "depth_scale_m",
             "max_linear_accel_mps2",
             "max_angular_accel_rps2",
+            "certified_turn_bootstrap_s",
         ):
             setattr(self, name, float(self.get_parameter(name).value))
         self.plan_while_disabled = bool(self.get_parameter("plan_while_disabled").value)
@@ -396,6 +406,8 @@ class NavDPGo2Adapter(Node):
             raise ValueError("sensor_timeout_s and max_rgb_depth_skew_s must be positive")
         if self.rgbd_sync_queue_size <= 0:
             raise ValueError("rgbd_sync_queue_size must be positive")
+        if self.certified_turn_bootstrap_s < 0.0:
+            raise ValueError("certified_turn_bootstrap_s must be nonnegative")
 
         self.controller_config = ControllerConfig(
             lookahead_m=float(self.get_parameter("lookahead_m").value),
@@ -1518,10 +1530,7 @@ class NavDPGo2Adapter(Node):
                     max_angular_rps=self.controller_config.max_angular_rps,
                     preserve_turn_creep=(
                         terminal.applied
-                        and terminal.reason in {
-                            "certified_atomic_turn",
-                            "certified_long_range_atomic_turn",
-                        }
+                        and terminal.reason in CERTIFIED_TURN_REASONS
                     ),
                 )
                 target = guarded.command
@@ -1598,6 +1607,19 @@ class NavDPGo2Adapter(Node):
             reason = self._motion_block_reason(now)
             depth = None if self._depth_m is None else self._depth_m.copy()
             target = self._target_command
+            terminal_reason = str(
+                self._terminal_motion_receipt.get("reason") or ""
+            )
+
+        bootstrap = self._certified_turn_bootstrap.apply(
+            target,
+            reason=terminal_reason,
+            motion_allowed=reason is None,
+            now_s=now,
+        )
+        target = bootstrap.command
+        with self._lock:
+            self._certified_turn_bootstrap_receipt = bootstrap.audit_dict()
 
         if reason is not None:
             self._publish_zero(reason)
@@ -1982,6 +2004,9 @@ class NavDPGo2Adapter(Node):
                 ),
                 "terminal_motion_override": self._terminal_motion_receipt,
                 "latency_motion_guard": self._latency_motion_receipt,
+                "certified_turn_bootstrap": (
+                    self._certified_turn_bootstrap_receipt
+                ),
                 "monocular_depth_receipt": self._last_plan_receipt.get(
                     "monocular_depth_receipt"
                 ),

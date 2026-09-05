@@ -32,7 +32,7 @@
         "max_vx": 0.3,
         "max_vy": 0.0,
         "max_wz": 0.6,
-        "min_cmd_v": 0.1,
+        "min_cmd_v": 0.0,
         "min_cmd_w": 0.2
       },
       "native_policy": {

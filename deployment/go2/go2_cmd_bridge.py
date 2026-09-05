@@ -54,7 +54,10 @@ class Go2CmdBridge(Node):
         self.declare_parameter("swap_xy", False)
         self.declare_parameter("deadband_v", 0.01)
         self.declare_parameter("deadband_w", 0.02)
-        self.declare_parameter("min_cmd_v", 0.10)
+        # Never amplify an adapter command that depth safety has reduced.
+        # Certified turn bootstrap commands already request the empirically
+        # effective 0.10 m/s explicitly.
+        self.declare_parameter("min_cmd_v", 0.0)
         self.declare_parameter("min_cmd_w", 0.20)
         self.declare_parameter("enabled", True)
         self.declare_parameter("send_zero_when_idle", False)

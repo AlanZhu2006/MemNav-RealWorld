@@ -37,7 +37,7 @@ class VelocityCommand:
 
 @dataclass(frozen=True)
 class DepthSafetyConfig:
-    hard_stop_m: float = 0.45
+    hard_stop_m: float = 0.35
     slow_distance_m: float = 0.80
     percentile: float = 10.0
     roi_left: float = 0.35

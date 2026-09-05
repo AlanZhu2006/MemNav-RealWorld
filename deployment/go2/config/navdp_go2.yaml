@@ -56,7 +56,13 @@ navdp_go2_adapter:
     latency_reversal_deadband_rps: 0.08
     latency_reversal_confirmation_plans: 2
 
-    depth_hard_stop_m: 0.45
+    # A 0.60 s / 0.10 m/s gait-start pulse moves at most a few centimetres;
+    # the remainder of a certified turn is yaw-only to avoid a wide arc.
+    certified_turn_bootstrap_s: 0.60
+
+    # Tight indoor lab setting requested by the operator. The 0.80 m slowdown
+    # envelope and fail-closed invalid-depth behavior remain unchanged.
+    depth_hard_stop_m: 0.35
     depth_slow_distance_m: 0.80
     depth_percentile: 10.0
     depth_roi_left: 0.35

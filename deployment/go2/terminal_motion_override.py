@@ -13,9 +13,12 @@ EXPECTED_HANDOFF_SCHEMA = "cec_direct_bearing_handoff_v2_20260824"
 EXPECTED_POINT_TOKEN_SUPPORT_DEG = 60.0
 POINT_TOKEN_HANDOFF_MARGIN_DEG = 5.0
 # This Go2 has repeatedly failed to enter locomotion for a pure-yaw Move.
-# Keep certified turns inside the forward depth-safety envelope with the
-# smallest deployed bridge command instead of sending zero translation.
+# Start certified turns with one short, depth-protected forward pulse at the
+# smallest known effective speed, then continue yaw-only.
 CERTIFIED_TURN_CREEP_MPS = 0.10
+CERTIFIED_TURN_REASONS = frozenset(
+    {"certified_atomic_turn", "certified_long_range_atomic_turn"}
+)
 
 
 @dataclass(frozen=True)
@@ -30,6 +33,72 @@ class TerminalMotionOverride:
         if self.command is not None:
             payload["command"] = asdict(self.command)
         return payload
+
+
+@dataclass(frozen=True)
+class CertifiedTurnBootstrapResult:
+    command: VelocityCommand
+    phase: str
+    elapsed_s: float | None
+
+    def audit_dict(self) -> dict[str, Any]:
+        return {
+            "command": asdict(self.command),
+            "phase": self.phase,
+            "elapsed_s": self.elapsed_s,
+        }
+
+
+class CertifiedTurnBootstrap:
+    """Limit Go2's gait-starting forward creep to one short turn pulse."""
+
+    def __init__(self, duration_s: float = 0.60) -> None:
+        if not math.isfinite(duration_s) or duration_s < 0.0:
+            raise ValueError(
+                "certified turn bootstrap duration must be finite and nonnegative"
+            )
+        self.duration_s = float(duration_s)
+        self._key: tuple[str, int] | None = None
+        self._started_s: float | None = None
+
+    def reset(self) -> None:
+        self._key = None
+        self._started_s = None
+
+    def apply(
+        self,
+        command: VelocityCommand,
+        *,
+        reason: str,
+        motion_allowed: bool,
+        now_s: float,
+    ) -> CertifiedTurnBootstrapResult:
+        if (
+            not motion_allowed
+            or reason not in CERTIFIED_TURN_REASONS
+            or abs(command.angular_z) <= 0.0
+        ):
+            self.reset()
+            return CertifiedTurnBootstrapResult(command, "inactive", None)
+
+        turn_sign = 1 if command.angular_z > 0.0 else -1
+        key = (reason, turn_sign)
+        if key != self._key or self._started_s is None:
+            self._key = key
+            self._started_s = float(now_s)
+        elapsed_s = max(0.0, float(now_s) - self._started_s)
+        if elapsed_s < self.duration_s:
+            return CertifiedTurnBootstrapResult(command, "gait_bootstrap", elapsed_s)
+
+        yaw_only = VelocityCommand(
+            linear_x=0.0,
+            angular_z=command.angular_z,
+            target_x=command.target_x,
+            target_y=command.target_y,
+            path_length=command.path_length,
+            reverse=command.reverse,
+        )
+        return CertifiedTurnBootstrapResult(yaw_only, "yaw_only", elapsed_s)
 
 
 def _finite(value: object) -> float | None:
@@ -167,7 +236,10 @@ def terminal_motion_override(
 
 
 __all__ = [
+    "CERTIFIED_TURN_REASONS",
     "CERTIFIED_TURN_CREEP_MPS",
+    "CertifiedTurnBootstrap",
+    "CertifiedTurnBootstrapResult",
     "EXPECTED_POINT_TOKEN_SUPPORT_DEG",
     "EXPECTED_HANDOFF_SCHEMA",
     "POINT_TOKEN_HANDOFF_MARGIN_DEG",

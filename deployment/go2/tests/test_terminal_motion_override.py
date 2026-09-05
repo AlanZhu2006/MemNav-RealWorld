@@ -2,8 +2,10 @@ import pytest
 
 from terminal_motion_override import (
     CERTIFIED_TURN_CREEP_MPS,
+    CertifiedTurnBootstrap,
     terminal_motion_override,
 )
+from trajectory_control import VelocityCommand
 
 
 def receipt(disposition, **updates):
@@ -55,6 +57,76 @@ def test_certified_rear_long_range_requests_bounded_atomic_turn():
     assert result.command.angular_z == pytest.approx(-0.35)
     assert result.assert_estop is False
     assert result.reason == "certified_long_range_atomic_turn"
+
+
+def test_certified_turn_creep_is_one_short_gait_bootstrap_pulse():
+    gate = CertifiedTurnBootstrap(duration_s=0.60)
+    command = VelocityCommand(
+        linear_x=CERTIFIED_TURN_CREEP_MPS,
+        angular_z=0.20,
+    )
+
+    locked = gate.apply(
+        command,
+        reason="certified_long_range_atomic_turn",
+        motion_allowed=False,
+        now_s=5.0,
+    )
+    assert locked.phase == "inactive"
+    assert locked.command.linear_x == CERTIFIED_TURN_CREEP_MPS
+
+    started = gate.apply(
+        command,
+        reason="certified_long_range_atomic_turn",
+        motion_allowed=True,
+        now_s=10.0,
+    )
+    assert started.phase == "gait_bootstrap"
+    assert started.command.linear_x == CERTIFIED_TURN_CREEP_MPS
+
+    yaw_only = gate.apply(
+        command,
+        reason="certified_long_range_atomic_turn",
+        motion_allowed=True,
+        now_s=10.61,
+    )
+    assert yaw_only.phase == "yaw_only"
+    assert yaw_only.command.linear_x == 0.0
+    assert yaw_only.command.angular_z == 0.20
+
+
+def test_certified_turn_bootstrap_rearms_only_for_a_new_turn():
+    gate = CertifiedTurnBootstrap(duration_s=0.10)
+    left = VelocityCommand(linear_x=CERTIFIED_TURN_CREEP_MPS, angular_z=0.20)
+    right = VelocityCommand(linear_x=CERTIFIED_TURN_CREEP_MPS, angular_z=-0.20)
+    gate.apply(
+        left,
+        reason="certified_atomic_turn",
+        motion_allowed=True,
+        now_s=1.0,
+    )
+    expired = gate.apply(
+        left,
+        reason="certified_atomic_turn",
+        motion_allowed=True,
+        now_s=1.2,
+    )
+    assert expired.phase == "yaw_only"
+
+    reversed_turn = gate.apply(
+        right,
+        reason="certified_atomic_turn",
+        motion_allowed=True,
+        now_s=1.3,
+    )
+    assert reversed_turn.phase == "gait_bootstrap"
+    assert reversed_turn.command.linear_x == CERTIFIED_TURN_CREEP_MPS
+
+
+@pytest.mark.parametrize("duration", [-0.1, float("nan"), float("inf")])
+def test_certified_turn_bootstrap_rejects_invalid_duration(duration):
+    with pytest.raises(ValueError):
+        CertifiedTurnBootstrap(duration_s=duration)
 
 
 def test_malformed_long_range_turn_receipt_fails_closed():

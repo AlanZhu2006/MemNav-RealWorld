@@ -112,6 +112,11 @@ def test_command_bridge_reuses_its_lowstate_subscription_for_battery(monkeypatch
     assert bridge._battery_sample.received_monotonic == 10.0
 
 
+def test_zero_linear_floor_does_not_amplify_depth_slowdown():
+    assert Go2CmdBridge.apply_floor(0.03, 0.0) == pytest.approx(0.03)
+    assert Go2CmdBridge.apply_floor(0.10, 0.0) == pytest.approx(0.10)
+
+
 def test_network_link_requires_interface_carrier(tmp_path):
     interface = tmp_path / "eth0"
     interface.mkdir()
