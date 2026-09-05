@@ -584,6 +584,12 @@ def navdp_step_ip_mixgoal():
     phase2_time = time.time()
     diffusion_seed = apply_seed(request.form.get('diffusion_seed'))
     execute_trajectory, all_trajectory, all_values, trajectory_mask = navdp_navigator.step_point_image_goal(point_goal,image_goal,image,depth)
+    pointgoal_diagnostic = {
+        'schema': 'navdp_pointgoal_input_v1',
+        'received_xyz': point_goal.tolist(),
+        'processed_xyz': navdp_navigator.process_pointgoal(point_goal).tolist(),
+        'observation_only': True,
+    }
     queue_lengths = [len(queue) for queue in navdp_navigator.memory_queue]
     phase3_time = time.time()
     if navdp_fps_writer is not None:
@@ -591,6 +597,7 @@ def navdp_step_ip_mixgoal():
     phase4_time = time.time()
     print("phase1:%f, phase2:%f, phase3:%f, phase4:%f, all:%f"%(phase1_time - start_time, phase2_time - phase1_time, phase3_time - phase2_time, phase4_time-phase3_time, time.time() - start_time))
     return jsonify({
+        'pointgoal_diagnostic': pointgoal_diagnostic,
         'trajectory': execute_trajectory.tolist(),
         'all_trajectory': all_trajectory.tolist(),
         'all_values': all_values.tolist(),

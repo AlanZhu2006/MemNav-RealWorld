@@ -29,6 +29,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from debug_visualization import ranked_candidates, score_rgb
 from image_goal_io import load_rgb_image
 from navdp_client import NavDPClient
+from navigation_diagnostics import plan_diagnostics
 from terminal_motion_override import terminal_motion_override
 from trajectory_control import (
     ControllerConfig,
@@ -100,6 +101,7 @@ class NavDPGo2Adapter(Node):
         self._last_phase_receipt: dict = {}
         self._last_plan_receipt: dict = {}
         self._terminal_motion_receipt: dict = {}
+        self._rgbd_diagnostic: dict = {}
         self._last_receipt_event = ""
         self._survey_seal_receipt: dict = {}
         self._survey_last_action = ""
@@ -468,6 +470,12 @@ class NavDPGo2Adapter(Node):
             self._depth_m = depth_m.copy()
             self._rgbd_monotonic = time.monotonic()
             self._rgb_depth_skew_s = skew_s
+            self._rgbd_diagnostic = {
+                "rgb_stamp_s": rgb_stamp_s,
+                "depth_stamp_s": depth_stamp_s,
+                "pair_received_monotonic_s": self._rgbd_monotonic,
+                "pair_received_ros_s": self.get_clock().now().nanoseconds / 1e9,
+            }
 
     def _on_camera_info(self, msg: CameraInfo) -> None:
         intrinsic = np.asarray(msg.k, dtype=np.float32).reshape(3, 3)
@@ -1214,6 +1222,7 @@ class NavDPGo2Adapter(Node):
                 self._intrinsic.copy(),
                 goal_condition,
                 self._reset_requested,
+                dict(self._rgbd_diagnostic),
             ), "ready"
 
     def _inference_worker(self) -> None:
@@ -1229,7 +1238,7 @@ class NavDPGo2Adapter(Node):
                     self._stop_reason = reason
                 continue
 
-            rgb, depth_m, intrinsic, goal_condition, reset_requested = snapshot
+            rgb, depth_m, intrinsic, goal_condition, reset_requested, input_timing = snapshot
             if reset_requested and self.attach_existing_hub_on_start:
                 # An attached adapter must never reset the authoritative RTX
                 # episode.  Clear stale/local reset requests and continue with
@@ -1424,6 +1433,19 @@ class NavDPGo2Adapter(Node):
                     all_trajectories, all_values, self.debug_max_candidates
                 )
                 target = trajectory_to_command(path, self.controller_config)
+                try:
+                    diagnostics = plan_diagnostics(
+                        path, all_trajectories, all_values, plan_receipt, target, depth_m,
+                    )
+                    diagnostics["input_timing"] = input_timing
+                    diagnostics["plan_completed_monotonic_s"] = time.monotonic()
+                    plan_receipt["navigation_diagnostics"] = diagnostics
+                except Exception as diagnostic_error:
+                    # Diagnostics must not change policy execution or its authority.
+                    plan_receipt["navigation_diagnostics"] = {
+                        "error": f"{type(diagnostic_error).__name__}: {diagnostic_error}",
+                        "observation_only": True,
+                    }
                 terminal = terminal_motion_override(
                     plan_receipt,
                     rotate_gain=self.controller_config.rotate_gain,
@@ -1816,6 +1838,11 @@ class NavDPGo2Adapter(Node):
                 "plan_age_s": self._age(now, self._plan_monotonic),
                 # Adapter and run supervisor share this Jetson monotonic clock.
                 "plan_monotonic_s": self._plan_monotonic,
+                "rgbd_diagnostic": self._rgbd_diagnostic,
+                "target_command_before_safety": {
+                    "vx": self._target_command.linear_x,
+                    "wz": self._target_command.angular_z,
+                },
                 "last_inference_s": round(self._last_inference_s, 3),
                 "candidate_count": int(self._candidate_trajectories.shape[0]),
                 "clearance_m": None if clearance is None else round(clearance, 3),
