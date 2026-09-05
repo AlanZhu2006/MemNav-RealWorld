@@ -71,7 +71,6 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
   width: 100%;
   min-width: 0;
   height: 34px;
@@ -151,12 +150,6 @@
 .control-button--danger:hover:not(:disabled) {
   color: var(--danger-hover-foreground);
   background: var(--danger-hover);
-}
-
-.control-icon {
-  flex: 0 0 14px;
-  width: 14px;
-  height: 14px;
 }
 
 .episode-strip {
@@ -249,12 +242,7 @@
   }
 
   .control-button {
-    gap: 0;
     padding: 0 5px;
     font-size: 9px;
-  }
-
-  .control-icon {
-    display: none;
   }
 }

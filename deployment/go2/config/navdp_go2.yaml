@@ -33,39 +33,44 @@ navdp_go2_adapter:
     sensor_timeout_s: 1.00
     trajectory_timeout_s: 5.00
     max_rgb_depth_skew_s: 0.10
-    rgbd_sync_queue_size: 15
+    # Keep only a small pairing backlog. Post-stop admission below uses source
+    # timestamps as the authority, but a shorter queue also avoids wasted
+    # conversion work when the Jetson is busy.
+    rgbd_sync_queue_size: 5
     depth_scale_m: 0.001
     lookahead_m: 0.60
     heading_deadband_rad: 0.13962634015954636  # 8 deg; validated TinyNav anti-hunting gate
     rotate_in_place_angle_rad: 0.70
     rotate_gain: 1.50
-    slow_path_length_m: 1.00
+    slow_path_length_m: 0.30
     allow_reverse: false
     reverse_lateral_angle_rad: 0.55
     max_linear_accel_mps2: 0.45
     max_angular_accel_rps2: 1.00
 
-    # Remote planning currently takes roughly 0.8-1.0 s.  Bound the angular
-    # travel executed per stale observation, turn before translating, and
-    # require two plans to agree before reversing steering direction.
+    # Event-driven stop-plan-act execution: start the clock at the first
+    # command actually published; stop after 0.10 m, 10 deg, or 0.80 s; wait
+    # for the body to settle; then require RGB-D captured after the stop.
     latency_motion_guard_enabled: true
-    latency_max_open_loop_heading_rad: 0.17453292519943295  # 10 deg
     latency_max_plan_input_age_s: 1.50
-    latency_turn_in_place_after_s: 0.45
-    latency_turning_translation_cutoff_rps: 0.12
-    latency_turning_creep_mps: 0.08
-    latency_reversal_deadband_rps: 0.08
-    latency_reversal_confirmation_plans: 2
+    stop_plan_act_enabled: true
+    command_execution_max_s: 0.80
+    command_translation_budget_m: 0.10
+    command_heading_budget_rad: 0.17453292519943295  # 10 deg
+    settle_before_sense_s: 0.15
 
     # Start at 0.10 m/s for 0.60 s, then retain the measured effective Go2
-    # locomotion floor. Fail closed if one certified turn persists abnormally.
+    # locomotion floor. The watchdog counts published turn time only; remote
+    # inference and stationary settling do not consume its 20 s allowance.
     certified_turn_bootstrap_s: 0.60
     certified_turn_max_s: 20.0
 
-    # Tight indoor lab setting requested by the operator. The 0.80 m slowdown
-    # envelope and fail-closed invalid-depth behavior remain unchanged.
+    # Tight indoor lab setting requested by the operator. There is no soft
+    # slowdown band: motion is unchanged above 0.35 m and hard-stops at or
+    # below 0.35 m for forward translation. Pure yaw is not blocked by a
+    # center-front ROI that cannot represent the robot's swept side footprint.
+    # Invalid depth remains fail-closed for every motion command.
     depth_hard_stop_m: 0.35
-    depth_slow_distance_m: 0.80
     depth_percentile: 10.0
     depth_roi_left: 0.35
     depth_roi_right: 0.65

@@ -28,14 +28,15 @@ from visualization_msgs.msg import Marker, MarkerArray
 
 from debug_visualization import ranked_candidates, score_rgb
 from image_goal_io import load_rgb_image
-from latency_motion_guard import LatencyMotionGuard, LatencyMotionGuardConfig
+from latency_motion_guard import (
+    LatencyMotionGuard,
+    LatencyMotionGuardConfig,
+    StopPlanActConfig,
+    StopPlanActGate,
+)
 from navdp_client import NavDPClient
 from navigation_diagnostics import plan_diagnostics
-from terminal_motion_override import (
-    CERTIFIED_TURN_REASONS,
-    CertifiedTurnBootstrap,
-    terminal_motion_override,
-)
+from terminal_motion_override import CertifiedTurnBootstrap, terminal_motion_override
 from trajectory_control import (
     ControllerConfig,
     DepthSafetyConfig,
@@ -68,6 +69,8 @@ class NavDPGo2Adapter(Node):
         self._depth_m: Optional[np.ndarray] = None
         self._intrinsic: Optional[np.ndarray] = None
         self._rgbd_monotonic = 0.0
+        self._rgbd_source_stamp_ns = 0
+        self._rgbd_source_age_at_receive_s: Optional[float] = None
         self._rgb_depth_skew_s: Optional[float] = None
         self._image_goal: Optional[np.ndarray] = load_rgb_image(
             self.image_goal_path
@@ -94,6 +97,7 @@ class NavDPGo2Adapter(Node):
         self._latency_motion_guard = LatencyMotionGuard(
             self.latency_motion_guard_config
         )
+        self._stop_plan_act_gate = StopPlanActGate(self.stop_plan_act_config)
         self._latency_motion_receipt: dict = {}
         self._certified_turn_bootstrap = CertifiedTurnBootstrap(
             self.certified_turn_bootstrap_s,
@@ -269,7 +273,7 @@ class NavDPGo2Adapter(Node):
             "sensor_timeout_s": 0.60,
             "trajectory_timeout_s": 5.00,
             "max_rgb_depth_skew_s": 0.10,
-            "rgbd_sync_queue_size": 15,
+            "rgbd_sync_queue_size": 5,
             "depth_scale_m": 0.001,
             "lookahead_m": 0.60,
             "max_linear_mps": 0.30,
@@ -277,23 +281,21 @@ class NavDPGo2Adapter(Node):
             "heading_deadband_rad": math.radians(8.0),
             "rotate_in_place_angle_rad": 0.70,
             "rotate_gain": 1.50,
-            "slow_path_length_m": 1.00,
+            "slow_path_length_m": 0.30,
             "allow_reverse": False,
             "reverse_lateral_angle_rad": 0.55,
             "max_linear_accel_mps2": 0.50,
             "max_angular_accel_rps2": 1.20,
             "latency_motion_guard_enabled": True,
-            "latency_max_open_loop_heading_rad": math.radians(10.0),
             "latency_max_plan_input_age_s": 1.50,
-            "latency_turn_in_place_after_s": 0.45,
-            "latency_turning_translation_cutoff_rps": 0.12,
-            "latency_turning_creep_mps": 0.08,
-            "latency_reversal_deadband_rps": 0.08,
-            "latency_reversal_confirmation_plans": 2,
+            "stop_plan_act_enabled": True,
+            "command_execution_max_s": 0.80,
+            "command_translation_budget_m": 0.10,
+            "command_heading_budget_rad": math.radians(10.0),
+            "settle_before_sense_s": 0.15,
             "certified_turn_bootstrap_s": 0.60,
             "certified_turn_max_s": 20.0,
             "depth_hard_stop_m": 0.35,
-            "depth_slow_distance_m": 0.80,
             "depth_percentile": 10.0,
             "depth_roi_left": 0.35,
             "depth_roi_right": 0.65,
@@ -389,6 +391,10 @@ class NavDPGo2Adapter(Node):
             "depth_scale_m",
             "max_linear_accel_mps2",
             "max_angular_accel_rps2",
+            "command_execution_max_s",
+            "command_translation_budget_m",
+            "command_heading_budget_rad",
+            "settle_before_sense_s",
             "certified_turn_bootstrap_s",
             "certified_turn_max_s",
         ):
@@ -419,6 +425,14 @@ class NavDPGo2Adapter(Node):
             raise ValueError("certified_turn_max_s must be positive")
         if self.certified_turn_max_s < self.certified_turn_bootstrap_s:
             raise ValueError("certified_turn_max_s must cover the bootstrap")
+        if self.command_execution_max_s <= 0.0:
+            raise ValueError("command_execution_max_s must be positive")
+        if self.command_translation_budget_m <= 0.0:
+            raise ValueError("command_translation_budget_m must be positive")
+        if self.command_heading_budget_rad <= 0.0:
+            raise ValueError("command_heading_budget_rad must be positive")
+        if self.settle_before_sense_s < 0.0:
+            raise ValueError("settle_before_sense_s must be nonnegative")
 
         self.controller_config = ControllerConfig(
             lookahead_m=float(self.get_parameter("lookahead_m").value),
@@ -439,7 +453,6 @@ class NavDPGo2Adapter(Node):
         )
         self.depth_safety_config = DepthSafetyConfig(
             hard_stop_m=float(self.get_parameter("depth_hard_stop_m").value),
-            slow_distance_m=float(self.get_parameter("depth_slow_distance_m").value),
             percentile=float(self.get_parameter("depth_percentile").value),
             roi_left=float(self.get_parameter("depth_roi_left").value),
             roi_right=float(self.get_parameter("depth_roi_right").value),
@@ -450,38 +463,21 @@ class NavDPGo2Adapter(Node):
             ),
             max_valid_depth_m=float(self.get_parameter("depth_max_valid_m").value),
             fail_closed=bool(self.get_parameter("depth_fail_closed").value),
-            protect_reverse=True,
-            protect_rotation=True,
         )
         self.latency_motion_guard_config = LatencyMotionGuardConfig(
             enabled=bool(
                 self.get_parameter("latency_motion_guard_enabled").value
             ),
-            max_open_loop_heading_rad=float(
-                self.get_parameter("latency_max_open_loop_heading_rad").value
-            ),
             max_plan_input_age_s=float(
                 self.get_parameter("latency_max_plan_input_age_s").value
             ),
-            turn_in_place_after_s=float(
-                self.get_parameter("latency_turn_in_place_after_s").value
-            ),
-            turning_translation_cutoff_rps=float(
-                self.get_parameter(
-                    "latency_turning_translation_cutoff_rps"
-                ).value
-            ),
-            turning_creep_mps=float(
-                self.get_parameter("latency_turning_creep_mps").value
-            ),
-            reversal_deadband_rps=float(
-                self.get_parameter("latency_reversal_deadband_rps").value
-            ),
-            reversal_confirmation_plans=int(
-                self.get_parameter(
-                    "latency_reversal_confirmation_plans"
-                ).value
-            ),
+        )
+        self.stop_plan_act_config = StopPlanActConfig(
+            enabled=bool(self.get_parameter("stop_plan_act_enabled").value),
+            max_execution_s=self.command_execution_max_s,
+            max_translation_m=self.command_translation_budget_m,
+            max_heading_rad=self.command_heading_budget_rad,
+            settle_before_sense_s=self.settle_before_sense_s,
         )
 
     @staticmethod
@@ -558,11 +554,19 @@ class NavDPGo2Adapter(Node):
         except (AttributeError, RuntimeError):
             pair_received_ros_ns = None
             pair_received_ros_s = None
+        source_stamp_ns = min(rgb_stamp_ns, depth_stamp_ns)
+        source_age_at_receive_s = (
+            None
+            if pair_received_ros_ns is None or source_stamp_ns <= 0
+            else max(0.0, (pair_received_ros_ns - source_stamp_ns) / 1e9)
+        )
 
         with self._lock:
             self._rgb = rgb.copy()
             self._depth_m = depth_m.copy()
             self._rgbd_monotonic = time.monotonic()
+            self._rgbd_source_stamp_ns = source_stamp_ns
+            self._rgbd_source_age_at_receive_s = source_age_at_receive_s
             self._rgb_depth_skew_s = skew_s
             self._rgbd_diagnostic = {
                 "rgb_stamp_s": rgb_stamp_s,
@@ -572,6 +576,8 @@ class NavDPGo2Adapter(Node):
                 "pair_received_monotonic_s": self._rgbd_monotonic,
                 "pair_received_ros_s": pair_received_ros_s,
                 "pair_received_ros_ns": pair_received_ros_ns,
+                "source_stamp_ns": source_stamp_ns,
+                "source_age_at_receive_s": source_age_at_receive_s,
             }
 
     def _on_camera_info(self, msg: CameraInfo) -> None:
@@ -587,9 +593,22 @@ class NavDPGo2Adapter(Node):
     def _on_enable(self, msg: Bool) -> None:
         self._set_enabled(bool(msg.data), "enable topic")
 
+    def _reset_motion_guards_locked(self) -> None:
+        # A few pure unit-test adapters intentionally bypass __init__. Keep
+        # emergency/episode locking usable there while real nodes always have
+        # both guards.
+        stop_plan_act_gate = getattr(self, "_stop_plan_act_gate", None)
+        if stop_plan_act_gate is not None:
+            stop_plan_act_gate.reset()
+        certified_turn = getattr(self, "_certified_turn_bootstrap", None)
+        if certified_turn is not None:
+            certified_turn.reset()
+
     def _on_estop(self, msg: Bool) -> None:
         with self._lock:
             self._estop = bool(msg.data)
+            if msg.data:
+                self._reset_motion_guards_locked()
         if msg.data:
             self._publish_zero("estop")
             self.get_logger().warning("NavDP emergency stop asserted")
@@ -604,6 +623,7 @@ class NavDPGo2Adapter(Node):
             self._arrival_latched = True
             self._estop = True
             self._enabled = False
+            self._reset_motion_guards_locked()
             if self.two_phase_episode and self._phase == "memory_recording":
                 self.pause_memory_recording = True
             receipt = {
@@ -638,6 +658,7 @@ class NavDPGo2Adapter(Node):
             self._enabled = False
             self._estop = True
             self._target_command = VelocityCommand()
+            self._reset_motion_guards_locked()
         self._publish_zero("operator_stop")
         response.success = True
         response.message = (
@@ -655,6 +676,7 @@ class NavDPGo2Adapter(Node):
             self._estop = True
             self._target_command = VelocityCommand()
             self.pause_memory_recording = bool(pause)
+            self._reset_motion_guards_locked()
         self._publish_zero(reason)
 
     def _finish_survey_action(
@@ -1052,6 +1074,8 @@ class NavDPGo2Adapter(Node):
             self._terminal_motion_receipt = {}
             self._latency_motion_guard.reset()
             self._latency_motion_receipt = {}
+            self._reset_motion_guards_locked()
+            self._certified_turn_bootstrap_receipt = {}
             self._last_receipt_event = ""
             self._survey_seal_receipt = {}
             self._survey_last_action = ""
@@ -1276,6 +1300,8 @@ class NavDPGo2Adapter(Node):
         with self._lock:
             changed = enabled != self._enabled
             self._enabled = enabled
+            if not enabled:
+                self._reset_motion_guards_locked()
         if not enabled:
             self._publish_zero("disabled")
         elif self._estop:
@@ -1285,9 +1311,21 @@ class NavDPGo2Adapter(Node):
                 f"NavDP motion {'enabled' if enabled else 'disabled'} by {source}"
             )
 
+    def _stop_plan_act_phase_locked(self, now_s: float) -> str:
+        return self._stop_plan_act_gate.phase(
+            now_s=now_s,
+            latest_rgbd_source_ns=self._rgbd_source_stamp_ns,
+        )
+
     def _request_inference(self) -> None:
+        now = time.monotonic()
         with self._lock:
             should_plan = self.plan_while_disabled or self._enabled
+            if self._inference_busy:
+                should_plan = False
+            elif self._enabled and self.stop_plan_act_config.enabled:
+                phase = self._stop_plan_act_phase_locked(now)
+                should_plan = self._stop_plan_act_gate.planning_allowed(phase)
         if should_plan:
             self._inference_event.set()
 
@@ -1301,10 +1339,24 @@ class NavDPGo2Adapter(Node):
                 and self.pause_memory_recording
             ):
                 return None, "memory_recording_paused"
+            if (
+                self._enabled
+                and self.stop_plan_act_config.enabled
+                and self._plan_monotonic > 0.0
+            ):
+                phase = self._stop_plan_act_phase_locked(now)
+                if not self._stop_plan_act_gate.planning_allowed(phase):
+                    return None, f"stop_plan_act_{phase}"
             if self._rgb is None or self._depth_m is None or self._intrinsic is None:
                 return None, "waiting_for_rgbd_or_camera_info"
             if now - self._rgbd_monotonic > self.sensor_timeout_s:
                 return None, "rgbd_stale"
+            if self._rgbd_source_age_at_receive_s is not None:
+                source_age = self._rgbd_source_age_at_receive_s + max(
+                    0.0, now - self._rgbd_monotonic
+                )
+                if source_age > self.sensor_timeout_s:
+                    return None, "rgbd_source_stale"
             if (
                 self.two_phase_episode
                 and self._phase in (None, "memory_recording")
@@ -1567,19 +1619,23 @@ class NavDPGo2Adapter(Node):
                     target = terminal.command
                 finished = time.monotonic()
                 pair_received = input_timing.get("pair_received_monotonic_s")
+                source_age_at_receive = input_timing.get(
+                    "source_age_at_receive_s"
+                )
                 plan_input_age_s = (
                     None
                     if pair_received is None
-                    else finished - float(pair_received)
+                    else finished
+                    - float(pair_received)
+                    + (
+                        float(source_age_at_receive)
+                        if source_age_at_receive is not None
+                        else 0.0
+                    )
                 )
                 guarded = self._latency_motion_guard.apply(
                     target,
                     plan_input_age_s=plan_input_age_s,
-                    max_angular_rps=self.controller_config.max_angular_rps,
-                    preserve_turn_creep=(
-                        terminal.applied
-                        and terminal.reason in CERTIFIED_TURN_REASONS
-                    ),
                 )
                 target = guarded.command
                 with self._lock:
@@ -1588,6 +1644,7 @@ class NavDPGo2Adapter(Node):
                     self._candidate_values = candidate_values
                     self._target_command = target
                     self._plan_monotonic = finished
+                    self._stop_plan_act_gate.install_plan(finished)
                     self._last_inference_s = finished - started
                     self._last_error = ""
                     self._stop_reason = "ready"
@@ -1638,6 +1695,12 @@ class NavDPGo2Adapter(Node):
             return "waiting_for_rgbd_or_camera_info"
         if now - self._rgbd_monotonic > self.sensor_timeout_s:
             return "rgbd_stale"
+        if self._rgbd_source_age_at_receive_s is not None:
+            source_age = self._rgbd_source_age_at_receive_s + max(
+                0.0, now - self._rgbd_monotonic
+            )
+            if source_age > self.sensor_timeout_s:
+                return "rgbd_source_stale"
         if self._image_goal is None:
             return "waiting_for_image_goal"
         if self._trajectory is None or self._plan_monotonic <= 0.0:
@@ -1646,7 +1709,25 @@ class NavDPGo2Adapter(Node):
             return "trajectory_stale"
         if self._last_error:
             return "inference_error"
+        if self.stop_plan_act_config.enabled:
+            phase = self._stop_plan_act_phase_locked(now)
+            if phase == "stop_pending":
+                return "action_complete"
+            if not self._stop_plan_act_gate.motion_allowed(phase):
+                return "awaiting_fresh_plan"
         return None
+
+    def _ros_now_ns(self) -> Optional[int]:
+        try:
+            value = int(self.get_clock().now().nanoseconds)
+        except (AttributeError, RuntimeError):
+            return None
+        return value if value > 0 else None
+
+    def _note_action_stopped_after_zero(self, now_s: float) -> None:
+        stopped_ros_ns = self._ros_now_ns()
+        with self._lock:
+            self._stop_plan_act_gate.note_action_stopped(now_s, stopped_ros_ns)
 
     def _control_tick(self) -> None:
         now = time.monotonic()
@@ -1658,6 +1739,14 @@ class NavDPGo2Adapter(Node):
             terminal_reason = str(
                 self._terminal_motion_receipt.get("reason") or ""
             )
+
+        if reason == "action_complete":
+            self._publish_zero(reason)
+            self._note_action_stopped_after_zero(now)
+            return
+
+        if reason == "awaiting_fresh_plan":
+            self._request_inference()
 
         bootstrap = self._certified_turn_bootstrap.apply(
             target,
@@ -1681,11 +1770,16 @@ class NavDPGo2Adapter(Node):
 
         if reason is not None:
             self._publish_zero(reason)
+            if reason not in {"disabled", "estop", "waiting_for_plan"}:
+                # A sensor/policy interruption ends this action; never resume
+                # its old command merely because the fault later clears.
+                self._note_action_stopped_after_zero(now)
             return
 
         safety = apply_depth_safety(target, depth, self.depth_safety_config)
         if safety.reason in {"obstacle_stop", "depth_unavailable_stop"}:
             self._publish_zero(safety.reason)
+            self._note_action_stopped_after_zero(now)
             return
 
         command = slew_limit(
@@ -1696,6 +1790,18 @@ class NavDPGo2Adapter(Node):
             self.max_angular_accel_rps2,
         )
         self._publish_command(command, safety.reason)
+        self._certified_turn_bootstrap.record_execution(
+            command,
+            reason=terminal_reason,
+            dt_s=dt,
+        )
+        with self._lock:
+            phase = self._stop_plan_act_gate.note_command_published(now, command)
+        if phase == "stop_pending":
+            # A zero policy/hold command completes immediately. The zero has
+            # already been published above, so start the physical settle clock
+            # from that publication instead of consuming an empty action slot.
+            self._note_action_stopped_after_zero(now)
 
     def _publish_command(self, command: VelocityCommand, reason: str) -> None:
         msg = Twist()
@@ -1965,6 +2071,19 @@ class NavDPGo2Adapter(Node):
                 )
             else:
                 survey_state = "INACTIVE"
+            rgbd_source_age_s = (
+                None
+                if self._rgbd_source_age_at_receive_s is None
+                else round(
+                    self._rgbd_source_age_at_receive_s
+                    + max(0.0, now - self._rgbd_monotonic),
+                    3,
+                )
+            )
+            command_execution = self._stop_plan_act_gate.audit_dict(
+                now_s=now,
+                latest_rgbd_source_ns=self._rgbd_source_stamp_ns,
+            )
             payload = {
                 "backend": self.backend,
                 "mode": self.mode,
@@ -1976,6 +2095,8 @@ class NavDPGo2Adapter(Node):
                 "rgb_age_s": self._age(now, self._rgbd_monotonic),
                 "depth_age_s": self._age(now, self._rgbd_monotonic),
                 "rgbd_age_s": self._age(now, self._rgbd_monotonic),
+                "rgbd_source_age_s": rgbd_source_age_s,
+                "rgbd_source_stamp_ns": self._rgbd_source_stamp_ns,
                 "rgb_depth_skew_s": (
                     None
                     if self._rgb_depth_skew_s is None
@@ -1998,7 +2119,6 @@ class NavDPGo2Adapter(Node):
                 "candidate_count": int(self._candidate_trajectories.shape[0]),
                 "clearance_m": None if clearance is None else round(clearance, 3),
                 "depth_hard_stop_m": self.depth_safety_config.hard_stop_m,
-                "depth_slow_distance_m": self.depth_safety_config.slow_distance_m,
                 "stop_reason": self._stop_reason,
                 "last_error": self._last_error,
                 "phase": self._phase,
@@ -2062,6 +2182,19 @@ class NavDPGo2Adapter(Node):
                 ),
                 "terminal_motion_override": self._terminal_motion_receipt,
                 "latency_motion_guard": self._latency_motion_receipt,
+                "command_execution_mode": (
+                    "stop_plan_act"
+                    if self.stop_plan_act_config.enabled
+                    else "continuous"
+                ),
+                "command_execution_phase": command_execution["phase"],
+                "command_execution": command_execution,
+                "command_execution_max_s": self.command_execution_max_s,
+                "command_translation_budget_m": (
+                    self.command_translation_budget_m
+                ),
+                "command_heading_budget_rad": self.command_heading_budget_rad,
+                "settle_before_sense_s": self.settle_before_sense_s,
                 "certified_turn_bootstrap": (
                     self._certified_turn_bootstrap_receipt
                 ),

@@ -112,7 +112,7 @@ def test_command_bridge_reuses_its_lowstate_subscription_for_battery(monkeypatch
     assert bridge._battery_sample.received_monotonic == 10.0
 
 
-def test_zero_linear_floor_does_not_amplify_depth_slowdown():
+def test_zero_linear_floor_does_not_amplify_small_commands():
     assert Go2CmdBridge.apply_floor(0.03, 0.0) == pytest.approx(0.03)
     assert Go2CmdBridge.apply_floor(0.10, 0.0) == pytest.approx(0.10)
 

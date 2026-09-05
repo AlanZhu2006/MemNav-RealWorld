@@ -14,7 +14,7 @@ repeatable Episode sequence through five fixed, fail-closed ROS 2 services:
 - `REVISIT` directly calls
   `/memnav_operator/start_revisit` to validate the sealed Survey, restart the
   fixed Full-Mono stack, run fresh-plan/clearance checks and supervise return.
-- `STOP NAVIGATION` calls `/memnav_operator/operator_stop`, cancelling any
+- `STOP` calls `/memnav_operator/operator_stop`, cancelling any
   stage, locking motion, closing the MCAP and hash-finalizing the Episode.
 
 The Episode ID, stage and `REC RGB-D` state remain visible in the control panel.

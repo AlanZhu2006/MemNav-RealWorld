@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Rename Stop Navigation to Stop and remove decorative icons from every action button.
+- Show front clearance as Clear or Stop after removing the intermediate soft-slowdown state.
+
 ## 0.1.0
 
 - Add compact React controls for Start Survey, Stop Survey, and Stop Navigation.

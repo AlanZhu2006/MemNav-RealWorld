@@ -463,9 +463,7 @@ def build_operator_diagnostics(
     rgbd_skew = _number(payload.get("rgb_depth_skew_s"))
     clearance = _number(payload.get("clearance_m"))
     hard_stop_m = _number(payload.get("depth_hard_stop_m"))
-    slow_distance_m = _number(payload.get("depth_slow_distance_m"))
     hard_stop_m = 0.45 if hard_stop_m is None else hard_stop_m
-    slow_distance_m = 0.80 if slow_distance_m is None else slow_distance_m
     plan_age = _number(payload.get("plan_age_s"))
     battery = payload.get("go2_battery")
     if not isinstance(battery, dict):
@@ -496,11 +494,6 @@ def build_operator_diagnostics(
         depth_level, depth_message = (
             DiagnosticStatus.ERROR,
             f"{clearance:.2f} m · STOP",
-        )
-    elif clearance < slow_distance_m:
-        depth_level, depth_message = (
-            DiagnosticStatus.WARN,
-            f"{clearance:.2f} m · DANGER",
         )
     else:
         depth_level, depth_message = (
@@ -668,7 +661,6 @@ def build_observer_payload(
         "rgb_depth_skew_s": rgb_depth_skew_s,
         "clearance_m": visible_clearance,
         "depth_hard_stop_m": depth_config.hard_stop_m,
-        "depth_slow_distance_m": depth_config.slow_distance_m,
         "plan_age_s": None,
         "go2_battery": dict(battery),
     }

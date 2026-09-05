@@ -70,7 +70,7 @@ const ACTIONS: readonly Action[] = [
   },
   {
     id: "stop-navigation",
-    label: "STOP NAVIGATION",
+    label: "STOP",
     pendingLabel: "STOPPING…",
     serviceNames: ["/memnav_operator/operator_stop"],
     title: "Abort the Episode, close recording, disable motion and assert estop",
@@ -167,68 +167,6 @@ function workflowNotice(status: WorkflowStatus): Notice {
     return { message: status.detail, tone: "error" };
   }
   return { message: status.detail, tone: "muted" };
-}
-
-function ActionIcon({ action }: { action: ActionId }): ReactElement {
-  if (action === "capture-goal") {
-    return (
-      <svg aria-hidden="true" className="control-icon" viewBox="0 0 16 16">
-        <rect
-          x="2.25"
-          y="4"
-          width="11.5"
-          height="8.25"
-          rx="1.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.4"
-        />
-        <path
-          d="M5 4 6 2.75h4L11 4"
-          fill="none"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="1.4"
-        />
-        <circle cx="8" cy="8.1" r="2.15" fill="none" stroke="currentColor" strokeWidth="1.4" />
-      </svg>
-    );
-  }
-  if (action === "start-survey") {
-    return (
-      <svg aria-hidden="true" className="control-icon" viewBox="0 0 16 16">
-        <path d="M5 3.5 12 8l-7 4.5z" fill="currentColor" />
-      </svg>
-    );
-  }
-  if (action === "stop-survey") {
-    return (
-      <svg aria-hidden="true" className="control-icon" viewBox="0 0 16 16">
-        <rect x="4" y="4" width="8" height="8" rx="1" fill="currentColor" />
-      </svg>
-    );
-  }
-  if (action === "revisit") {
-    return (
-      <svg aria-hidden="true" className="control-icon" viewBox="0 0 16 16">
-        <path
-          d="M6.25 4H3v-3M3.2 3.8A6 6 0 1 1 2.1 9"
-          fill="none"
-          stroke="currentColor"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="1.5"
-        />
-      </svg>
-    );
-  }
-  return (
-    <svg aria-hidden="true" className="control-icon" viewBox="0 0 16 16">
-      <circle cx="8" cy="8" r="5.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <rect x="5.25" y="5.25" width="5.5" height="5.5" rx="0.75" fill="currentColor" />
-    </svg>
-  );
 }
 
 function OperatorControls({ context }: { context: PanelExtensionContext }): ReactElement {
@@ -358,7 +296,6 @@ function OperatorControls({ context }: { context: PanelExtensionContext }): Reac
                 activateAction(action);
               }}
             >
-              <ActionIcon action={action.id} />
               <span>{isPending ? action.pendingLabel : action.label}</span>
             </button>
           );

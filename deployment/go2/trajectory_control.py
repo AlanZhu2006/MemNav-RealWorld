@@ -20,7 +20,9 @@ class ControllerConfig:
     heading_deadband_rad: float = math.radians(8.0)
     rotate_in_place_angle_rad: float = 0.70
     rotate_gain: float = 1.50
-    slow_path_length_m: float = 1.00
+    # Only taper inside the final local 0.30 m. The earlier 1.0 m value
+    # suppressed nearly every short stop-plan-act command twice.
+    slow_path_length_m: float = 0.30
     allow_reverse: bool = False
     reverse_lateral_angle_rad: float = 0.55
 
@@ -38,7 +40,6 @@ class VelocityCommand:
 @dataclass(frozen=True)
 class DepthSafetyConfig:
     hard_stop_m: float = 0.35
-    slow_distance_m: float = 0.80
     percentile: float = 10.0
     roi_left: float = 0.35
     roi_right: float = 0.65
@@ -47,8 +48,6 @@ class DepthSafetyConfig:
     min_valid_fraction: float = 0.03
     max_valid_depth_m: float = 5.0
     fail_closed: bool = True
-    protect_reverse: bool = True
-    protect_rotation: bool = True
 
 
 @dataclass(frozen=True)
@@ -179,12 +178,8 @@ def apply_depth_safety(
     config: DepthSafetyConfig = DepthSafetyConfig(),
 ) -> SafetyResult:
     clearance = front_clearance(depth_m, config)
-    protected_motion = (
-        command.linear_x > 0.0
-        or (config.protect_reverse and command.linear_x < 0.0)
-        or (config.protect_rotation and abs(command.angular_z) > 0.0)
-    )
-    if not protected_motion:
+    has_motion = abs(command.linear_x) > 0.0 or abs(command.angular_z) > 0.0
+    if not has_motion:
         return SafetyResult(command=command, clearance_m=clearance, reason="clear")
 
     if clearance is None:
@@ -198,7 +193,10 @@ def apply_depth_safety(
         )
         return SafetyResult(command=stopped, clearance_m=None, reason="depth_unavailable_stop")
 
-    if clearance <= config.hard_stop_m:
+    # The D435i center ROI is authoritative only for forward translation. It
+    # cannot geometrically certify rear clearance or the swept side footprint
+    # of a pure rotation, so do not present those as protected directions.
+    if command.linear_x > 0.0 and clearance <= config.hard_stop_m:
         stopped = VelocityCommand(
             target_x=command.target_x,
             target_y=command.target_y,
@@ -206,19 +204,6 @@ def apply_depth_safety(
             reverse=command.reverse,
         )
         return SafetyResult(command=stopped, clearance_m=clearance, reason="obstacle_stop")
-
-    if command.linear_x > 0.0 and clearance < config.slow_distance_m:
-        span = max(config.slow_distance_m - config.hard_stop_m, 1e-3)
-        scale = float(np.clip((clearance - config.hard_stop_m) / span, 0.0, 1.0))
-        slowed = VelocityCommand(
-            linear_x=command.linear_x * scale,
-            angular_z=command.angular_z,
-            target_x=command.target_x,
-            target_y=command.target_y,
-            path_length=command.path_length,
-            reverse=command.reverse,
-        )
-        return SafetyResult(command=slowed, clearance_m=clearance, reason="obstacle_slow")
 
     return SafetyResult(command=command, clearance_m=clearance, reason="clear")
 

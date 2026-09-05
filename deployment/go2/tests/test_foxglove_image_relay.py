@@ -274,7 +274,6 @@ def test_operator_diagnostics_are_fixed_glanceable_six_row_summary():
         "plan_age_s": 0.3,
         "clearance_m": 1.42,
         "depth_hard_stop_m": 0.45,
-        "depth_slow_distance_m": 0.80,
         "candidate_count": 5,
         "go2_battery": {
             "online": True,
@@ -435,7 +434,7 @@ def test_operator_fault_has_error_diagnostic_without_hiding_mode():
     [
         (None, DiagnosticStatus.STALE, "OFFLINE"),
         (0.40, DiagnosticStatus.ERROR, "0.40 m · STOP"),
-        (0.60, DiagnosticStatus.WARN, "0.60 m · DANGER"),
+        (0.60, DiagnosticStatus.OK, "0.60 m · CLEAR"),
         (0.90, DiagnosticStatus.OK, "0.90 m · CLEAR"),
     ],
 )
@@ -449,7 +448,6 @@ def test_clearance_diagnostic_explains_safety_thresholds(
             "estop": True,
             "clearance_m": clearance_m,
             "depth_hard_stop_m": 0.45,
-            "depth_slow_distance_m": 0.80,
             "go2_battery": {"online": False},
         }
     )

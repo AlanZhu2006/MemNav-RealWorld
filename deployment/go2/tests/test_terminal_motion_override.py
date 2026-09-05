@@ -85,6 +85,12 @@ def test_certified_turn_creep_is_one_short_gait_bootstrap_pulse():
     assert started.phase == "gait_bootstrap"
     assert started.command.linear_x == CERTIFIED_TURN_CREEP_MPS
 
+    gate.record_execution(
+        started.command,
+        reason="certified_long_range_atomic_turn",
+        dt_s=0.61,
+    )
+
     maintenance = gate.apply(
         command,
         reason="certified_long_range_atomic_turn",
@@ -105,6 +111,11 @@ def test_certified_turn_bootstrap_rearms_only_for_a_new_turn():
         reason="certified_atomic_turn",
         motion_allowed=True,
         now_s=1.0,
+    )
+    gate.record_execution(
+        left,
+        reason="certified_atomic_turn",
+        dt_s=0.20,
     )
     expired = gate.apply(
         left,
@@ -137,6 +148,11 @@ def test_certified_turn_bootstrap_fails_closed_after_max_duration():
         motion_allowed=True,
         now_s=10.0,
     )
+    gate.record_execution(
+        command,
+        reason="certified_long_range_atomic_turn",
+        dt_s=20.0,
+    )
 
     expired = gate.apply(
         command,
@@ -149,6 +165,55 @@ def test_certified_turn_bootstrap_fails_closed_after_max_duration():
     assert expired.elapsed_s == pytest.approx(20.0)
     assert expired.command.linear_x == 0.0
     assert expired.command.angular_z == 0.0
+
+
+def test_certified_turn_watchdog_excludes_stationary_plan_waits():
+    gate = CertifiedTurnBootstrap(duration_s=0.60)
+    command = VelocityCommand(
+        linear_x=CERTIFIED_TURN_CREEP_MPS,
+        angular_z=0.20,
+    )
+    gate.apply(
+        command,
+        reason="certified_long_range_atomic_turn",
+        motion_allowed=True,
+        now_s=10.0,
+    )
+
+    paused = gate.apply(
+        command,
+        reason="certified_long_range_atomic_turn",
+        motion_allowed=False,
+        now_s=40.0,
+    )
+    assert paused.phase == "inactive"
+
+    gate.record_execution(
+        command,
+        reason="certified_long_range_atomic_turn",
+        dt_s=19.9,
+    )
+    active = gate.apply(
+        command,
+        reason="certified_long_range_atomic_turn",
+        motion_allowed=True,
+        now_s=70.0,
+    )
+    gate.record_execution(
+        command,
+        reason="certified_long_range_atomic_turn",
+        dt_s=0.1,
+    )
+    expired = gate.apply(
+        command,
+        reason="certified_long_range_atomic_turn",
+        motion_allowed=True,
+        now_s=100.0,
+    )
+
+    assert active.phase == "maintenance_creep"
+    assert expired.phase == "turn_timeout"
+    assert expired.elapsed_s == pytest.approx(20.0)
 
 
 @pytest.mark.parametrize("duration", [-0.1, float("nan"), float("inf")])

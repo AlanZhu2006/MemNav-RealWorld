@@ -51,7 +51,7 @@ class CertifiedTurnBootstrapResult:
 
 
 class CertifiedTurnBootstrap:
-    """Use a gait-start pulse, bounded creep, and a fail-closed turn timeout."""
+    """Use a gait-start pulse, bounded creep, and an active-time watchdog."""
 
     def __init__(self, duration_s: float = 0.60, max_duration_s: float = 20.0) -> None:
         if not math.isfinite(duration_s) or duration_s < 0.0:
@@ -69,11 +69,22 @@ class CertifiedTurnBootstrap:
         self.duration_s = float(duration_s)
         self.max_duration_s = float(max_duration_s)
         self._key: tuple[str, int] | None = None
-        self._started_s: float | None = None
+        self._active_elapsed_s = 0.0
 
     def reset(self) -> None:
         self._key = None
-        self._started_s = None
+        self._active_elapsed_s = 0.0
+
+    def _select_turn(self, reason: str, angular_z: float) -> bool:
+        if reason not in CERTIFIED_TURN_REASONS or abs(angular_z) <= 0.0:
+            self.reset()
+            return False
+        turn_sign = 1 if angular_z > 0.0 else -1
+        key = (reason, turn_sign)
+        if key != self._key:
+            self._key = key
+            self._active_elapsed_s = 0.0
+        return True
 
     def apply(
         self,
@@ -83,20 +94,12 @@ class CertifiedTurnBootstrap:
         motion_allowed: bool,
         now_s: float,
     ) -> CertifiedTurnBootstrapResult:
-        if (
-            not motion_allowed
-            or reason not in CERTIFIED_TURN_REASONS
-            or abs(command.angular_z) <= 0.0
-        ):
-            self.reset()
+        if not self._select_turn(reason, command.angular_z):
             return CertifiedTurnBootstrapResult(command, "inactive", None)
-
-        turn_sign = 1 if command.angular_z > 0.0 else -1
-        key = (reason, turn_sign)
-        if key != self._key or self._started_s is None:
-            self._key = key
-            self._started_s = float(now_s)
-        elapsed_s = max(0.0, float(now_s) - self._started_s)
+        elapsed_s = self._active_elapsed_s
+        if not motion_allowed:
+            phase = "inactive" if elapsed_s <= 0.0 else "paused"
+            return CertifiedTurnBootstrapResult(command, phase, elapsed_s)
         if elapsed_s >= self.max_duration_s:
             return CertifiedTurnBootstrapResult(
                 VelocityCommand(), "turn_timeout", elapsed_s
@@ -115,6 +118,26 @@ class CertifiedTurnBootstrap:
         return CertifiedTurnBootstrapResult(
             maintenance, "maintenance_creep", elapsed_s
         )
+
+    def record_execution(
+        self,
+        command: VelocityCommand,
+        *,
+        reason: str,
+        dt_s: float,
+    ) -> None:
+        """Count only a certified turn command that was actually published."""
+
+        if reason not in CERTIFIED_TURN_REASONS:
+            return
+        if abs(float(command.angular_z)) <= 1e-6:
+            return
+        turn_sign = 1 if command.angular_z > 0.0 else -1
+        if self._key != (reason, turn_sign):
+            return
+        dt = float(dt_s)
+        if math.isfinite(dt) and dt > 0.0:
+            self._active_elapsed_s += dt
 
 
 def _finite(value: object) -> float | None:

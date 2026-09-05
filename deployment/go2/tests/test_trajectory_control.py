@@ -98,6 +98,23 @@ class TrajectoryControlTest(unittest.TestCase):
         self.assertEqual(result.command.linear_x, 0.0)
         self.assertEqual(result.command.angular_z, 0.0)
 
+    def test_center_front_roi_does_not_claim_to_protect_pure_rotation(self):
+        depth = np.full((100, 100), 0.20, dtype=np.float32)
+        command = VelocityCommand(linear_x=0.0, angular_z=0.20)
+
+        result = apply_depth_safety(command, depth)
+
+        self.assertEqual(result.reason, "clear")
+        self.assertEqual(result.command, command)
+
+    def test_clearance_above_hard_stop_does_not_slow_motion(self):
+        depth = np.full((100, 100), 0.45, dtype=np.float32)
+        command = VelocityCommand(linear_x=0.08, angular_z=0.20)
+
+        result = apply_depth_safety(command, depth)
+        self.assertEqual(result.reason, "clear")
+        self.assertEqual(result.command, command)
+
     def test_invalid_depth_fails_closed(self):
         depth = np.zeros((100, 100), dtype=np.float32)
         result = apply_depth_safety(VelocityCommand(linear_x=0.2), depth)

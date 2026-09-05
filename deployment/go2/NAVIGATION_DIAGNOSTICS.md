@@ -13,13 +13,22 @@ Jetson adapter and GPU NavDP server after deploying this schema.
 | Memory | Existing `memory_unbounded_pointgoal`, its units, fixed-radius `memory_controller_pointgoal`, anchor, certificate, and direct-localization evidence |
 | Policy input | `pointgoal_diagnostic.received_xyz` versus `processed_xyz`, including forward-component clipping |
 | Local plan | Full selected XY path, all postprocessing candidate endpoints/lengths/critic scores, lookahead bearing and its signed difference from the memory bearing |
-| Observation | Input RGB/depth ROS stamps, pair reception in ROS and monotonic time, plan completion in monotonic time, and subsampled center/left/right/bottom depth statistics |
-| Control | `/navdp/status`: `plan_monotonic_s`, `target_command_before_safety`, terminal override, `latency_motion_guard` decision, actual `cmd_vx/cmd_wz`, stop reason and latest `rgbd_diagnostic` |
+| Observation | Input RGB/depth ROS stamps, authoritative pair source stamp and source age, pair reception in ROS and monotonic time, plan completion in monotonic time, and subsampled center/left/right/bottom depth statistics |
+| Control | `/navdp/status`: `plan_monotonic_s`, `target_command_before_safety`, terminal override, action phase/reason/integrated translation and heading, actual `cmd_vx/cmd_wz`, stop reason and latest `rgbd_diagnostic` |
 
 Use the plan's input stamps to retrieve the exact RGB and depth frames from a
 full rosbag. Use its completion time to join status/command records. Calculate
 pair reception minus sensor stamp only in the ROS clock; calculate processing
 and execution intervals only in the shared Jetson monotonic clock.
+
+Revisit control uses event-driven stop-plan-act execution. Its action clock
+starts with the first nonzero command actually published, not with inference
+completion. The command stops after 0.10 m integrated translation, 10 degrees
+integrated heading, or a final 0.80 s wall-clock bound. After the explicit zero
+and 0.15 s settle interval, a new plan can use only an RGB-D pair whose sensor
+capture timestamp is newer than the zero-command timestamp. A queued pre-stop
+frame cannot qualify merely because its callback arrived late, and the previous
+command is never held through inference.
 
 An angular discrepancy is a diagnostic signal, not automatically a planning
 error: a safe local path can legitimately deviate from the target direction.
