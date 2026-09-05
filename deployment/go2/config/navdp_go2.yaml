@@ -56,8 +56,9 @@ navdp_go2_adapter:
     latency_reversal_deadband_rps: 0.08
     latency_reversal_confirmation_plans: 2
 
-    # A 0.60 s / 0.10 m/s gait-start pulse moves at most a few centimetres;
-    # the remainder of a certified turn is yaw-only to avoid a wide arc.
+    # Start at 0.10 m/s for 0.60 s, then retain only 0.02 m/s. This Go2 does
+    # not execute pure-yaw Move commands, while the maintenance creep keeps
+    # the turn radius near 0.10 m instead of the previous ~0.50 m arc.
     certified_turn_bootstrap_s: 0.60
 
     # Tight indoor lab setting requested by the operator. The 0.80 m slowdown

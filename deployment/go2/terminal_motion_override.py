@@ -16,6 +16,7 @@ POINT_TOKEN_HANDOFF_MARGIN_DEG = 5.0
 # Start certified turns with one short, depth-protected forward pulse at the
 # smallest known effective speed, then continue yaw-only.
 CERTIFIED_TURN_CREEP_MPS = 0.10
+CERTIFIED_TURN_MAINTENANCE_CREEP_MPS = 0.02
 CERTIFIED_TURN_REASONS = frozenset(
     {"certified_atomic_turn", "certified_long_range_atomic_turn"}
 )
@@ -50,7 +51,7 @@ class CertifiedTurnBootstrapResult:
 
 
 class CertifiedTurnBootstrap:
-    """Limit Go2's gait-starting forward creep to one short turn pulse."""
+    """Use a short gait-start pulse, then retain near-zero-radius turn creep."""
 
     def __init__(self, duration_s: float = 0.60) -> None:
         if not math.isfinite(duration_s) or duration_s < 0.0:
@@ -90,15 +91,17 @@ class CertifiedTurnBootstrap:
         if elapsed_s < self.duration_s:
             return CertifiedTurnBootstrapResult(command, "gait_bootstrap", elapsed_s)
 
-        yaw_only = VelocityCommand(
-            linear_x=0.0,
+        maintenance = VelocityCommand(
+            linear_x=CERTIFIED_TURN_MAINTENANCE_CREEP_MPS,
             angular_z=command.angular_z,
             target_x=command.target_x,
             target_y=command.target_y,
             path_length=command.path_length,
             reverse=command.reverse,
         )
-        return CertifiedTurnBootstrapResult(yaw_only, "yaw_only", elapsed_s)
+        return CertifiedTurnBootstrapResult(
+            maintenance, "maintenance_creep", elapsed_s
+        )
 
 
 def _finite(value: object) -> float | None:
@@ -238,6 +241,7 @@ def terminal_motion_override(
 __all__ = [
     "CERTIFIED_TURN_REASONS",
     "CERTIFIED_TURN_CREEP_MPS",
+    "CERTIFIED_TURN_MAINTENANCE_CREEP_MPS",
     "CertifiedTurnBootstrap",
     "CertifiedTurnBootstrapResult",
     "EXPECTED_POINT_TOKEN_SUPPORT_DEG",

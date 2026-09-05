@@ -2,6 +2,7 @@ import pytest
 
 from terminal_motion_override import (
     CERTIFIED_TURN_CREEP_MPS,
+    CERTIFIED_TURN_MAINTENANCE_CREEP_MPS,
     CertifiedTurnBootstrap,
     terminal_motion_override,
 )
@@ -84,15 +85,15 @@ def test_certified_turn_creep_is_one_short_gait_bootstrap_pulse():
     assert started.phase == "gait_bootstrap"
     assert started.command.linear_x == CERTIFIED_TURN_CREEP_MPS
 
-    yaw_only = gate.apply(
+    maintenance = gate.apply(
         command,
         reason="certified_long_range_atomic_turn",
         motion_allowed=True,
         now_s=10.61,
     )
-    assert yaw_only.phase == "yaw_only"
-    assert yaw_only.command.linear_x == 0.0
-    assert yaw_only.command.angular_z == 0.20
+    assert maintenance.phase == "maintenance_creep"
+    assert maintenance.command.linear_x == CERTIFIED_TURN_MAINTENANCE_CREEP_MPS
+    assert maintenance.command.angular_z == 0.20
 
 
 def test_certified_turn_bootstrap_rearms_only_for_a_new_turn():
@@ -111,7 +112,8 @@ def test_certified_turn_bootstrap_rearms_only_for_a_new_turn():
         motion_allowed=True,
         now_s=1.2,
     )
-    assert expired.phase == "yaw_only"
+    assert expired.phase == "maintenance_creep"
+    assert expired.command.linear_x == CERTIFIED_TURN_MAINTENANCE_CREEP_MPS
 
     reversed_turn = gate.apply(
         right,
