@@ -100,6 +100,12 @@ D435i RGB and aligned depth are required for an offline sensor replay. The full
 profile can consume several gigabytes per minute and must be preceded by a
 disk-bandwidth and free-space check.
 
+Foxglove-managed onboard Episodes additionally de-duplicate visualization
+evidence: the frozen ImageGoal is stored once as a hash-bound PNG under
+`media/`, and RGB-arrival visualization uses the bounded compressed Foxglove
+topic in MCAP instead of the raw debug image. External formal captures retain
+the original audit topic set because their goal evidence is managed separately.
+
 For the optional independent Odin1 evaluation lane, start it first and wait
 for `reference_ready=true`, then replace the last flag with
 `--gt-source odin1`. This adds Odin odometry/cloud/path/TF and

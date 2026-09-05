@@ -297,6 +297,21 @@ start_capture() {
   if [[ "$profile" == full ]]; then
     topics+=("${FULL_SENSOR_TOPICS[@]}")
   fi
+  if [[ "$onboard_episode" == true ]]; then
+    # The Episode manager already hash-preserves the frozen goal PNG under
+    # media/. Do not write that same full-resolution frame at 2 Hz for both
+    # phases. Keep arrival visualization evidence in the existing bounded
+    # Foxglove JPEG stream instead of duplicating the raw debug image.
+    local compact_topics=()
+    local candidate_topic
+    for candidate_topic in "${topics[@]}"; do
+      case "$candidate_topic" in
+        /navdp/image_goal|/navdp/rgb_arrival_debug) continue ;;
+        *) compact_topics+=("$candidate_topic") ;;
+      esac
+    done
+    topics=("${compact_topics[@]}" /navdp/foxglove/arrival/compressed)
+  fi
   if [[ "$gt_source" == odin1 ]]; then
     topics+=("${ODIN_GT_TOPICS[@]}")
   fi
