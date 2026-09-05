@@ -16,7 +16,7 @@ import numpy as np
 
 import rclpy
 from cv_bridge import CvBridge, CvBridgeError
-from geometry_msgs.msg import Point, PoseStamped, Twist
+from geometry_msgs.msg import Point, PoseStamped, Twist, Vector3Stamped
 from nav_msgs.msg import Path as NavPath
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -36,7 +36,8 @@ from latency_motion_guard import (
 )
 from navdp_client import NavDPClient
 from navigation_diagnostics import plan_diagnostics
-from terminal_motion_override import CertifiedTurnBootstrap, terminal_motion_override
+from terminal_motion_override import terminal_motion_override
+from heading_turn import HeadingTurn
 from trajectory_control import (
     ControllerConfig,
     DepthSafetyConfig,
@@ -99,11 +100,8 @@ class NavDPGo2Adapter(Node):
         )
         self._stop_plan_act_gate = StopPlanActGate(self.stop_plan_act_config)
         self._latency_motion_receipt: dict = {}
-        self._certified_turn_bootstrap = CertifiedTurnBootstrap(
-            self.certified_turn_bootstrap_s,
-            self.certified_turn_max_s,
-        )
-        self._certified_turn_bootstrap_receipt: dict = {}
+        self._heading_turn = HeadingTurn()
+        self._turn_image_ns = 0
         self._plan_monotonic = 0.0
         self._last_inference_s = 0.0
         self._last_error = ""
@@ -178,6 +176,9 @@ class NavDPGo2Adapter(Node):
             CameraInfo, self.camera_info_topic, self._on_camera_info, qos_profile_sensor_data
         )
         self.create_subscription(Bool, self.enable_topic, self._on_enable, command_qos)
+        self.create_subscription(
+            Vector3Stamped, "/navdp/go2/body_heading", self._on_body_heading, 1
+        )
         self.create_subscription(Bool, self.estop_topic, self._on_estop, command_qos)
         self.create_subscription(Bool, self.arrival_topic, self._on_arrival, command_qos)
 
@@ -293,8 +294,6 @@ class NavDPGo2Adapter(Node):
             "command_translation_budget_m": 0.10,
             "command_heading_budget_rad": math.radians(10.0),
             "settle_before_sense_s": 0.15,
-            "certified_turn_bootstrap_s": 0.60,
-            "certified_turn_max_s": 20.0,
             "depth_hard_stop_m": 0.35,
             "depth_percentile": 10.0,
             "depth_roi_left": 0.35,
@@ -395,8 +394,6 @@ class NavDPGo2Adapter(Node):
             "command_translation_budget_m",
             "command_heading_budget_rad",
             "settle_before_sense_s",
-            "certified_turn_bootstrap_s",
-            "certified_turn_max_s",
         ):
             setattr(self, name, float(self.get_parameter(name).value))
         self.plan_while_disabled = bool(self.get_parameter("plan_while_disabled").value)
@@ -419,12 +416,6 @@ class NavDPGo2Adapter(Node):
             raise ValueError("sensor_timeout_s and max_rgb_depth_skew_s must be positive")
         if self.rgbd_sync_queue_size <= 0:
             raise ValueError("rgbd_sync_queue_size must be positive")
-        if self.certified_turn_bootstrap_s < 0.0:
-            raise ValueError("certified_turn_bootstrap_s must be nonnegative")
-        if self.certified_turn_max_s <= 0.0:
-            raise ValueError("certified_turn_max_s must be positive")
-        if self.certified_turn_max_s < self.certified_turn_bootstrap_s:
-            raise ValueError("certified_turn_max_s must cover the bootstrap")
         if self.command_execution_max_s <= 0.0:
             raise ValueError("command_execution_max_s must be positive")
         if self.command_translation_budget_m <= 0.0:
@@ -593,6 +584,11 @@ class NavDPGo2Adapter(Node):
     def _on_enable(self, msg: Bool) -> None:
         self._set_enabled(bool(msg.data), "enable topic")
 
+    def _on_body_heading(self, msg: Vector3Stamped) -> None:
+        stamp = msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec
+        with self._lock:
+            self._heading_turn.observe(stamp, float(msg.vector.z))
+
     def _reset_motion_guards_locked(self) -> None:
         # A few pure unit-test adapters intentionally bypass __init__. Keep
         # emergency/episode locking usable there while real nodes always have
@@ -600,7 +596,7 @@ class NavDPGo2Adapter(Node):
         stop_plan_act_gate = getattr(self, "_stop_plan_act_gate", None)
         if stop_plan_act_gate is not None:
             stop_plan_act_gate.reset()
-        certified_turn = getattr(self, "_certified_turn_bootstrap", None)
+        certified_turn = getattr(self, "_heading_turn", None)
         if certified_turn is not None:
             certified_turn.reset()
 
@@ -1075,7 +1071,6 @@ class NavDPGo2Adapter(Node):
             self._latency_motion_guard.reset()
             self._latency_motion_receipt = {}
             self._reset_motion_guards_locked()
-            self._certified_turn_bootstrap_receipt = {}
             self._last_receipt_event = ""
             self._survey_seal_receipt = {}
             self._survey_last_action = ""
@@ -1320,6 +1315,8 @@ class NavDPGo2Adapter(Node):
     def _request_inference(self) -> None:
         now = time.monotonic()
         with self._lock:
+            if getattr(self, "_heading_turn", None) is not None and self._heading_turn.active:
+                return
             should_plan = self.plan_while_disabled or self._enabled
             if self._inference_busy:
                 should_plan = False
@@ -1332,6 +1329,8 @@ class NavDPGo2Adapter(Node):
     def _snapshot_inference_input(self):
         now = time.monotonic()
         with self._lock:
+            if getattr(self, "_heading_turn", None) is not None and self._heading_turn.active:
+                return None, "heading_turn_active"
             if (
                 self.two_phase_episode
                 and self._server_initialized
@@ -1650,6 +1649,7 @@ class NavDPGo2Adapter(Node):
                     self._stop_reason = "ready"
                     self._last_plan_receipt = plan_receipt
                     self._terminal_motion_receipt = terminal.audit_dict()
+                    self._turn_image_ns = int(input_timing.get("rgb_stamp_ns") or 0)
                     self._latency_motion_receipt = guarded.audit_dict()
                     if terminal.assert_estop:
                         self._estop = True
@@ -1703,6 +1703,10 @@ class NavDPGo2Adapter(Node):
                 return "rgbd_source_stale"
         if self._image_goal is None:
             return "waiting_for_image_goal"
+        # A latched body-heading target is executed by fresh IMU feedback.
+        # No new visual plan is needed during this single continuous turn.
+        if self._heading_turn.active:
+            return None
         if self._trajectory is None or self._plan_monotonic <= 0.0:
             return "waiting_for_plan"
         if now - self._plan_monotonic > self.trajectory_timeout_s:
@@ -1736,9 +1740,6 @@ class NavDPGo2Adapter(Node):
             reason = self._motion_block_reason(now)
             depth = None if self._depth_m is None else self._depth_m.copy()
             target = self._target_command
-            terminal_reason = str(
-                self._terminal_motion_receipt.get("reason") or ""
-            )
 
         if reason == "action_complete":
             self._publish_zero(reason)
@@ -1748,27 +1749,10 @@ class NavDPGo2Adapter(Node):
         if reason == "awaiting_fresh_plan":
             self._request_inference()
 
-        bootstrap = self._certified_turn_bootstrap.apply(
-            target,
-            reason=terminal_reason,
-            motion_allowed=reason is None,
-            now_s=now,
-        )
-        target = bootstrap.command
-        with self._lock:
-            self._certified_turn_bootstrap_receipt = bootstrap.audit_dict()
-
-        if bootstrap.phase == "turn_timeout":
-            with self._lock:
-                self._enabled = False
-                self._estop = True
-            self._publish_zero("certified_turn_timeout")
-            self.get_logger().error(
-                "Certified turn timed out; motion disabled and estop asserted"
-            )
-            return
-
         if reason is not None:
+            if self._heading_turn.active:
+                self._fail_heading_turn(reason)
+                return
             self._publish_zero(reason)
             if reason not in {"disabled", "estop", "waiting_for_plan"}:
                 # A sensor/policy interruption ends this action; never resume
@@ -1776,8 +1760,46 @@ class NavDPGo2Adapter(Node):
                 self._note_action_stopped_after_zero(now)
             return
 
+        with self._lock:
+            turning = self._heading_turn.active
+            bearing = self._terminal_motion_receipt.get("bearing_rad")
+            if not turning and bearing is not None:
+                # Start only from a fresh, accepted plan and the heading at
+                # its RGB exposure. Never re-anchor a turn at inference return.
+                if self._latency_motion_receipt.get("reason") not in {"pass", "disabled"}:
+                    self._publish_zero("heading_plan_rejected")
+                    self._note_action_stopped_after_zero(now)
+                    return
+                turning = self._heading_turn.start(
+                    bearing, self._turn_image_ns, self._ros_now_ns() or 0, now
+                )
+                if not turning:
+                    self._fail_heading_turn(self._heading_turn.phase)
+                    return
+            if turning:
+                target = self._heading_turn.step(
+                    self._ros_now_ns() or 0, now,
+                    self.controller_config.rotate_gain,
+                    self.controller_config.max_angular_rps,
+                )
+                phase = self._heading_turn.phase
+                if phase == "complete":
+                    self._publish_zero("heading_turn_complete")
+                    # Consume this plan, wait for post-stop RGB-D, and replan.
+                    self._terminal_motion_receipt = {}
+                    self._target_command = VelocityCommand()
+                    self._stop_plan_act_gate.install_plan(now)
+                    self._note_action_stopped_after_zero(now)
+                    return
+                if phase != "turning":
+                    self._fail_heading_turn(phase)
+                    return
+
         safety = apply_depth_safety(target, depth, self.depth_safety_config)
         if safety.reason in {"obstacle_stop", "depth_unavailable_stop"}:
+            if turning:
+                self._fail_heading_turn(safety.reason)
+                return
             self._publish_zero(safety.reason)
             self._note_action_stopped_after_zero(now)
             return
@@ -1790,11 +1812,8 @@ class NavDPGo2Adapter(Node):
             self.max_angular_accel_rps2,
         )
         self._publish_command(command, safety.reason)
-        self._certified_turn_bootstrap.record_execution(
-            command,
-            reason=terminal_reason,
-            dt_s=dt,
-        )
+        if turning:
+            return
         with self._lock:
             phase = self._stop_plan_act_gate.note_command_published(now, command)
         if phase == "stop_pending":
@@ -1802,6 +1821,16 @@ class NavDPGo2Adapter(Node):
             # already been published above, so start the physical settle clock
             # from that publication instead of consuming an empty action slot.
             self._note_action_stopped_after_zero(now)
+
+    def _fail_heading_turn(self, reason: str) -> None:
+        with self._lock:
+            self._heading_turn.active = False
+            self._heading_turn.phase = reason
+            self._enabled = False
+            self._estop = True
+            self._last_error = reason
+        self._publish_zero(reason)
+        self.get_logger().error(f"Heading turn stopped: {reason}")
 
     def _publish_command(self, command: VelocityCommand, reason: str) -> None:
         msg = Twist()
@@ -2195,9 +2224,8 @@ class NavDPGo2Adapter(Node):
                 ),
                 "command_heading_budget_rad": self.command_heading_budget_rad,
                 "settle_before_sense_s": self.settle_before_sense_s,
-                "certified_turn_bootstrap": (
-                    self._certified_turn_bootstrap_receipt
-                ),
+                "heading_turn": self._heading_turn.audit(self._ros_now_ns() or 0, time.monotonic()),
+                "heading_reference_available": self._heading_turn.reference(self._turn_image_ns) is not None,
                 "monocular_depth_receipt": self._last_plan_receipt.get(
                     "monocular_depth_receipt"
                 ),

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import signal
 import struct
@@ -14,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Vector3Stamped
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
@@ -54,11 +55,9 @@ class Go2CmdBridge(Node):
         self.declare_parameter("swap_xy", False)
         self.declare_parameter("deadband_v", 0.01)
         self.declare_parameter("deadband_w", 0.02)
-        # Never amplify an adapter command that depth safety has reduced.
-        # Certified turn bootstrap commands already request the empirically
-        # effective 0.10 m/s explicitly.
+        # Forward the controller's output without an extra velocity floor.
         self.declare_parameter("min_cmd_v", 0.0)
-        self.declare_parameter("min_cmd_w", 0.20)
+        self.declare_parameter("min_cmd_w", 0.0)
         self.declare_parameter("enabled", True)
         self.declare_parameter("send_zero_when_idle", False)
         self.declare_parameter("stop_once_on_release", True)
@@ -110,6 +109,10 @@ class Go2CmdBridge(Node):
         self._next_battery_sample_monotonic = 0.0
         self._battery_lock = threading.Lock()
         self._battery_sample = None
+        self._heading_publisher = self.create_publisher(
+            Vector3Stamped, "/navdp/go2/body_heading", 1
+        )
+        self._next_heading_sample_monotonic = 0.0
         battery_qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -129,7 +132,7 @@ class Go2CmdBridge(Node):
         self.remote_takeover_logged = False
         self.last_command_log_stamp = 0.0
 
-        self.create_subscription(Twist, self.cmd_vel_topic, self.on_cmd_vel, 10)
+        self.create_subscription(Twist, self.cmd_vel_topic, self.on_cmd_vel, 1)
         self.create_timer(1.0 / max(1.0, self.rate_hz), self.publish_to_go2)
         self.create_timer(1.0 / battery_publish_rate_hz, self.publish_battery)
         self.setup_remote_priority()
@@ -165,6 +168,18 @@ class Go2CmdBridge(Node):
 
     def on_low_state(self, msg) -> None:
         now = time.monotonic()
+        if now >= self._next_heading_sample_monotonic:
+            self._next_heading_sample_monotonic = now + 0.02
+            try:
+                yaw = float(msg.imu_state.rpy[2])
+                if math.isfinite(yaw):
+                    heading = Vector3Stamped()
+                    heading.header.stamp = self.get_clock().now().to_msg()
+                    heading.header.frame_id = "go2_imu_world"
+                    heading.vector.z = yaw
+                    self._heading_publisher.publish(heading)
+            except (AttributeError, IndexError, TypeError, ValueError):
+                pass
         if now >= self._next_battery_sample_monotonic:
             self._next_battery_sample_monotonic = (
                 now + self._battery_sample_period_s
@@ -240,12 +255,12 @@ class Go2CmdBridge(Node):
     def is_zero_command(vx: float, vy: float, wz: float) -> bool:
         return vx == 0.0 and vy == 0.0 and wz == 0.0
 
-    def release_control(self, reason: str) -> None:
+    def release_control(self, reason: str, *, normal_pause: bool = False) -> None:
         if not self.command_active and not self.send_zero_when_idle:
             return
         try:
             self.sport_client.Move(0.0, 0.0, 0.0)
-            if self.stop_once_on_release:
+            if self.stop_once_on_release and not normal_pause:
                 self.sport_client.StopMove()
             self.last_sent = (0.0, 0.0, 0.0)
             if self.command_active:
@@ -279,7 +294,7 @@ class Go2CmdBridge(Node):
             return
         vx, vy, wz = command
         if self.is_zero_command(vx, vy, wz) and not self.send_zero_when_idle:
-            self.release_control("zero cmd_vel")
+            self.release_control("zero cmd_vel", normal_pause=True)
             return
 
         try:
@@ -327,7 +342,9 @@ def main() -> None:
     channel_factory_initialize, sport_client_type = import_unitree_sdk(args.sdk_path)
     channel_factory_initialize(0, args.net_if)
     sport_client = sport_client_type()
-    sport_client.SetTimeout(10.0)
+    # Safety-release RPCs must not freeze the ROS executor for ten seconds.
+    # Ordinary plan pauses use the nonblocking Move(0, 0, 0) API only.
+    sport_client.SetTimeout(0.20)
     sport_client.Init()
 
     rclpy.init(args=ros_args)

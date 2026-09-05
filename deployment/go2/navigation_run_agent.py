@@ -23,7 +23,6 @@ import numpy as np
 
 from image_goal_io import load_rgb_image
 from rgb_goal_arrival import RgbGoalArrivalVerifier
-from terminal_motion_override import CERTIFIED_TURN_CREEP_MPS
 from trajectory_control import ControllerConfig, trajectory_to_command
 
 
@@ -85,11 +84,11 @@ def assess_motion(
     max_linear_mps: float,
     max_angular_rps: float,
 ) -> PathAssessment:
-    """Assess effective motion, including certified creep-assisted turns.
+    """Assess effective motion, including body-heading feedback turns.
 
     The adapter validates the policy proof before publishing its override
     receipt. A turn replaces the trajectory command, so its displayed XY path
-    can be zero even though the Go2 receives bounded forward creep. Unknown
+    can be zero even though the Go2 receives a pure-yaw command. Unknown
     overrides and holds must never fall back to arming a trajectory that the
     adapter will not execute.
     """
@@ -103,8 +102,14 @@ def assess_motion(
         )
     if not isinstance(override, dict) or override.get("applied") is not True:
         raise ValueError("invalid motion override")
+    heading = status.get("heading_turn") or {}
+    age = heading.get("feedback_age_s")
+    if (status.get("heading_reference_available") is not True
+            or not isinstance(age, (int, float)) or isinstance(age, bool)
+            or not math.isfinite(age) or not 0 <= age <= 0.35):
+        raise ValueError("fresh body heading aligned to the goal observation is required")
     reason = override.get("reason")
-    if reason not in {"certified_atomic_turn", "certified_long_range_atomic_turn"}:
+    if reason not in {"local_goal_heading_turn", "rear_goal_heading_turn"}:
         raise ValueError(f"motion override does not authorize a turn: {reason}")
     if override.get("assert_estop") is not False:
         raise ValueError("motion override requests estop")
@@ -119,11 +124,11 @@ def assess_motion(
         raise ValueError("motion override command is not finite")
     vx, wz = values
     if (
-        not math.isclose(vx, CERTIFIED_TURN_CREEP_MPS, abs_tol=1e-6)
+        not math.isclose(vx, 0.0, abs_tol=1e-6)
         or vx > max_linear_mps
         or command.get("reverse") is not False
     ):
-        raise ValueError("certified turn must have bounded forward creep")
+        raise ValueError("heading turn must have zero translation")
     if not 0.0 < abs(wz) <= max_angular_rps:
         raise ValueError("certified turn angular speed is zero or exceeds limit")
     path = np.asarray(path_xy, dtype=np.float64)
@@ -210,9 +215,22 @@ def live_fault(
     rgbd_age = status.get("rgbd_age_s")
     if rgbd_age is None or float(rgbd_age) > float(max_rgbd_age_s):
         return "rgbd_stale"
-    plan_age = status.get("plan_age_s")
-    if plan_age is None or float(plan_age) > float(max_plan_age_s):
-        return "trajectory_stale"
+    heading = status.get("heading_turn") or {}
+    if heading.get("active") is True:
+        age = heading.get("feedback_age_s")
+        if (not isinstance(age, (int, float)) or isinstance(age, bool)
+                or not math.isfinite(age) or not 0 <= age <= 0.35):
+            return "heading_feedback_stale"
+    else:
+        plan_age = status.get("plan_age_s")
+        completed_age = heading.get("completed_age_s")
+        post_turn_replan = (
+            heading.get("phase") == "complete"
+            and isinstance(completed_age, (int, float))
+            and 0 <= completed_age <= max_plan_age_s
+        )
+        if not post_turn_replan and (plan_age is None or float(plan_age) > float(max_plan_age_s)):
+            return "trajectory_stale"
     if status.get("stop_reason") in {
         "obstacle_stop",
         "depth_unavailable_stop",
@@ -505,6 +523,18 @@ class NavigationRunAgent:
                 return 1, "status_stale"
             now = time.monotonic()
             if now >= next_report:
+                heading = status.get("heading_turn") or {}
+                if heading.get("active") is True:
+                    self._log(
+                        "TURNING",
+                        "measured heading error={:.1f}deg feedback={:.3f}s wz={:.2f}".format(
+                            math.degrees(float(heading.get("error_rad") or 0)),
+                            float(heading.get("feedback_age_s") or 0),
+                            float(status.get("cmd_wz") or 0),
+                        ),
+                    )
+                    next_report = now + 1.0
+                    continue
                 self._log(
                     "RUNNING",
                     "vx={:.2f} wz={:.2f} clearance={:.2f}m "

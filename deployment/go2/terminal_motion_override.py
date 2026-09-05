@@ -12,14 +12,6 @@ from trajectory_control import VelocityCommand
 EXPECTED_HANDOFF_SCHEMA = "cec_direct_bearing_handoff_v2_20260824"
 EXPECTED_POINT_TOKEN_SUPPORT_DEG = 60.0
 POINT_TOKEN_HANDOFF_MARGIN_DEG = 5.0
-# This Go2 has repeatedly failed to enter locomotion for a pure-yaw Move.
-# Start certified turns with one short, depth-protected forward pulse at the
-# smallest known effective speed, then retain that proven locomotion floor.
-CERTIFIED_TURN_CREEP_MPS = 0.10
-CERTIFIED_TURN_MAINTENANCE_CREEP_MPS = 0.08
-CERTIFIED_TURN_REASONS = frozenset(
-    {"certified_atomic_turn", "certified_long_range_atomic_turn"}
-)
 
 
 @dataclass(frozen=True)
@@ -28,116 +20,13 @@ class TerminalMotionOverride:
     command: VelocityCommand | None
     assert_estop: bool
     reason: str
+    bearing_rad: float | None = None
 
     def audit_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         if self.command is not None:
             payload["command"] = asdict(self.command)
         return payload
-
-
-@dataclass(frozen=True)
-class CertifiedTurnBootstrapResult:
-    command: VelocityCommand
-    phase: str
-    elapsed_s: float | None
-
-    def audit_dict(self) -> dict[str, Any]:
-        return {
-            "command": asdict(self.command),
-            "phase": self.phase,
-            "elapsed_s": self.elapsed_s,
-        }
-
-
-class CertifiedTurnBootstrap:
-    """Use a gait-start pulse, bounded creep, and an active-time watchdog."""
-
-    def __init__(self, duration_s: float = 0.60, max_duration_s: float = 20.0) -> None:
-        if not math.isfinite(duration_s) or duration_s < 0.0:
-            raise ValueError(
-                "certified turn bootstrap duration must be finite and nonnegative"
-            )
-        if not math.isfinite(max_duration_s) or max_duration_s <= 0.0:
-            raise ValueError(
-                "certified turn maximum duration must be finite and positive"
-            )
-        if max_duration_s < duration_s:
-            raise ValueError(
-                "certified turn maximum duration must cover the bootstrap"
-            )
-        self.duration_s = float(duration_s)
-        self.max_duration_s = float(max_duration_s)
-        self._key: tuple[str, int] | None = None
-        self._active_elapsed_s = 0.0
-
-    def reset(self) -> None:
-        self._key = None
-        self._active_elapsed_s = 0.0
-
-    def _select_turn(self, reason: str, angular_z: float) -> bool:
-        if reason not in CERTIFIED_TURN_REASONS or abs(angular_z) <= 0.0:
-            self.reset()
-            return False
-        turn_sign = 1 if angular_z > 0.0 else -1
-        key = (reason, turn_sign)
-        if key != self._key:
-            self._key = key
-            self._active_elapsed_s = 0.0
-        return True
-
-    def apply(
-        self,
-        command: VelocityCommand,
-        *,
-        reason: str,
-        motion_allowed: bool,
-        now_s: float,
-    ) -> CertifiedTurnBootstrapResult:
-        if not self._select_turn(reason, command.angular_z):
-            return CertifiedTurnBootstrapResult(command, "inactive", None)
-        elapsed_s = self._active_elapsed_s
-        if not motion_allowed:
-            phase = "inactive" if elapsed_s <= 0.0 else "paused"
-            return CertifiedTurnBootstrapResult(command, phase, elapsed_s)
-        if elapsed_s >= self.max_duration_s:
-            return CertifiedTurnBootstrapResult(
-                VelocityCommand(), "turn_timeout", elapsed_s
-            )
-        if elapsed_s < self.duration_s:
-            return CertifiedTurnBootstrapResult(command, "gait_bootstrap", elapsed_s)
-
-        maintenance = VelocityCommand(
-            linear_x=CERTIFIED_TURN_MAINTENANCE_CREEP_MPS,
-            angular_z=command.angular_z,
-            target_x=command.target_x,
-            target_y=command.target_y,
-            path_length=command.path_length,
-            reverse=command.reverse,
-        )
-        return CertifiedTurnBootstrapResult(
-            maintenance, "maintenance_creep", elapsed_s
-        )
-
-    def record_execution(
-        self,
-        command: VelocityCommand,
-        *,
-        reason: str,
-        dt_s: float,
-    ) -> None:
-        """Count only a certified turn command that was actually published."""
-
-        if reason not in CERTIFIED_TURN_REASONS:
-            return
-        if abs(float(command.angular_z)) <= 1e-6:
-            return
-        turn_sign = 1 if command.angular_z > 0.0 else -1
-        if self._key != (reason, turn_sign):
-            return
-        dt = float(dt_s)
-        if math.isfinite(dt) and dt > 0.0:
-            self._active_elapsed_s += dt
 
 
 def _finite(value: object) -> float | None:
@@ -230,11 +119,12 @@ def terminal_motion_override(
             return TerminalMotionOverride(
                 True,
                 VelocityCommand(
-                    linear_x=CERTIFIED_TURN_CREEP_MPS,
+                    linear_x=0.0,
                     angular_z=angular,
                 ),
                 False,
-                "certified_long_range_atomic_turn",
+                "rear_goal_heading_turn",
+                bearing_rad=bearing_rad,
             )
         return TerminalMotionOverride(
             False, None, False, "long_range_inside_point_token_support"
@@ -256,11 +146,12 @@ def terminal_motion_override(
         return TerminalMotionOverride(
             True,
             VelocityCommand(
-                linear_x=CERTIFIED_TURN_CREEP_MPS,
+                linear_x=0.0,
                 angular_z=angular,
             ),
             False,
-            "certified_atomic_turn",
+            "local_goal_heading_turn",
+            bearing_rad=error,
         )
 
     if disposition == "stop" and receipt.get("terminal_stop_authorized") is True:
@@ -275,11 +166,6 @@ def terminal_motion_override(
 
 
 __all__ = [
-    "CERTIFIED_TURN_REASONS",
-    "CERTIFIED_TURN_CREEP_MPS",
-    "CERTIFIED_TURN_MAINTENANCE_CREEP_MPS",
-    "CertifiedTurnBootstrap",
-    "CertifiedTurnBootstrapResult",
     "EXPECTED_POINT_TOKEN_SUPPORT_DEG",
     "EXPECTED_HANDOFF_SCHEMA",
     "POINT_TOKEN_HANDOFF_MARGIN_DEG",

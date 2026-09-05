@@ -17,11 +17,12 @@ from navigation_run_agent import (  # noqa: E402
     preserved_revisit_issue,
 )
 from terminal_motion_override import terminal_motion_override
-from terminal_motion_override import CERTIFIED_TURN_CREEP_MPS
 
 
 def turn_status(bearing=(-1.0, 0.05), **updates):
     status = ready_status()
+    status["heading_turn"] = {"feedback_age_s": 0.02}
+    status["heading_reference_available"] = True
     receipt = {
         "terminal_handoff_schema": "cec_direct_bearing_handoff_v2_20260824",
         "terminal_handoff_disposition": "long_range",
@@ -44,9 +45,9 @@ def test_rear_turn_can_start_on_zero_path_and_hands_back_to_forward_path(bearing
     limits = dict(max_linear_mps=0.30, max_angular_rps=0.55)
     assert locked_preflight_issue(status, min_clearance_m=0.8) == ""
     motion = assess_motion(np.zeros((24, 2)), status, **limits)
-    assert motion.predicted_vx == CERTIFIED_TURN_CREEP_MPS
+    assert motion.predicted_vx == 0.0
     assert motion.predicted_wz == pytest.approx(sign * 0.55)
-    assert motion.motion_source == "certified_long_range_atomic_turn"
+    assert motion.motion_source == "rear_goal_heading_turn"
     status.update(
         enabled=True,
         estop=False,
@@ -62,7 +63,7 @@ def test_rear_turn_can_start_on_zero_path_and_hands_back_to_forward_path(bearing
         assess_motion(np.zeros((24, 2)), forward, **limits)
 
 
-def test_direct_certified_turn_also_accepts_bounded_forward_creep():
+def test_direct_turn_accepts_zero_translation():
     status = turn_status(
         terminal_handoff_disposition="atomic_turn",
         terminal_proof_active=True, terminal_turn_error_left_rad=-3.1,
@@ -70,14 +71,30 @@ def test_direct_certified_turn_also_accepts_bounded_forward_creep():
     motion = assess_motion(
         np.zeros((24, 2)), status, max_linear_mps=0.3, max_angular_rps=0.55,
     )
-    assert motion.predicted_vx == CERTIFIED_TURN_CREEP_MPS
+    assert motion.predicted_vx == 0.0
     assert motion.predicted_wz == pytest.approx(-0.55)
+
+
+def test_heading_feedback_required_to_arm_and_during_continuous_turn():
+    status = turn_status()
+    status["heading_turn"]["feedback_age_s"] = 1.0
+    with pytest.raises(ValueError, match="fresh body heading"):
+        assess_motion(np.zeros((24, 2)), status, max_linear_mps=0.3, max_angular_rps=0.55)
+    status["plan_age_s"] = 12.0
+    status["heading_turn"] = {"active": True, "feedback_age_s": 0.02}
+    assert live_fault(status, max_linear_mps=0.3, max_angular_rps=0.55) == ""
+    status["heading_turn"]["feedback_age_s"] = 0.5
+    assert live_fault(status, max_linear_mps=0.3, max_angular_rps=0.55) == "heading_feedback_stale"
+    status["heading_turn"] = {"active": False, "phase": "complete", "completed_age_s": 0.5}
+    assert live_fault(status, max_linear_mps=0.3, max_angular_rps=0.55) == ""
+    status["heading_turn"]["completed_age_s"] = 6.0
+    assert live_fault(status, max_linear_mps=0.3, max_angular_rps=0.55) == "trajectory_stale"
 
 
 @pytest.mark.parametrize("field,value", [
     ("angular_z", 0), ("angular_z", 0.56), ("angular_z", float("nan")),
     ("angular_z", float("inf")), ("angular_z", True),
-    ("linear_x", 0.0), ("linear_x", -0.01), ("linear_x", 0.09),
+    ("linear_x", 0.01), ("linear_x", -0.01), ("linear_x", 0.09),
     ("linear_x", 0.11), ("linear_x", 0.31),
     ("reverse", True),
 ])

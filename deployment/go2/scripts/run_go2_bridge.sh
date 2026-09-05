@@ -17,7 +17,7 @@ GO2_MAX_VX="$CFG_GO2_MAX_VX"
 GO2_MAX_VY="$CFG_GO2_MAX_VY"
 GO2_MAX_WZ="$CFG_GO2_MAX_WZ"
 GO2_MIN_CMD_V="$CFG_GO2_MIN_CMD_V"
-GO2_MIN_CMD_W="$CFG_GO2_MIN_CMD_W"
+GO2_MIN_CMD_W=0.0  # Preserve the heading controller's angular deceleration.
 
 if [[ ! -x "$GO2_PYTHON" ]]; then
   echo "Working Unitree Python environment not found: $GO2_PYTHON" >&2

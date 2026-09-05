@@ -21,7 +21,7 @@ full rosbag. Use its completion time to join status/command records. Calculate
 pair reception minus sensor stamp only in the ROS clock; calculate processing
 and execution intervals only in the shared Jetson monotonic clock.
 
-Revisit control uses event-driven stop-plan-act execution. Its action clock
+Ordinary trajectory control uses event-driven stop-plan-act execution. Its action clock
 starts with the first nonzero command actually published, not with inference
 completion. The command stops after 0.10 m integrated translation, 10 degrees
 integrated heading, or a final 0.80 s wall-clock bound. After the explicit zero
@@ -29,6 +29,25 @@ and 0.15 s settle interval, a new plan can use only an RGB-D pair whose sensor
 capture timestamp is newer than the zero-command timestamp. A queued pre-stop
 frame cannot qualify merely because its callback arrived late, and the previous
 command is never held through inference.
+
+Rear-goal turns use a separate continuous body-heading feedback controller.
+The bridge publishes `/navdp/go2/body_heading` from `LowState.imu_state.rpy[2]`
+at up to 50 Hz, stamped on local DDS reception. The adapter aligns that yaw
+to the plan's RGB capture stamp (within 150 ms), latches target yaw once, and
+commands pure rotation at 20 Hz. Angular speed is proportional to remaining
+measured error, bounded by the experiment limit. It stops within 8 degrees,
+then waits for post-stop RGB-D before planning again. No translational creep,
+command-integrated turn completion, or 10-degree pulse slicing is used here.
+Yaw feedback older than 350 ms, a yaw discontinuity, or 20 seconds without
+completion locks motion. Existing estop and RGB-D/depth validity checks apply.
+
+`status.heading_turn` records target/error yaw, feedback age, phase and
+completion age. This IMU is a local control input, not metric localization or
+ground truth for the paper. Camera/IMU alignment is based on DDS reception,
+not calibrated hardware synchronization. The recorder saves this topic.
+Normal zero-velocity pauses call nonblocking `Move(0,0,0)`; explicit bridge
+release/timeout/shutdown still uses `StopMove`, with a 200 ms RPC timeout.
+The bridge applies no angular velocity floor that could alter deceleration.
 
 An angular discrepancy is a diagnostic signal, not automatically a planning
 error: a safe local path can legitimately deviate from the target direction.

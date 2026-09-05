@@ -59,11 +59,9 @@ navdp_go2_adapter:
     command_heading_budget_rad: 0.17453292519943295  # 10 deg
     settle_before_sense_s: 0.15
 
-    # Start at 0.10 m/s for 0.60 s, then retain the measured effective Go2
-    # locomotion floor. The watchdog counts published turn time only; remote
-    # inference and stationary settling do not consume its 20 s allowance.
-    certified_turn_bootstrap_s: 0.60
-    certified_turn_max_s: 20.0
+    # Rear goals use continuous pure-yaw control with measured Go2 IMU
+    # heading. Finish within 8 degrees, then stop and admit a fresh RGB-D plan.
+    # No creep pulse or 10-degree action slicing is used during heading turns.
 
     # Tight indoor lab setting requested by the operator. There is no soft
     # slowdown band: motion is unchanged above 0.35 m and hard-stops at or

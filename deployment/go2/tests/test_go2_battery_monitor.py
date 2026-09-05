@@ -102,6 +102,7 @@ def test_command_bridge_reuses_its_lowstate_subscription_for_battery(monkeypatch
     bridge._next_battery_sample_monotonic = 0.0
     bridge._battery_lock = threading.Lock()
     bridge._battery_sample = None
+    bridge._next_heading_sample_monotonic = 0.0
     bridge.remote_deadband = 0.12
     bridge.latest_remote_stamp = 0.0
     monkeypatch.setattr(battery_monitor_module.time, "monotonic", lambda: 10.0)
