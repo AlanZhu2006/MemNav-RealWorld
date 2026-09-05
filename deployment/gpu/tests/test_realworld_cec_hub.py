@@ -744,7 +744,21 @@ def test_prepared_goal_requires_client_ack_and_overrides_uploaded_bytes():
             "geometry_backend": "sift_fundamental_ransac",
         }),
         warmup_response(),
-            FakeResponse({"frame_idx": 3, "certified_visual_candidates": []}),
+            FakeResponse({
+                "frame_idx": 3,
+                "certified_visual_candidates": [],
+                "add_frame_runtime_ms": 12.5,
+                "append_request_runtime_ms": 14.0,
+                "monocular_depth_cache_hit": True,
+                "monocular_depth_prediction_runtime_ms": 0.0,
+                "monocular_depth_materialization_runtime_ms": 1.5,
+                "retrieval_probe_timing": {
+                    "append_ms": 14.0,
+                    "retrieval_ms": 22.0,
+                    "total_ms": 36.0,
+                    "monocular_depth_cache_hit": True,
+                },
+            }),
             FakeResponse({"ok": True, "accepted": False, "reason": "no_candidate"}),
             local_reject_response(),
             nav_result("native"),
@@ -776,6 +790,17 @@ def test_prepared_goal_requires_client_ack_and_overrides_uploaded_bytes():
     probe_form = probe_kwargs["data"]
     assert probe_form["candidate_ceiling_override"] == "0"
     assert result["cec_candidate_ceiling_override"] == 0
+    assert result["cec_monocular_depth_cache_hit"] is True
+    assert result["cec_add_frame_runtime_ms"] == 12.5
+    assert result["cec_append_request_runtime_ms"] == 14.0
+    assert result["cec_monocular_depth_prediction_runtime_ms"] == 0.0
+    assert result["cec_monocular_depth_materialization_runtime_ms"] == 1.5
+    assert result["cec_retrieval_probe_timing"] == {
+        "append_ms": 14.0,
+        "retrieval_ms": 22.0,
+        "total_ms": 36.0,
+        "monocular_depth_cache_hit": True,
+    }
 
 
 def test_memory_step_failure_fails_closed():

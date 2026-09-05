@@ -1311,6 +1311,24 @@ class CecHybridRouter:
                 "cec_selected_anchor": None,
                 "cec_certificate": None,
                 "cec_relocalization_ms": None,
+                "cec_retrieval_probe_timing": probe.get(
+                    "retrieval_probe_timing"
+                ),
+                "cec_add_frame_runtime_ms": probe.get(
+                    "add_frame_runtime_ms"
+                ),
+                "cec_append_request_runtime_ms": probe.get(
+                    "append_request_runtime_ms"
+                ),
+                "cec_monocular_depth_cache_hit": probe.get(
+                    "monocular_depth_cache_hit"
+                ),
+                "cec_monocular_depth_prediction_runtime_ms": probe.get(
+                    "monocular_depth_prediction_runtime_ms"
+                ),
+                "cec_monocular_depth_materialization_runtime_ms": probe.get(
+                    "monocular_depth_materialization_runtime_ms"
+                ),
                 "cec_candidate_ceiling_override": (
                     None
                     if self.active_goal is None
@@ -1408,6 +1426,22 @@ class CecHybridRouter:
             "cec_selected_anchor": certificate.get("selected_anchor"),
             "cec_certificate": certificate.get("certificate"),
             "cec_relocalization_ms": certificate.get("relocalization_ms"),
+            "cec_retrieval_probe_timing": probe.get(
+                "retrieval_probe_timing"
+            ),
+            "cec_add_frame_runtime_ms": probe.get("add_frame_runtime_ms"),
+            "cec_append_request_runtime_ms": probe.get(
+                "append_request_runtime_ms"
+            ),
+            "cec_monocular_depth_cache_hit": probe.get(
+                "monocular_depth_cache_hit"
+            ),
+            "cec_monocular_depth_prediction_runtime_ms": probe.get(
+                "monocular_depth_prediction_runtime_ms"
+            ),
+            "cec_monocular_depth_materialization_runtime_ms": probe.get(
+                "monocular_depth_materialization_runtime_ms"
+            ),
             "cec_candidate_ceiling_override": (
                 None
                 if self.active_goal is None
