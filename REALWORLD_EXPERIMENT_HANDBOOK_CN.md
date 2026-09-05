@@ -929,6 +929,13 @@ Bridge 在命令超时、零命令或遥控器接管时执行 `Move(0,0,0)`，�
 
 ## 15. 安全与运动授权
 
+实验结果与停机状态独立：CEC/视觉到达只参与控制与停机，不能自动决定数据集的成功率。
+新 Episode 自动归档使用 `outcome=unreviewed`，另记 `termination_reason`；人工 Stop
+不等于失败，自动到达也不等于人工确认成功。保存后用 Foxglove 的 `MARK SUCCESS /
+MARK FAILURE` 标注；标注与修订历史位于 capture 根目录 `evaluation.json`，绑定冻结
+manifest SHA，独立于不可变的原始证据清单。正式 SR/SPL 仍使用独立 GT；人工意见与 GT
+冲突时明确报告，不能为提高成功率而抹除碰撞、接管或其他停止记录。旧归档不自动迁移。
+
 ### 15.1 启动状态
 
 ```text

@@ -14,6 +14,8 @@ foxglove_bridge:
       - "^/memnav_operator/stop_survey$"
       - "^/memnav_operator/start_revisit$"
       - "^/memnav_operator/operator_stop$"
+      - "^/memnav_operator/review_success$"
+      - "^/memnav_operator/review_failure$"
     param_whitelist:
       - "(?!)"
     client_topic_whitelist:

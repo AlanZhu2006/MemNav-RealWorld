@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT / "deployment" / "go2"))
 from experiment_capture_manifest import (  # noqa: E402
     CaptureManifestError,
     read_manifest,
+    read_evaluation,
     sha256_file,
     verify_manifest,
 )
@@ -431,9 +432,16 @@ def _verify_run(entry: Mapping[str, Any], run_root: Path) -> dict[str, Any]:
     frozen_shortest = float(scene["shortest_feasible_path_m"])
     if abs(shortest - frozen_shortest) > 1e-4:
         errors.append("L_i differs from the frozen scene shortest path")
-    outcome_success = manifest.get("outcome") == SUCCESS_OUTCOME
-    if outcome_success != bool(success):
-        errors.append("capture outcome and independent S_i disagree")
+    review = read_evaluation(run_root)
+    # New captures do not score success. Independent GT remains the formal
+    # S_i authority; human annotations are separate and disagreements explicit.
+    declared_outcome = review.get("outcome") if review else manifest.get("outcome")
+    if declared_outcome in {"success", "failure"}:
+        if (declared_outcome == SUCCESS_OUTCOME) != bool(success):
+            errors.append("declared evaluation and independent S_i disagree")
+    elif manifest.get("outcome_authority") != "human_review":
+        if bool(success):
+            errors.append("legacy capture outcome and independent S_i disagree")
 
     authority_seen, takeover, authority_errors = _authority_audit(run_root, arm)
     errors.extend(authority_errors)

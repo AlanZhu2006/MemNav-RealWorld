@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -18,13 +19,15 @@ import sys
 from typing import Any, Iterable
 
 
-SCHEMA_VERSION = "memnav_realworld_capture_v3_20260831"
+SCHEMA_VERSION = "memnav_realworld_capture_v4_manual_review_20260906"
 LEGACY_SCHEMA_VERSIONS = {
+    "memnav_realworld_capture_v3_20260831",
     "memnav_realworld_capture_v1_20260827",
     "memnav_realworld_capture_v2_20260830",
 }
 RUN_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}\Z")
 OUTCOMES = (
+    "unreviewed",
     "success",
     "failure",
     "timeout",
@@ -233,6 +236,8 @@ def create_manifest(
         },
         "capture_stop_clean": None,
         "outcome": None,
+        "outcome_authority": "human_review",
+        "termination_reason": None,
         "notes": "",
         "artifact_inventory": [],
         "completeness": None,
@@ -376,7 +381,9 @@ def attach_reference(
 
 def artifact_inventory(run_root: Path) -> list[dict[str, Any]]:
     root = run_root.resolve()
-    excluded = {"manifest.json", "MANIFEST.sha256", "FINALIZED"}
+    # Human annotations are separate from the frozen sensor evidence. They
+    # bind to its manifest hash and preserve their own revision history.
+    excluded = {"manifest.json", "MANIFEST.sha256", "FINALIZED", "evaluation.json"}
     artifacts = []
     for path in sorted(root.rglob("*")):
         if not path.is_file():
@@ -444,6 +451,7 @@ def finalize_manifest(
     outcome: str,
     notes: str,
     allow_incomplete: bool,
+    termination_reason: str = "",
 ) -> dict[str, Any]:
     payload = read_manifest(run_root)
     if payload.get("state") != "captured":
@@ -469,6 +477,7 @@ def finalize_manifest(
             "state": "finalized",
             "finalized_utc": utc_now(),
             "outcome": outcome,
+            "termination_reason": termination_reason or None,
             "notes": str(notes),
             "artifact_inventory": inventory,
             "completeness": gates,
@@ -484,6 +493,52 @@ def finalize_manifest(
         f"{payload['schema_version']}\n{digest}\n", encoding="ascii"
     )
     return payload
+
+
+def read_evaluation(run_root: Path) -> dict[str, Any] | None:
+    root = run_root.resolve()
+    path = root / "evaluation.json"
+    if not path.exists():
+        return None
+    payload = read_manifest(root)
+    review = json.loads(path.read_text())
+    if (review.get("schema") != "memnav_human_evaluation_v1"
+            or review.get("run_id") != payload["run_id"]
+            or review.get("manifest_sha256") != sha256_file(root / "manifest.json")
+            or review.get("outcome") not in {"success", "failure", "unreviewed"}):
+        raise CaptureManifestError("human review does not bind this capture manifest")
+    return review
+
+
+def review_manifest(run_root: Path, *, outcome: str, reviewer: str, notes: str) -> dict[str, Any]:
+    """Annotate a stopped run without rewriting evidence or inferring success."""
+    root = run_root.resolve()
+    if outcome not in {"success", "failure", "unreviewed"} or not reviewer.strip():
+        raise CaptureManifestError("review requires success/failure/unreviewed and a reviewer")
+    payload = read_manifest(root)
+    if payload.get("state") != "finalized":
+        raise CaptureManifestError("stop and finalize capture before human review")
+    digest = sha256_file(root / "manifest.json")
+    if (root / "MANIFEST.sha256").read_text().strip() != f"{digest}  manifest.json":
+        raise CaptureManifestError("manifest identity changed; cannot attach review")
+    if (root / "FINALIZED").read_text().splitlines() != [str(payload["schema_version"]), digest]:
+        raise CaptureManifestError("finalization receipt does not match manifest")
+    # No multi-GB rehash on a GUI click. Full evidence verification is still
+    # available through verify_manifest; this annotation binds its exact hash.
+    with (root / ".evaluation.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        path = root / "evaluation.json"
+        history = []
+        if path.exists():
+            previous = read_evaluation(root)
+            history = previous["history"]
+        entry = {"revision": len(history) + 1, "outcome": outcome,
+                 "reviewer": reviewer.strip(), "reviewed_utc": utc_now(), "notes": notes}
+        result = {"schema": "memnav_human_evaluation_v1", "run_id": payload["run_id"],
+                  "manifest_sha256": digest, "authority": "human", **entry,
+                  "history": [*history, entry]}
+        atomic_write_json(path, result)
+    return result
 
 
 def verify_manifest(run_root: Path) -> dict[str, Any]:
@@ -517,6 +572,7 @@ def verify_manifest(run_root: Path) -> dict[str, Any]:
     return {
         "run_id": payload["run_id"],
         "manifest_sha256": digest,
+        "human_evaluation": read_evaluation(root),
         "artifacts": len(current),
         "completeness": expected,
     }
@@ -570,6 +626,13 @@ def main() -> int:
     finalize.add_argument("--outcome", choices=OUTCOMES, required=True)
     finalize.add_argument("--notes", default="")
     finalize.add_argument("--allow-incomplete", action="store_true")
+    finalize.add_argument("--termination-reason", default="")
+
+    review = subparsers.add_parser("review")
+    review.add_argument("--run-root", type=Path, required=True)
+    review.add_argument("--outcome", choices=("success", "failure", "unreviewed"), required=True)
+    review.add_argument("--reviewer", required=True)
+    review.add_argument("--notes", default="")
 
     verify = subparsers.add_parser("verify")
     verify.add_argument("--run-root", type=Path, required=True)
@@ -606,7 +669,11 @@ def main() -> int:
                 outcome=args.outcome,
                 notes=args.notes,
                 allow_incomplete=args.allow_incomplete,
+                termination_reason=args.termination_reason,
             )
+        elif args.command == "review":
+            result = review_manifest(args.run_root, outcome=args.outcome,
+                                     reviewer=args.reviewer, notes=args.notes)
         else:
             result = verify_manifest(args.run_root)
     except (CaptureManifestError, FileNotFoundError, OSError) as error:

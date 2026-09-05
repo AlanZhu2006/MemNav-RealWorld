@@ -25,6 +25,7 @@ from typing import Any, Optional
 
 import cv2
 import numpy as np
+from experiment_capture_manifest import CaptureManifestError, review_manifest
 
 
 ACTIVE_STATE_SCHEMA = "memnav_revisit_debug_state_v1"
@@ -32,7 +33,12 @@ STATUS_SCHEMA = "memnav_revisit_operator_status_v1"
 EPISODE_SCHEMA = "memnav_foxglove_episode_v1"
 GOAL_CAPTURE_SCHEMA = "memnav_revisit_goal_capture_v1"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-TERMINAL_EPISODE_STATES = {"complete", "failed", "cancelled"}
+TERMINAL_EPISODE_STATES = {"complete", "failed", "cancelled", "stopped"}
+
+
+def stop_reason_from_legacy_outcome(outcome: str) -> str:
+    return {"success": "automatic_arrival", "failure": "navigation_error",
+            "aborted": "operator_stop"}.get(outcome, outcome)
 BUSY_EPISODE_STATES = {
     "capturing_goal",
     "survey_preparing",
@@ -167,7 +173,9 @@ def episode_identity(now: datetime | None = None) -> tuple[str, str]:
 def allowed_actions_for_state(state: str | None, *, busy: bool) -> list[str]:
     if busy:
         return ["stop-navigation"]
-    if not state or state in TERMINAL_EPISODE_STATES:
+    if state in TERMINAL_EPISODE_STATES:
+        return ["capture-goal", "review-success", "review-failure", "stop-navigation"]
+    if not state:
         return ["capture-goal"]
     if state == "goal_captured":
         return ["start-survey", "stop-navigation"]
@@ -407,7 +415,9 @@ def capture_finalize_command(
         str(repo_root / "deployment/go2/offboard/experiment_capture.sh"),
         "finalize",
         episode_id,
-        outcome,
+        "unreviewed",
+        "--termination-reason",
+        stop_reason_from_legacy_outcome(outcome),
         "--notes",
         "Foxglove-managed phase-gated RGB-D Episode",
     ]
@@ -538,6 +548,14 @@ class RevisitOperatorService:
             Trigger, "/memnav_operator/start_revisit", self._start_revisit
         )
         self.node.create_service(
+            Trigger, "/memnav_operator/review_success",
+            lambda request, response: self._review_result("success", response),
+        )
+        self.node.create_service(
+            Trigger, "/memnav_operator/review_failure",
+            lambda request, response: self._review_result("failure", response),
+        )
+        self.node.create_service(
             Trigger, "/memnav_operator/operator_stop", self._operator_stop
         )
         self.node.create_timer(0.5, self._tick)
@@ -604,6 +622,8 @@ class RevisitOperatorService:
             "episode_id": self._episode.get("episode_id"),
             "dataset_id": self._episode.get("dataset_id"),
             "episode_state": self._episode.get("state"),
+            "evaluation": self._episode.get("evaluation"),
+            "termination_reason": self._episode.get("termination_reason"),
             "goal_captured_utc": goal.get("captured_utc"),
             "goal_rgb_stamp_ns": (goal.get("rgb") or {}).get("stamp_ns")
             if isinstance(goal.get("rgb"), dict)
@@ -633,6 +653,11 @@ class RevisitOperatorService:
                 ),
                 **fields,
             }
+            if not self._episode or not self._episode.get("capture_finalized"):
+                self._status["allowed_actions"] = [
+                    action for action in self._status["allowed_actions"]
+                    if not action.startswith("review-")
+                ]
         self._publish_status()
 
     def _publish_status(self) -> None:
@@ -722,6 +747,12 @@ class RevisitOperatorService:
     def _transition(self, state: str, detail: str, **fields: Any) -> None:
         if self._episode is None:
             raise ContractError("No active Episode")
+        if "outcome" in fields:
+            fields["termination_reason"] = stop_reason_from_legacy_outcome(fields["outcome"])
+            fields["outcome"] = "unreviewed"
+        if state in TERMINAL_EPISODE_STATES:
+            state = "stopped"
+            detail += " · Saved for human review (not automatically scored)"
         self._episode = {
             **self._episode,
             "state": state,
@@ -1132,6 +1163,32 @@ class RevisitOperatorService:
         response.message = "Episode stop accepted; motion lock asserted"
         return response
 
+    def _review_result(self, outcome: str, response: Any) -> Any:
+        if (self._worker_is_active() or self._episode is None
+                or self._episode.get("state") not in TERMINAL_EPISODE_STATES
+                or not self._episode.get("capture_finalized")):
+            response.success = False
+            response.message = "Wait until the Episode is stopped and saved before marking its result"
+            return response
+        try:
+            review = review_manifest(
+                self.capture_root / str(self._episode["episode_id"]),
+                outcome=outcome, reviewer="foxglove_operator",
+                notes="Explicit human judgment in Foxglove; independent of stop cause",
+            )
+        except (CaptureManifestError, OSError, ValueError, KeyError) as exc:
+            response.success = False
+            response.message = str(exc)
+            return response
+        self._episode["evaluation"] = review
+        self._write_episode()
+        self._append_episode_event("human_review", outcome=outcome, revision=review["revision"])
+        detail = f"Human result: {outcome.upper()} · stop reason and raw evidence unchanged"
+        self._set_status(str(self._episode["state"]), detail, active=False)
+        response.success = True
+        response.message = detail
+        return response
+
     def _call_trigger_service(self, service: str, timeout_s: float) -> str:
         result = subprocess.run(
             [
@@ -1300,11 +1357,13 @@ class RevisitOperatorService:
             "capture_active": False,
             "capture_stopped_utc": utc_now(),
             "capture_stop_clean": clean,
-            "outcome": outcome,
+            "outcome": "unreviewed",
+            "termination_reason": stop_reason_from_legacy_outcome(outcome),
         }
         self._write_episode()
         self._append_episode_event(
-            "capture_stopped", outcome=outcome, capture_stop_clean=clean
+            "capture_stopped", termination_reason=stop_reason_from_legacy_outcome(outcome),
+            outcome="unreviewed", capture_stop_clean=clean
         )
         self._mirror_episode_evidence()
         finalized = False
@@ -1447,7 +1506,7 @@ class RevisitOperatorService:
                     self._cleanup_stack(log)
                     self._transition(
                         "complete",
-                        "Episode complete · Revisit arrived and motion is locked",
+                        "Automatic arrival signal stopped motion",
                         capture_active=False,
                         outcome="success",
                         completed_utc=utc_now(),
@@ -1455,13 +1514,14 @@ class RevisitOperatorService:
                 else:
                     self._lock_until = time.monotonic() + 180.0
                     self._request_adapter_stop()
-                    self._finish_capture("failure")
+                    stop_cause = {2: "timeout", 3: "operator_intervention"}.get(code, "navigation_error")
+                    self._finish_capture(stop_cause)
                     self._cleanup_stack(log)
                     self._transition(
                         "failed",
                         f"Revisit stopped with navigation code {code}",
                         capture_active=False,
-                        outcome="failure",
+                        outcome=stop_cause,
                     )
         except Exception as exc:
             self._lock_until = time.monotonic() + 180.0

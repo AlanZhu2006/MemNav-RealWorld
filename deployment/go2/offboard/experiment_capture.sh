@@ -69,6 +69,7 @@ Usage (run on Jetson with Foxglove and either observer or NavDP stack running):
   experiment_capture.sh attach-third-view RUN_ID VIDEO
   experiment_capture.sh attach-odin-gt RUN_ID GT_RESULT SPL_RECEIPT
   experiment_capture.sh finalize RUN_ID OUTCOME [--notes TEXT]
+      [--termination-reason REASON]
       [--allow-incomplete]
   experiment_capture.sh verify RUN_ID
 
@@ -90,7 +91,13 @@ GT source:
   odin1  Adds the independent Odin odometry/map-TF/status lane. Finalization
          then requires attached GT result and frozen A* SPL receipts.
 
-OUTCOME is one of: success, failure, timeout, operator_intervention,
+Use OUTCOME=unreviewed for automatic capture finalization. Termination reasons
+are observations, not judgments of experiment success. Human annotation:
+  python3 deployment/go2/experiment_capture_manifest.py review \
+    --run-root runtime/go2/experiment_capture/RUN_ID \
+    --outcome success --reviewer operator --notes 'manual arrival judgment'
+
+Legacy OUTCOME values remain readable: success, failure, timeout, operator_intervention,
 system_failure, collision, aborted.
 
 This tool is observational. It never enables motion and never clears estop.
@@ -521,16 +528,19 @@ finalize_capture() {
   shift 2
   validate_id "$run_id"
   local notes=""
+  local termination_reason=""
   local allow_incomplete=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --notes) [[ $# -ge 2 ]] || die "--notes requires text"; notes="$2"; shift ;;
+      --termination-reason) [[ $# -ge 2 ]] || die "--termination-reason requires text"; termination_reason="$2"; shift ;;
       --allow-incomplete) allow_incomplete=true ;;
       *) die "unknown finalize option: $1" ;;
     esac
     shift
   done
   local args=(finalize --run-root "$(run_root "$run_id")" --outcome "$outcome" --notes "$notes")
+  args+=(--termination-reason "$termination_reason")
   [[ "$allow_incomplete" == false ]] || args+=(--allow-incomplete)
   python3 "$MANIFEST_TOOL" "${args[@]}"
 }

@@ -186,6 +186,12 @@ Prepare 与 Survey 不会自动触发运动，Stop 后必须等新的启动请�
 也不再次询问授权。一直不恢复则保持零速度，最终由原有运行总超时结束；人工 Stop、急停
 和其他终止故障不自动恢复。首次启动预检仍要求画面足够新鲜（0.60 秒）。
 相机恢复服务仍保留在ROS侧供维护使用，但不再占用默认Operate操作面板。
+停止原因与实验结果分开：自动到达、手动 `STOP`、超时或运行故障均只记停止原因，
+自动保存后的结果为 `unreviewed`（待人工判定），不是自动成功/失败。保存完成后按钮行
+提供 `MARK SUCCESS / MARK FAILURE`；手动停止也可以标记成功。人工标注保存在该次
+capture 的 `evaluation.json`，绑定原 manifest 哈希，并保留修改历史，不改写原始录像。
+标注不控制运动，也不把人工判断冒充独立 GT；旧记录不自动改标。历史或单独重试的标注
+命令见 `foxglove/operator-controls/README.md`。
 这些topic有损且只用于显示；NavDP、arrival和`--profile full`采集仍读取原始
 848×480×30 Hz RGB-D。修改布局文件不会覆盖Foxglove已经导入的本地副本，升级后需要重新
 导入一次布局，或手动更新对应panel的topic和可见性。

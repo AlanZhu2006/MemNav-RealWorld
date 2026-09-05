@@ -273,6 +273,7 @@ def command_record(args: argparse.Namespace) -> dict[str, Any]:
             "dataset_id": manifest.get("dataset_id"),
             "trial_kind": manifest.get("trial_kind"),
             "pipeline_outcome": manifest.get("outcome"),
+            "termination_reason": manifest.get("termination_reason"),
             "capture_profile": manifest.get("capture_profile"),
             "capture_formal_complete": manifest.get("completeness", {}).get(
                 "formal_complete"
