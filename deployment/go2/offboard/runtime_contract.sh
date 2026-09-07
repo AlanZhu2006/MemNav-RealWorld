@@ -38,7 +38,7 @@ cec_validate_health_contract() {
   local expected_terminal_approach="${4:-${CFG_TERMINAL_APPROACH:-}}"
   local expected_schema
   expected_schema="$(cec_local_terminal_schema "$go2_dir")" || return 1
-  python3 - "$payload" "$expected_schema" "$expected_authority_mode" "$expected_terminal_approach" <<'PY'
+  python3 - "$payload" "$expected_schema" "$expected_authority_mode" "$expected_terminal_approach" "${CFG_HISTORICAL_DEPTH_SOURCE:-}" <<'PY'
 import json
 import sys
 
@@ -46,6 +46,7 @@ p = json.loads(sys.argv[1])
 expected_schema = sys.argv[2]
 expected_authority_mode = sys.argv[3]
 expected_terminal_approach = sys.argv[4]
+expected_depth_source = sys.argv[5]
 assert p.get("algo") == "cec_hybrid_navdp"
 assert p.get("protocol_version") == 3
 assert p.get("navigation_sensor_contract") == "causal_monocular_rgb_v1"
@@ -59,5 +60,7 @@ if expected_authority_mode:
     assert p.get("cec_authority_mode") == expected_authority_mode
 if expected_terminal_approach:
     assert p.get("terminal_approach_mode") == expected_terminal_approach
+if expected_depth_source:
+    assert p.get("cec_historical_depth_source") == expected_depth_source
 PY
 }

@@ -40,6 +40,23 @@ counterpart on `work-pc`.
   Do not change this default. Only use `run`, clear estop, enable execution, or
   publish motion commands within a user-requested motion run.
 
+### Direct Revisit requests: use the prepared workflow promptly
+
+- When the user says "开始 Revisit" / "开始 revisi", proceed through the
+  existing supervised workflow for the selected Episode and arm. Do not ask
+  for another authorization phrase or repeat already-stated onsite readiness.
+- Do not prepend an ad-hoc code audit, historical capture analysis, benchmark,
+  dependency reinstall, or a separate diagnostic stack to each run. Perform
+  the workflow's automated startup and final live arming gates; investigate
+  further only when those gates report a concrete fault or the user asks.
+- Reuse compatible parked GPU weights and the healthy camera observer. A
+  prepared Revisit runs with `--preserve-policy-state`; do not reset or replay
+  it again merely to inspect it. Independent new paired runs still need their
+  own sealed-dataset replay and query-start FIFO initialization.
+- Report the actual blocking gate once. Offline hardware, mismatched goal or
+  dataset identities, stale sensor/feedback, obstacle and emergency-stop
+  faults remain blockers. Stop cancels authorization; never auto-resume it.
+
 ## Deployment identity and preservation
 
 - Jetson host: `unitree-dog`, Orin NX 16 GB, Ubuntu 22.04, L4T R36.4.3,
@@ -114,10 +131,11 @@ counterpart on `work-pc`.
 ### Protected experiment registry
 
 - Read `runtime/go2/experiment_pairs/index.json` before collecting, labeling,
-  counting, or cleaning experiments. The user designated `pair_001` as the
-  first and currently sole valid completed pair on 2026-09-06 (local time).
-  Start subsequent collection as a new pair; do not overwrite or recategorize
-  the protected pair based on old GUI Episode status.
+  counting, or cleaning experiments. It is the current authority for valid,
+  active and next pair IDs; the pair-001 designation below is historical,
+  not a claim that later pairs do not exist. Start subsequent collection as a
+  new pair; do not overwrite or recategorize protected pairs based on old GUI
+  Episode status. Protect dependencies of every registered pair.
 - Pair 001: Episode `episode_20260905T175456_573243Z`; CEC capture
   `episode_20260905T175456_573243Z_retry_202653Z` is **human success**;
   Baseline (Mono-native) capture

@@ -265,11 +265,21 @@ bash deployment/go2/nav_stack.sh start \
   --config deployment/config/experiments/fullmono_imagegoal.json
 ```
 
-入口自动同步 resolved 配置、执行 4090 preflight、启动/复用同 config ID 的 GPU
-session、建立 loopback SSH tunnel，再把常驻 RGB-D 接入 Jetson adapter。4090 的模型路径
+入口自动同步 resolved 配置，冷启动时执行 4090 preflight；兼容且已清空本轮状态的
+常驻 GPU 模型可跨 config ID 复用，hub 按新配置重建。随后建立 loopback SSH tunnel，
+再把常驻 RGB-D 接入 Jetson adapter。4090 的模型路径
 只在 `system.json` 修改。
 
 ## 5. Survey → Formal Revisit
+
+录制启动检查使用独立 DDS 节点，最多等待 8 秒发现所需话题的 publisher，并验证实际
+Foxglove WebSocket 握手；不再根据一次 `ros2 node list` 的结果判断 Bridge 是否退出。
+正常发现后立即通过，不固定等待 8 秒。失败时输出缺失话题和连接错误，不隐藏原因。
+可仅检查、不创建录制、不启动运动：
+
+```bash
+bash deployment/go2/offboard/experiment_capture.sh readiness --allow-observer
+```
 
 ```bash
 bash deployment/go2/offboard/revisit_experiment.sh survey-prepare DATASET_ID
@@ -288,6 +298,12 @@ bash deployment/go2/offboard/revisit_experiment.sh formal-start DATASET_ID \
 脚本从 Full-Mono 基础配置派生带哈希的 survey/formal 配置，不使用临时环境变量。
 Formal 会自动设置选中历史目标的输出路径并启动 Go2 bridge，但仍保持运动锁定。
 
+GUI 的 Stop Survey 和 Revisit 结束使用 `park`：先停止运动栈，再清空 LingBot/CEC
+历史、NavDP 队列和深度缓存，回收未使用的 CPU/GPU 内存；保留模型权重和已保存的数据。
+下一轮仍完整重置并校验、重放 sealed Survey，不复用上一轮实验状态。显式维护命令
+`fullmono.sh stop --config RESOLVED_CONFIG.json` 才关闭模型并释放权重显存。
+CEC/Baseline 切换只重建调度 hub；模型代码、权重或启动配置变化时自动冷启动。
+
 ### 5.1 Foxglove 完整 Episode
 
 M点单程工程流程现在全部由`Operate`页完成，不再为每轮实验写路径、Dataset ID、改
@@ -304,7 +320,8 @@ M点单程工程流程现在全部由`Operate`页完成，不再为每轮实验�
 5. 手动完成路线后点击`STOP SURVEY`。后台校验、seal并保存Dataset；若不足40帧，GUI
    明确提示继续Survey，数据不会被丢弃；
 6. 现场安全、手持控制器且急停就绪时，单击`REVISIT`。系统自动重放该Episode的历史并
-   安装同一张冻结目标；到达或失败后自动停止栈、关闭MCAP并写SHA-256 artifact inventory；
+   安装同一张冻结目标；运行结束后自动停止运动栈、清理本轮内存并保留模型权重，关闭MCAP
+   并写SHA-256 artifact inventory；
 7. 红色`STOP NAVIGATION`可在任一阶段取消、锁止运动并封存本轮为aborted。完成后再次
    点击`CAPTURE GOAL`即可开始新Episode。
 
@@ -319,7 +336,7 @@ Episode合同。
 
 `REVISIT`首先校验`active.json`、冻结目标SHA-256和`STOP SURVEY`产生的fail-closed seal
 收据，然后检查D435i、实际USB 5 Gbit/s视频链路以及Go2连通性。它复用
-`revisit-prepare`完成双机重启和持久化重放，再由标准`navigation_run_agent.py`验证并保留
+`revisit-prepare`完成模型状态重置、hub/client重建和持久化重放，再由标准`navigation_run_agent.py`验证并保留
 `revisit_query`、dataset manifest和已安装goal，不再调用会清空长程记忆的通用policy reset；
 随后等待一条点击后的新轨迹，并检查RGB-D/Policy新鲜度、轨迹几何和至少`0.80 m`前方净空。
 只有全部通过才解除软件estop并enable。到达、超时、异常或点击`STOP NAVIGATION`都会重新

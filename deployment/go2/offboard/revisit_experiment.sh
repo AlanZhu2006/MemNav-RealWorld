@@ -164,12 +164,7 @@ PY
 }
 
 force_motion_lock() {
-  navdp_source_ros
-  timeout 8 ros2 service call \
-    /navdp_go2_adapter/set_enabled std_srvs/srv/SetBool \
-    '{data: false}' >/dev/null 2>&1 || true
-  timeout 8 ros2 topic pub --once /navdp/estop std_msgs/msg/Bool \
-    '{data: true}' >/dev/null 2>&1 || true
+  navdp_assert_motion_locked || die "adapter did not confirm disabled + estop + zero command"
 }
 
 active_config() {
@@ -487,11 +482,9 @@ PY
   local run_root="$RUNTIME_ROOT/$dataset_id/$run_id"
   [[ ! -e "$run_root" ]] || die "formal run root already exists: $run_root"
 
-  if tmux has-session -t "$SESSION" 2>/dev/null; then
-    force_motion_lock
-  fi
   # A sealed dataset is persistent. Clear per-episode state and rebuild the
   # hub/client; formal load/replay stays mandatory even with resident weights.
+  # park owns the shutdown lock; do not repeat DDS discovery before it.
   bash "$FULLMONO" park --config "$(active_config)"
   mkdir -p "$run_root"
   write_receipt "$run_root/formal_registration.json" "$registration_json"
@@ -505,11 +498,15 @@ PY
     --output "$config_path" >/dev/null
   local formal_config_id
   formal_config_id="$(python3 "$CONFIG_TOOL" get --config "$config_path" config_id)"
+  local prepare_started=$SECONDS stage_started=$SECONDS stack_seconds replay_seconds goal_seconds
   bash "$FULLMONO" start --config "$config_path"
   wait_empty_recording_hub
   force_motion_lock
+  stack_seconds=$((SECONDS - stage_started))
+  echo "Revisit preparation: stack ready in ${stack_seconds}s"
 
   echo "Loading and verifying survey $dataset_id; long surveys can take minutes..."
+  stage_started=$SECONDS
   local payload load_receipt
   payload="$(python3 - "$dataset_id" <<'PY'
 import json, sys
@@ -518,7 +515,10 @@ PY
 )"
   load_receipt="$(hub_post_json /dataset/load "$payload" 3600)"
   write_receipt "$run_root/dataset_load.json" "$load_receipt"
+  replay_seconds=$((SECONDS - stage_started))
+  echo "Revisit preparation: sealed Survey replay in ${replay_seconds}s"
 
+  stage_started=$SECONDS
   navdp_source_ros
   local prepare_log="$run_root/prepare_revisit.txt"
   if ! timeout 300 ros2 service call \
@@ -553,6 +553,10 @@ PY
     || die "installed goal SHA differs from the canonical frozen-goal wire bytes"
   force_motion_lock
   write_receipt "$run_root/ready_health.json" "$health"
+  goal_seconds=$((SECONDS - stage_started))
+  write_receipt "$run_root/preparation_timing.json" \
+    "{\"stack_ready_s\":$stack_seconds,\"dataset_replay_s\":$replay_seconds,\"goal_prepare_s\":$goal_seconds,\"after_config_total_s\":$((SECONDS - prepare_started))}"
+  echo "Revisit preparation: goal ready in ${goal_seconds}s; post-config total $((SECONDS - prepare_started))s"
   local formal_ready
   formal_ready="$(python3 - "$scene_id" "$run_id" "$dataset_id" "$arm" \
       "$authority_mode" "$frozen_goal" "$expected_goal_sha256" \

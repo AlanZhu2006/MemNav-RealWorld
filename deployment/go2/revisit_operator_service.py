@@ -947,7 +947,7 @@ class RevisitOperatorService:
                 )
             if code != 0 or self._cancel.is_set():
                 raise ContractError(f"Survey RGB-D recorder exited with code {code}")
-            self._call_trigger_service("/navdp_go2_adapter/survey_start", 20.0)
+            self._start_survey_recording(dataset_id)
             self._assert_motion_lock()
             self._transition(
                 "surveying",
@@ -1029,7 +1029,9 @@ class RevisitOperatorService:
                     raise ContractError(
                         f"Survey stop failed and RGB-D resume exited with code {resume_code}"
                     )
-                self._call_trigger_service("/navdp_go2_adapter/survey_start", 20.0)
+                self._start_survey_recording(
+                    _required_string(self._episode, "dataset_id", "active Episode")
+                )
                 paused = False
                 self._transition(
                     "surveying",
@@ -1064,8 +1066,10 @@ class RevisitOperatorService:
                             raise ContractError(
                                 f"RGB-D resume exited with code {resume_code}"
                             )
-                        self._call_trigger_service(
-                            "/navdp_go2_adapter/survey_start", 20.0
+                        self._start_survey_recording(
+                            _required_string(
+                                self._episode, "dataset_id", "active Episode"
+                            )
                         )
                     except Exception as resume_exc:
                         self._finish_capture("system_failure")
@@ -1172,6 +1176,58 @@ class RevisitOperatorService:
         ) is None:
             raise ContractError(f"{service} rejected the request: {output[-300:]}")
         return output
+
+    def _survey_start_observed(self, dataset_id: str) -> bool:
+        result = subprocess.run(
+            [
+                "timeout",
+                "6",
+                "ros2",
+                "topic",
+                "echo",
+                "--once",
+                "/navdp/status",
+                "--field",
+                "data",
+            ],
+            cwd=self.repo_root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8.0,
+        )
+        if result.returncode != 0:
+            return False
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                payload.get("survey_dataset_id") == dataset_id
+                and payload.get("survey_state") == "ACTIVE"
+                and payload.get("survey_last_action") == "survey_start"
+                and payload.get("survey_last_success") is True
+                and payload.get("survey_recording_active") is True
+                and payload.get("enabled") is False
+                and payload.get("estop") is True
+            ):
+                return True
+        return False
+
+    def _start_survey_recording(self, dataset_id: str) -> None:
+        try:
+            self._call_trigger_service("/navdp_go2_adapter/survey_start", 5.0)
+        except ContractError:
+            if not self._survey_start_observed(dataset_id):
+                raise
+            self.node.get_logger().warning(
+                "Survey-start CLI response was incomplete; exact ACTIVE status "
+                f"confirmed for dataset {dataset_id}"
+            )
 
     def _hardware_preflight(self) -> None:
         camera = subprocess.run(
@@ -1388,6 +1444,7 @@ class RevisitOperatorService:
         log_dir = self._episode_dir()
         run_id = f"{contract.dataset_id}_cec_{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
         log_path = log_dir / "operator.log"
+        revisit_capture_started = False
         try:
             with log_path.open("ab", buffering=0) as log:
                 self._transition(
@@ -1435,6 +1492,7 @@ class RevisitOperatorService:
                 )
                 if code != 0 or self._cancel.is_set():
                     raise ContractError(f"Revisit RGB-D recorder resume exited with code {code}")
+                revisit_capture_started = True
                 self._lock_until = 0.0
                 self._transition(
                     "revisiting",
@@ -1485,19 +1543,30 @@ class RevisitOperatorService:
         except Exception as exc:
             self._lock_until = time.monotonic() + 180.0
             self._request_adapter_stop()
-            self._finish_capture(
-                "aborted" if self._cancel.is_set() else "system_failure"
-            )
+            if self._cancel.is_set() or revisit_capture_started:
+                self._finish_capture(
+                    "aborted" if self._cancel.is_set() else "system_failure"
+                )
             self._cleanup_stack_path(log_path)
-            state = "cancelled" if self._cancel.is_set() else "failed"
-            self._transition(
-                state,
-                "Stopped by operator"
-                if self._cancel.is_set()
-                else f"Revisit failed: {exc}",
-                capture_active=False,
-                outcome="aborted" if self._cancel.is_set() else "system_failure",
-            )
+            if not self._cancel.is_set() and not revisit_capture_started:
+                self._transition(
+                    "survey_sealed",
+                    f"Revisit preparation failed: {exc} · Survey remains sealed; retry available",
+                    capture_active=False,
+                    capture_phase="paused_between_segments",
+                    last_revisit_prepare_failure=str(exc),
+                    last_revisit_prepare_failed_utc=utc_now(),
+                )
+            else:
+                state = "cancelled" if self._cancel.is_set() else "failed"
+                self._transition(
+                    state,
+                    "Stopped by operator"
+                    if self._cancel.is_set()
+                    else f"Revisit failed: {exc}",
+                    capture_active=False,
+                    outcome="aborted" if self._cancel.is_set() else "system_failure",
+                )
         finally:
             with self._mutex:
                 self._process = None

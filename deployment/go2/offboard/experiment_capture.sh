@@ -54,6 +54,7 @@ usage() {
   cat <<'EOF'
 Usage (run on Jetson with Foxglove and either observer or NavDP stack running):
   experiment_capture.sh preflight
+  experiment_capture.sh readiness [--allow-observer] [--gt-source none|odin1]
   experiment_capture.sh start RUN_ID [--dataset DATASET_ID]
       [--trial-kind revisit|novel|calibration|debug]
       [--profile audit|full] [--gt-source none|odin1]
@@ -137,32 +138,43 @@ require_capture_commands() {
 require_live_topics() {
   local gt_source="${1:-none}"
   navdp_source_ros
-  local topics
-  topics="$(timeout 8 ros2 topic list 2>/dev/null || true)"
-  grep -Fxq /navdp/status <<<"$topics" || die "/navdp/status is not live"
-  grep -Fxq /navdp/cec_receipt <<<"$topics" || die "/navdp/cec_receipt is not live"
-  grep -Fxq /navdp/go2/battery <<<"$topics" \
-    || die "/navdp/go2/battery is not live"
+  local topics=(--topic /navdp/status --topic /navdp/cec_receipt
+                --topic /navdp/go2/battery)
   if [[ "$gt_source" == odin1 ]]; then
-    grep -Fxq /navdp/gt/status <<<"$topics" || die "/navdp/gt/status is not live"
-    grep -Fxq /odin1/odometry <<<"$topics" || die "/odin1/odometry is not live"
+    topics+=(--topic /navdp/gt/status --topic /odin1/odometry)
   fi
-  grep -Fxq /foxglove_bridge <<<"$(ros2 node list 2>/dev/null || true)" \
-    || die "Foxglove Bridge is not running"
+  timeout 12 python3 "$GO2_DIR/capture_readiness.py" \
+    --system-config "$NAVDP_SYSTEM_CONFIG" "${topics[@]}" \
+    || die "capture readiness failed (see missing publishers / Foxglove error above)"
 }
 
 require_observer_topics() {
   navdp_source_ros
-  local topics
-  topics="$(timeout 8 ros2 topic list 2>/dev/null || true)"
-  grep -Fxq /camera/camera/color/image_raw <<<"$topics" \
-    || die "D435i RGB is not live"
-  grep -Fxq /camera/camera/aligned_depth_to_color/image_raw <<<"$topics" \
-    || die "D435i aligned depth is not live"
-  grep -Fxq /navdp/go2/battery <<<"$topics" \
-    || die "/navdp/go2/battery is not live"
-  grep -Fxq /foxglove_bridge <<<"$(ros2 node list 2>/dev/null || true)" \
-    || die "Foxglove Bridge is not running"
+  timeout 12 python3 "$GO2_DIR/capture_readiness.py" \
+    --system-config "$NAVDP_SYSTEM_CONFIG" \
+    --topic /camera/camera/color/image_raw \
+    --topic /camera/camera/aligned_depth_to_color/image_raw \
+    --topic /navdp/go2/battery \
+    || die "observer capture readiness failed (see diagnostics above)"
+}
+
+readiness() {
+  local observer=false gt_source=none
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --allow-observer) observer=true ;;
+      --gt-source) [[ $# -ge 2 ]] || die "--gt-source requires a value"; gt_source="$2"; shift ;;
+      *) die "unknown readiness option: $1" ;;
+    esac
+    shift
+  done
+  [[ "$gt_source" == none || "$gt_source" == odin1 ]] || die "unsupported GT source"
+  if [[ "$observer" == true ]]; then
+    [[ "$gt_source" == none ]] || die "observer readiness does not support Odin"
+    require_observer_topics
+  else
+    require_live_topics "$gt_source"
+  fi
 }
 
 preflight() {
@@ -555,6 +567,7 @@ action="${1:-}"
 [[ $# -eq 0 ]] || shift
 case "$action" in
   preflight) preflight "$@" ;;
+  readiness) readiness "$@" ;;
   start) [[ $# -ge 1 ]] || die "start requires RUN_ID"; run_id="$1"; shift; start_capture "$run_id" "$@" ;;
   status) [[ $# -eq 1 ]] || die "status requires RUN_ID"; status_capture "$1" ;;
   pause) [[ $# -eq 1 ]] || die "pause requires RUN_ID"; control_capture "$1" pause ;;

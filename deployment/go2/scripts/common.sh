@@ -155,6 +155,8 @@ navdp_start_adapter_and_wait() {
   # sequence of short-lived `ros2 topic echo` processes repeatedly pays DDS
   # discovery startup and can miss the transient status sample on Jetson.
   timeout "$CFG_ADAPTER_READY_TIMEOUT_S" python3 - >/dev/null 2>&1 <<'PY' &
+import json
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
@@ -169,9 +171,13 @@ rclpy.init(args=[])
 node = Node("navdp_adapter_status_waiter")
 received = False
 
-def on_message(_message):
+def on_message(message):
     global received
-    received = True
+    try:
+        status = json.loads(message.data)
+        received = status.get("enabled") is False and status.get("estop") is True
+    except (TypeError, ValueError, AttributeError):
+        received = False
 
 qos = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
@@ -266,38 +272,7 @@ navdp_assert_motion_locked() {
   # Reusing a process generation is only safe after the adapter confirms that
   # motion authority has been revoked and publishes the resulting locked state.
   navdp_source_ros >/dev/null 2>&1 || return 1
-  local response payload
-  response="$(timeout 8 ros2 service call \
-    /navdp_go2_adapter/operator_stop std_srvs/srv/Trigger '{}' 2>&1)" \
-    || return 1
-  grep -Eiq 'success[=:][[:space:]]*(true|True)' <<<"$response" || return 1
-
-  for _ in $(seq 1 3); do
-    payload="$(timeout 3 ros2 topic echo --once /navdp/status \
-      --field data 2>/dev/null || true)"
-    if python3 - "$payload" <<'PY'
-import ast
-import json
-import sys
-
-raw = "\n".join(
-    line for line in sys.argv[1].splitlines() if line.strip() != "---"
-).strip()
-try:
-    decoded = ast.literal_eval(raw)
-    if isinstance(decoded, str):
-        raw = decoded
-except (SyntaxError, ValueError):
-    pass
-status = json.loads(raw)
-assert status.get("enabled") is False
-assert status.get("estop") is True
-PY
-    then
-      return 0
-    fi
-  done
-  return 1
+  timeout 12 python3 "$NAVDP_GO2_DIR/confirm_motion_lock.py" --timeout-s 8
 }
 
 navdp_lock_motion_before_shutdown() {

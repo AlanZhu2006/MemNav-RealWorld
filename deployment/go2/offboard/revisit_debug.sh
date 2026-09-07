@@ -287,10 +287,42 @@ record_begin() {
   experiment_dir="$DEBUG_ROOT/$dataset_id"
   experiment="$experiment_dir/debug_experiment.json"
   survey_config="$REPO_ROOT/runtime/go2/two_pass_revisit/$dataset_id/survey_config.json"
-  [[ ! -e "$experiment_dir" ]] \
-    || die "debug dataset state already exists: $experiment_dir"
+  if [[ -e "$experiment_dir" ]]; then
+    local active_dataset="" active_mode=""
+    if [[ -f "$ACTIVE_STATE" ]]; then
+      active_dataset="$(python3 - "$ACTIVE_STATE" <<'PY'
+import json, sys
+try:
+    print(json.load(open(sys.argv[1], encoding="utf-8")).get("dataset_id") or "")
+except Exception:
+    print("")
+PY
+)"
+      active_mode="$(python3 - "$ACTIVE_STATE" <<'PY'
+import json, sys
+try:
+    print(json.load(open(sys.argv[1], encoding="utf-8")).get("mode") or "")
+except Exception:
+    print("")
+PY
+)"
+    fi
+    if [[ "$active_dataset" == "$dataset_id" ]] \
+        && [[ "$active_mode" =~ ^(prepared|recording|sealed|formal_ready)$ ]]; then
+      die "debug dataset state already active: $experiment_dir (mode=$active_mode)"
+    fi
+    echo "Reusing incomplete Survey preparation state for $dataset_id."
+  fi
+
+  # A completed Revisit can leave the locked Full-Mono services resident for
+  # reuse.  A new Survey needs a fresh dataset transaction, so retire that
+  # residual session here instead of rejecting the operator's START SURVEY.
+  if tmux has-session -t navdp-go2-offboard 2>/dev/null; then
+    echo "Locking the residual Full-Mono stack and parking GPU weights before the new Survey..."
+    bash "$REVISIT" --config "$BASE_EXPERIMENT" park
+  fi
   ! tmux has-session -t navdp-go2-offboard 2>/dev/null \
-    || die "Full-Mono stack is already running; stop or finish it first"
+    || die "residual Full-Mono stack could not be stopped"
 
   make_debug_experiment "$dataset_id" "$goal" "$experiment"
   stop_native_if_running
@@ -371,14 +403,9 @@ assert p["recording"] is True and p["dataset_id"] == sys.argv[2]
 assert int(p["memory_frames"]) >= int(p["minimum_frames"])
 PY
   echo "Sealing persistent history before stopping either machine..."
-  # Reassert the one-way operator lock first.  The adapter's survey_seal
-  # service then pauses and drains the current RGB transaction, atomically
+  # survey-seal confirms the one-way lock itself, then its adapter service
+  # pauses and drains the current RGB transaction, atomically
   # seals the dataset, and writes the fail-closed receipt used by Revisit.
-  set +u
-  source /opt/ros/humble/setup.bash
-  set -u
-  timeout 8 ros2 service call /navdp_go2_adapter/operator_stop \
-    std_srvs/srv/Trigger '{}' >/dev/null 2>&1 || true
   if ! bash "$REVISIT" --config "$experiment" survey-seal "$dataset_id"; then
     echo >&2
     echo "revisit-debug: seal is not ready; the stack remains motion-locked and recording." >&2
