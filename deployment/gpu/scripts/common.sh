@@ -45,3 +45,37 @@ require_executable() {
     exit 1
   }
 }
+
+gpu_wait_for_policy_ports_free() {
+  # tmux teardown returns before a CUDA worker necessarily closes its socket.
+  # Only wait after retiring our own session; never kill an unknown listener.
+  python3 - "$MEMNAV_PORT" "$NAVDP_PORT" "$CEC_HUB_PORT" <<'PY'
+import subprocess
+import sys
+import time
+
+ports = set(sys.argv[1:])
+started = time.monotonic()
+deadline = started + 30.0
+announced = False
+while True:
+    result = subprocess.run(["ss", "-H", "-ltn"], check=True,
+                            capture_output=True, text=True)
+    occupied = {fields[3].rsplit(":", 1)[-1]
+                for line in result.stdout.splitlines()
+                if len(fields := line.split()) >= 4} & ports
+    if not occupied:
+        print(f"GPU policy ports released after {time.monotonic() - started:.2f}s",
+              flush=True)
+        break
+    if not announced:
+        print("Waiting for retired GPU workers to release ports: "
+              + ", ".join(sorted(occupied)), flush=True)
+        announced = True
+    if time.monotonic() >= deadline:
+        raise SystemExit("Retired GPU ports still occupied after 30s: "
+                         + ", ".join(sorted(occupied))
+                         + "; no unrelated processes were terminated")
+    time.sleep(0.1)
+PY
+}

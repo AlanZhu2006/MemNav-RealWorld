@@ -24,6 +24,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
     exit 1
   fi
   tmux kill-session -t "$SESSION"
+  gpu_wait_for_policy_ports_free
   echo "Stopped tmux session $SESSION"
 else
   echo "No tmux session named $SESSION"

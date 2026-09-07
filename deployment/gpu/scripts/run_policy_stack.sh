@@ -24,6 +24,7 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
   else
     echo "Parked model contract changed or service unhealthy; cold-starting managed models."
     tmux kill-session -t "$SESSION"
+    gpu_wait_for_policy_ports_free
   fi
 fi
 if [[ "$warm" == true ]] && ss -ltn | awk '{print $4}' | grep -Eq "(^|:)$CEC_HUB_PORT$"; then
