@@ -470,6 +470,7 @@ class RevisitOperatorService:
         robot_ip: str,
     ) -> None:
         import rclpy
+        from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
         from rclpy.node import Node
         from rclpy.qos import (
             DurabilityPolicy,
@@ -478,7 +479,7 @@ class RevisitOperatorService:
             ReliabilityPolicy,
         )
         from sensor_msgs.msg import Image
-        from std_msgs.msg import Bool, String
+        from std_msgs.msg import Bool, Empty, String
         from std_srvs.srv import Trigger
 
         class NodeImpl(Node):
@@ -486,6 +487,7 @@ class RevisitOperatorService:
 
         self.rclpy = rclpy
         self.Bool = Bool
+        self.Empty = Empty
         self.String = String
         self.Image = Image
         self.Trigger = Trigger
@@ -529,11 +531,21 @@ class RevisitOperatorService:
         self.estop_pub = self.node.create_publisher(
             Bool, "/navdp/estop", command_qos
         )
+        # Sensor delivery can run separately, but all operator actions remain
+        # serialized so a concurrent START cannot erase a STOP cancellation.
+        self._sensor_group = MutuallyExclusiveCallbackGroup()
+        self.fast_stop_pub = self.node.create_publisher(
+            Empty, "/navdp/operator/stop_motion", sensor_qos)
+        self.node.create_subscription(
+            String, "/navdp/go2/motion_stop", self._on_motion_stop,
+            sensor_qos)
         self.adapter_stop = self.node.create_client(
             Trigger, "/navdp_go2_adapter/operator_stop"
         )
-        self.node.create_subscription(Image, rgb_topic, self._on_rgb, sensor_qos)
-        self.node.create_subscription(Image, depth_topic, self._on_depth, sensor_qos)
+        self.node.create_subscription(Image, rgb_topic, self._on_rgb, sensor_qos,
+                                      callback_group=self._sensor_group)
+        self.node.create_subscription(Image, depth_topic, self._on_depth, sensor_qos,
+                                      callback_group=self._sensor_group)
         self.node.create_service(
             Trigger, "/memnav_operator/capture_goal", self._capture_goal
         )
@@ -547,8 +559,9 @@ class RevisitOperatorService:
             Trigger, "/memnav_operator/start_revisit", self._start_revisit
         )
         self.node.create_service(
-            Trigger, "/memnav_operator/operator_stop", self._operator_stop
+            Trigger, "/memnav_operator/operator_stop", self._operator_stop,
         )
+        self.node.create_timer(0.05, self._repeat_fast_stop)
         self.node.create_timer(0.5, self._tick)
 
         self._mutex = threading.RLock()
@@ -556,6 +569,7 @@ class RevisitOperatorService:
         self._process: Optional[subprocess.Popen[bytes]] = None
         self._cancel = threading.Event()
         self._lock_until = 0.0
+        self._fast_stop_until = 0.0
         self._latest_rgb: tuple[Any, float] | None = None
         self._latest_depth: tuple[Any, float] | None = None
         self._episode: dict[str, Any] | None = self._restore_episode()
@@ -664,6 +678,25 @@ class RevisitOperatorService:
         self._assert_motion_lock()
         if self.adapter_stop.service_is_ready():
             self.adapter_stop.call_async(self.Trigger.Request())
+
+    def _repeat_fast_stop(self) -> None:
+        if self._cancel.is_set() and time.monotonic() < self._fast_stop_until:
+            self.fast_stop_pub.publish(self.Empty())
+
+    def _on_motion_stop(self, message: Any) -> None:
+        try:
+            receipt = json.loads(message.data)
+        except (TypeError, ValueError):
+            return
+        if (self._cancel.is_set() and isinstance(receipt, dict)
+                and receipt.get("operator_stop_latched") is True
+                and receipt.get("zero_command_sent") is True):
+            with self._mutex:
+                if self._status.get("state") != "stopping":
+                    return
+                self._status["detail"] = "Go2 zero command sent · saving recording"
+                self._status["motion_stop"] = receipt
+            self._publish_status()
 
     def _tick(self) -> None:
         if time.monotonic() < self._lock_until:
@@ -1128,12 +1161,14 @@ class RevisitOperatorService:
 
     def _operator_stop(self, _request: Any, response: Any) -> Any:
         self._cancel.set()
+        self._fast_stop_until = time.monotonic() + 30.0
+        self.fast_stop_pub.publish(self.Empty())
         self._lock_until = time.monotonic() + 30.0
         self._request_adapter_stop()
         active = self._worker_is_active()
         if active:
             self._set_status(
-                "stopping", "Stopping Episode · disabled + estop asserted"
+                "stopping", "STOP sent · waiting for Go2 zero-command acknowledgement"
             )
         elif (
             self._episode is not None
@@ -1149,7 +1184,7 @@ class RevisitOperatorService:
                 "stopped", "No active Episode · motion lock asserted", active=False
             )
         response.success = True
-        response.message = "Episode stop accepted; motion lock asserted"
+        response.message = "STOP sent; recording cleanup runs in the background"
         return response
 
     def _call_trigger_service(self, service: str, timeout_s: float) -> str:
@@ -1622,11 +1657,15 @@ def main() -> int:
         timeout_s=args.timeout_s,
         robot_ip=args.robot_ip,
     )
+    from rclpy.executors import MultiThreadedExecutor
+    executor = MultiThreadedExecutor(num_threads=2)
+    executor.add_node(service.node)
     try:
-        rclpy.spin(service.node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
+        executor.shutdown(timeout_sec=2.0)
         service.close()
         if rclpy.ok():
             rclpy.shutdown()

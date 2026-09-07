@@ -23,7 +23,7 @@ from rclpy.executors import ExternalShutdownException, MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, Empty, String
 from std_srvs.srv import SetBool, Trigger
 from visualization_msgs.msg import Marker, MarkerArray
 
@@ -222,6 +222,12 @@ class NavDPGo2Adapter(Node):
             callback_group=self._control_callback_group,
         )
 
+        self._fast_stop_group = MutuallyExclusiveCallbackGroup()
+        self.create_subscription(
+            Empty, "/navdp/operator/stop_motion", self._on_fast_stop,
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT),
+            callback_group=self._fast_stop_group,
+        )
         self.create_service(
             Trigger, "~/operator_stop", self._operator_stop_service,
             callback_group=self._control_callback_group,
@@ -734,6 +740,14 @@ class NavDPGo2Adapter(Node):
         )
         self.get_logger().warning(response.message)
         return response
+
+    def _on_fast_stop(self, _message: Empty) -> None:
+        with self._lock:
+            self._enabled = False
+            self._estop = True
+            self._target_command = VelocityCommand()
+            self._reset_motion_guards_locked()
+        self._publish_zero("operator_stop")
 
     def _lock_survey_motion(self, reason: str, *, pause: bool) -> None:
         """Revoke policy motion before any operator dataset transition."""

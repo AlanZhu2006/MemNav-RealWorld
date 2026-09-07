@@ -19,6 +19,7 @@ TOPICS = {
     "/navdp/experiment_event": "experiment_event.jsonl",
     "/navdp/operator/episode_event": "episode_event.jsonl",
     "/navdp/operator/revisit_workflow": "revisit_workflow.jsonl",
+    "/navdp/go2/motion_stop": "motion_stop.jsonl",
 }
 
 

@@ -772,12 +772,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     import rclpy
 
     previous_sigterm = signal.getsignal(signal.SIGTERM)
+    previous_sigint = signal.getsignal(signal.SIGINT)
 
     def interrupt_on_sigterm(_signum, _frame) -> None:
         raise KeyboardInterrupt
 
     signal.signal(signal.SIGTERM, interrupt_on_sigterm)
-    rclpy.init()
+    signal.signal(signal.SIGINT, interrupt_on_sigterm)
+    # Keep ROS alive long enough to send STOP when cancelled. The default
+    # rclpy SIGINT handler otherwise invalidates the context before cleanup.
+    from rclpy.signals import SignalHandlerOptions
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO)
     agent: Optional[NavigationRunAgent] = None
     try:
         agent = NavigationRunAgent(args)
@@ -799,6 +804,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         if rclpy.ok():
             rclpy.shutdown()
         signal.signal(signal.SIGTERM, previous_sigterm)
+        signal.signal(signal.SIGINT, previous_sigint)
 
 
 if __name__ == "__main__":

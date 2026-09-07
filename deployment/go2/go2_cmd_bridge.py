@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import signal
@@ -22,6 +23,7 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import BatteryState
+from std_msgs.msg import Empty, String
 
 from go2_battery_monitor import battery_message, sample_from_low_state
 
@@ -131,12 +133,22 @@ class Go2CmdBridge(Node):
         self.latest_cmd: Optional[TimedTwist] = None
         self.last_sent = (None, None, None)
         self.command_active = False
+        self.operator_stop_latched = False
+        self._operator_stop_sent = False
         self.latest_remote_stamp = 0.0
         self.remote_subscriber = None
         self.remote_takeover_logged = False
         self.last_command_log_stamp = 0.0
 
         self.create_subscription(Twist, self.cmd_vel_topic, self.on_cmd_vel, 1)
+        # One-way stop lane independent of policy and recording cleanup.
+        # Only a new bridge process clears this latch.
+        stop_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT,
+                              durability=DurabilityPolicy.VOLATILE)
+        self.create_subscription(Empty, "/navdp/operator/stop_motion",
+                                 self.on_operator_stop, stop_qos)
+        self._stop_status_pub = self.create_publisher(
+            String, "/navdp/go2/motion_stop", battery_qos)
         self.create_timer(1.0 / max(1.0, self.rate_hz), self.publish_to_go2)
         self.create_timer(1.0 / battery_publish_rate_hz, self.publish_battery)
         self.setup_remote_priority()
@@ -295,23 +307,52 @@ class Go2CmdBridge(Node):
     def is_zero_command(vx: float, vy: float, wz: float) -> bool:
         return vx == 0.0 and vy == 0.0 and wz == 0.0
 
-    def release_control(self, reason: str, *, normal_pause: bool = False) -> None:
-        if not self.command_active and not self.send_zero_when_idle:
-            return
+    def on_operator_stop(self, _message: Empty) -> None:
+        first = not self.operator_stop_latched
+        self.operator_stop_latched = True
+        self.latest_cmd = None
+        if not self._operator_stop_sent:
+            self._operator_stop_sent = self.release_control("operator STOP", force=True)
+        if first or not self._operator_stop_sent:
+            self.get_logger().warning("Operator STOP latched at Go2 bridge")
+        receipt = String()
+        receipt.data = json.dumps({
+            "operator_stop_latched": True,
+            "zero_command_sent": self._operator_stop_sent,
+            "requires_new_bridge": True,
+            "stamp_ns": self.get_clock().now().nanoseconds,
+            "physical_standstill_verified": False,
+        })
+        self._stop_status_pub.publish(receipt)
+
+    def release_control(self, reason: str, *, normal_pause: bool = False,
+                        force: bool = False) -> bool:
+        if not force and not self.command_active and not self.send_zero_when_idle:
+            return True
         try:
-            self.sport_client.Move(0.0, 0.0, 0.0)
+            code = self.sport_client.Move(0.0, 0.0, 0.0)
+            if code != 0:
+                raise RuntimeError(f"zero Move returned {code}")
             if self.stop_once_on_release and not normal_pause:
-                self.sport_client.StopMove()
+                code = self.sport_client.StopMove()
+                if code != 0:
+                    self.get_logger().warning(f"StopMove returned {code}; zero Move was sent")
             self.last_sent = (0.0, 0.0, 0.0)
             if self.command_active:
                 self.get_logger().info(
                     f"Released Go2 control after {reason}; hand controller can take over"
                 )
             self.command_active = False
+            return True
         except Exception as exc:
             self.get_logger().error(f"SportClient stop failed: {exc}")
+            return False
 
     def publish_to_go2(self) -> None:
+        if self.operator_stop_latched:
+            if not self._operator_stop_sent:
+                self.on_operator_stop(Empty())
+            return
         enabled = bool(self.get_parameter("enabled").value)
         if enabled != self.enabled:
             self.enabled = enabled

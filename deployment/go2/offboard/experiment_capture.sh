@@ -30,6 +30,8 @@ AUDIT_TOPICS=(
   /navdp/go2/battery
   /navdp/go2/body_heading
   /navdp/go2/odometry
+  /navdp/go2/motion_stop
+  /navdp/operator/stop_motion
   /rt/sportmodestate
   /camera/camera/color/camera_info
 )
