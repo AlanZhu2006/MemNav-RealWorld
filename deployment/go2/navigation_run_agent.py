@@ -220,6 +220,13 @@ def live_fault(
         return f"adapter_error:{status['last_error']}"
     if status.get("stop_reason") in {"obstacle_stop", "depth_unavailable_stop", "inference_error"}:
         return str(status["stop_reason"])
+    plan_recovery = status.get("plan_recovery") or {}
+    adapter_waits_for_plan = plan_recovery.get("policy") == "stop_wait_replan_v1"
+    if adapter_waits_for_plan and plan_recovery.get("pending") is True:
+        velocities = (status.get("cmd_vx"), status.get("cmd_wz"))
+        if not all(isinstance(v, (int, float)) and not isinstance(v, bool)
+                   and math.isfinite(v) and abs(v) < 1e-3 for v in velocities):
+            return "plan_pause_nonzero_command"
     if (status.get("rgbd_recovery") or {}).get("pending") is True:
         # This is a zero-command pause inside the same run, not a failure.
         # Do not mistake the intentionally consumed old plan for stale inference.
@@ -247,12 +254,16 @@ def live_fault(
         if (not isinstance(age, (int, float)) or isinstance(age, bool)
                 or not math.isfinite(age) or not 0 <= age <= 0.35):
             return "position_feedback_stale"
-        if status.get("execution_contract") == "timestamped_receding_horizon_v1":
+        if (not adapter_waits_for_plan
+                and status.get("execution_contract") == "timestamped_receding_horizon_v1"):
             plan_age = status.get("plan_age_s")
             if (not isinstance(plan_age, (int, float)) or not math.isfinite(plan_age)
                     or plan_age > max_plan_age_s):
                 return "trajectory_stale"
-    else:
+    elif not adapter_waits_for_plan:
+        # Compatibility with older adapters that do not implement a zero-
+        # command recovery transaction. Current adapters own plan expiry at
+        # 20 Hz; its five-second age limit pauses motion, not the run.
         plan_age = status.get("plan_age_s")
         post_execution_replan = any(
             receipt.get("phase") in {"complete", "stalled_replan"}
@@ -551,6 +562,10 @@ class NavigationRunAgent:
                 recovery = status.get("rgbd_recovery") or {}
                 if recovery.get("pending") is True:
                     self._log("WAIT-RGBD", "motion paused; waiting for fresh post-stop RGB-D and a new plan")
+                    next_report = now + 1.0
+                    continue
+                if (status.get("plan_recovery") or {}).get("pending") is True:
+                    self._log("WAIT-PLAN", "motion paused; waiting for an accepted post-stop plan; overall run budget still applies")
                     next_report = now + 1.0
                     continue
                 heading = status.get("heading_turn") or {}

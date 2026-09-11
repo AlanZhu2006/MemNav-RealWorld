@@ -169,10 +169,21 @@ def episode_identity(now: datetime | None = None) -> tuple[str, str]:
     return f"episode_{token}", f"m_episode_{token}"
 
 
-def allowed_actions_for_state(state: str | None, *, busy: bool) -> list[str]:
+def survey_start_retryable(episode: dict[str, Any] | None) -> bool:
+    return bool(episode and episode.get("state") in TERMINAL_EPISODE_STATES
+                and episode.get("termination_reason") == "system_failure"
+                and str(episode.get("detail", "")).startswith("Survey start failed:")
+                and not episode.get("survey_started_utc")
+                and not episode.get("capture_active") and episode.get("goal"))
+
+
+def allowed_actions_for_state(state: str | None, *, busy: bool,
+                              retry_survey: bool = False) -> list[str]:
     if busy:
         return ["stop-navigation"]
     if state in TERMINAL_EPISODE_STATES:
+        if retry_survey:
+            return ["start-survey", "capture-goal", "stop-navigation"]
         return ["capture-goal", "stop-navigation"]
     if not state:
         return ["capture-goal"]
@@ -542,12 +553,22 @@ class RevisitOperatorService:
         self.adapter_stop = self.node.create_client(
             Trigger, "/navdp_go2_adapter/operator_stop"
         )
+        self.survey_start_client = self.node.create_client(
+            Trigger, "/navdp_go2_adapter/survey_start"
+        )
+        self._adapter_status: tuple[dict[str, Any], float] | None = None
+        self.node.create_subscription(
+            String, "/navdp/status", self._on_adapter_status, state_qos
+        )
         self.node.create_subscription(Image, rgb_topic, self._on_rgb, sensor_qos,
                                       callback_group=self._sensor_group)
         self.node.create_subscription(Image, depth_topic, self._on_depth, sensor_qos,
                                       callback_group=self._sensor_group)
         self.node.create_service(
             Trigger, "/memnav_operator/capture_goal", self._capture_goal
+        )
+        self.node.create_service(
+            Trigger, "/memnav_operator/restore_saved_goal", self._restore_saved_goal
         )
         self.node.create_service(
             Trigger, "/memnav_operator/start_survey", self._start_survey
@@ -585,6 +606,7 @@ class RevisitOperatorService:
         self._status["allowed_actions"] = allowed_actions_for_state(
             None if self._episode is None else str(self._episode["state"]),
             busy=False,
+            retry_survey=survey_start_retryable(self._episode),
         )
         self._publish_goal()
         self._tick()
@@ -653,7 +675,8 @@ class RevisitOperatorService:
                 "updated_utc": utc_now(),
                 **self._episode_context(),
                 "allowed_actions": allowed_actions_for_state(
-                    episode_state, busy=bool(active)
+                    episode_state, busy=bool(active),
+                    retry_survey=survey_start_retryable(self._episode),
                 ),
                 **fields,
             }
@@ -922,6 +945,11 @@ class RevisitOperatorService:
             response.success = False
             response.message = "Another Episode action is still running"
             return response
+        if survey_start_retryable(self._episode):
+            self._start_worker(self._retry_survey_start, "memnav-survey-retry")
+            response.success = True
+            response.message = "Retrying Survey with the saved goal in a new Episode"
+            return response
         if self._episode is None or self._episode.get("state") != "goal_captured":
             response.success = False
             response.message = "Capture a Revisit goal before starting Survey"
@@ -930,6 +958,72 @@ class RevisitOperatorService:
         response.success = True
         response.message = "Survey preparation started"
         return response
+
+    def _restore_saved_goal(self, _request: Any, response: Any) -> Any:
+        if self._worker_is_active():
+            response.success = False
+            response.message = "Wait for the current Episode cleanup to finish"
+            return response
+        if (not self._episode or self._episode.get("state") not in TERMINAL_EPISODE_STATES
+                or self._episode.get("capture_active") or not self._episode.get("goal")):
+            response.success = False
+            response.message = "Stop the current Episode before restoring its saved goal"
+            return response
+        self._start_worker(self._retry_survey_start, "memnav-restore-goal", False)
+        response.success = True
+        response.message = "Restoring saved goal; Survey will remain unstarted"
+        return response
+
+    def _retry_survey_start(self, start_survey: bool = True) -> None:
+        # Never reopen a finalized capture or silently recapture at the robot's
+        # current position. A failed startup gets a new recording identity and
+        # byte-identical copies of its frozen goal, with explicit provenance.
+        previous = self._episode
+        assert previous and (survey_start_retryable(previous) if start_survey else (
+            previous.get("state") in TERMINAL_EPISODE_STATES
+            and not previous.get("capture_active")))
+        try:
+            goal = json.loads(json.dumps(previous["goal"]))
+            assets = {}
+            for kind in ("rgb", "depth"):
+                data = Path(goal[kind]["path"]).read_bytes()
+                if hashlib.sha256(data).hexdigest() != goal[kind]["sha256"]:
+                    raise ContractError(f"Saved {kind} goal hash mismatch")
+                assets[kind] = data
+            episode_id, dataset_id = episode_identity()
+            directory = self._episode_dir(episode_id)
+            directory.mkdir(parents=True, exist_ok=False)
+            for kind, name in (("rgb", "revisit_goal.png"),
+                               ("depth", "revisit_goal_depth.png")):
+                path = directory / name
+                path.write_bytes(assets[kind])
+                goal[kind]["path"] = str(path)
+            _atomic_write_json(directory / "goal_capture.json", goal)
+            self._episode = {
+                "schema": EPISODE_SCHEMA, "episode_id": episode_id,
+                "dataset_id": dataset_id, "state": "goal_captured",
+                "created_utc": utc_now(), "updated_utc": utc_now(),
+                "detail": "Goal restored · waiting for START SURVEY",
+                "goal": goal, "capture_profile": "full",
+                "capture_root": str((self.capture_root / episode_id).resolve()),
+                "capture_active": False, "capture_phase": "awaiting_survey",
+                "outcome": None,
+                ("survey_start_retry_of" if start_survey else "goal_restored_from_episode"):
+                    previous["episode_id"],
+            }
+            self._write_episode()
+            self._append_episode_event("saved_goal_reused_for_survey_retry" if start_survey
+                                       else "saved_goal_restored_without_survey")
+            self._publish_goal()
+            if self._cancel.is_set():
+                return
+            if start_survey:
+                self._run_survey_start()
+            else:
+                self._set_status("goal_captured", "Goal restored · waiting for START SURVEY",
+                                 active=False)
+        except Exception as exc:
+            self._set_status("blocked", f"Survey retry failed: {exc}", active=False)
 
     def _run_survey_start(self) -> None:
         assert self._episode is not None
@@ -966,6 +1060,7 @@ class RevisitOperatorService:
             )
             _atomic_write_json(self.state_path, active)
             self._publish_goal()
+            self._wait_survey_service(20.0)
             self._set_status(
                 "survey_preparing", "Survey ready · starting RGB-D capture"
             )
@@ -1187,82 +1282,56 @@ class RevisitOperatorService:
         response.message = "STOP sent; recording cleanup runs in the background"
         return response
 
-    def _call_trigger_service(self, service: str, timeout_s: float) -> str:
-        result = subprocess.run(
-            [
-                "timeout",
-                f"{timeout_s:g}",
-                "ros2",
-                "service",
-                "call",
-                service,
-                "std_srvs/srv/Trigger",
-                "{}",
-            ],
-            cwd=self.repo_root,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout_s + 5.0,
-        )
-        output = (result.stdout + result.stderr).strip()
-        if result.returncode != 0 or re.search(
-            r"success[=:]\s*[Tt]rue", output
-        ) is None:
-            raise ContractError(f"{service} rejected the request: {output[-300:]}")
-        return output
+    def _on_adapter_status(self, message: Any) -> None:
+        try:
+            payload = json.loads(message.data)
+        except (TypeError, ValueError):
+            return
+        if isinstance(payload, dict):
+            self._adapter_status = (payload, time.monotonic())
+
+    def _wait_survey_service(self, timeout_s: float) -> None:
+        deadline = time.monotonic() + timeout_s
+        while self.rclpy.ok() and time.monotonic() < deadline:
+            if self._cancel.is_set():
+                raise ContractError("Survey start cancelled")
+            if self.survey_start_client.wait_for_service(timeout_sec=0.25):
+                return
+        raise ContractError("Survey start service was not discovered within the readiness budget")
 
     def _survey_start_observed(self, dataset_id: str) -> bool:
-        result = subprocess.run(
-            [
-                "timeout",
-                "6",
-                "ros2",
-                "topic",
-                "echo",
-                "--once",
-                "/navdp/status",
-                "--field",
-                "data",
-            ],
-            cwd=self.repo_root,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=8.0,
-        )
-        if result.returncode != 0:
+        observation = self._adapter_status
+        if observation is None or time.monotonic() - observation[1] > 2.0:
             return False
-        for line in result.stdout.splitlines():
-            line = line.strip()
-            if not line.startswith("{"):
-                continue
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if (
-                payload.get("survey_dataset_id") == dataset_id
-                and payload.get("survey_state") == "ACTIVE"
-                and payload.get("survey_last_action") == "survey_start"
-                and payload.get("survey_last_success") is True
-                and payload.get("survey_recording_active") is True
-                and payload.get("enabled") is False
-                and payload.get("estop") is True
-            ):
-                return True
-        return False
+        payload = observation[0]
+        return bool(
+            payload.get("survey_dataset_id") == dataset_id
+            and payload.get("survey_state") == "ACTIVE"
+            and payload.get("survey_last_action") == "survey_start"
+            and payload.get("survey_last_success") is True
+            and payload.get("survey_recording_active") is True
+            and payload.get("enabled") is False
+            and payload.get("estop") is True
+        )
 
     def _start_survey_recording(self, dataset_id: str) -> None:
-        try:
-            self._call_trigger_service("/navdp_go2_adapter/survey_start", 5.0)
-        except ContractError:
-            if not self._survey_start_observed(dataset_id):
-                raise
-            self.node.get_logger().warning(
-                "Survey-start CLI response was incomplete; exact ACTIVE status "
-                f"confirmed for dataset {dataset_id}"
-            )
+        # The persistent executor discovers the adapter while preparation runs.
+        # Never spend the response budget booting a fresh ros2 CLI/DDS process.
+        self._wait_survey_service(20.0)
+        future = self.survey_start_client.call_async(self.Trigger.Request())
+        deadline = time.monotonic() + 20.0
+        while self.rclpy.ok() and time.monotonic() < deadline:
+            if self._cancel.wait(0.05):
+                raise ContractError("Survey start cancelled")
+            if future.done():
+                response = future.result()
+                if not response.success:
+                    raise ContractError(f"Survey start rejected: {response.message}")
+                return
+            if self._survey_start_observed(dataset_id):
+                return
+        if not self._survey_start_observed(dataset_id):
+            raise ContractError("Survey start response timed out; no matching ACTIVE receipt")
 
     def _hardware_preflight(self) -> None:
         camera = subprocess.run(

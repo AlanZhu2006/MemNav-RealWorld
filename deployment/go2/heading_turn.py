@@ -15,7 +15,9 @@ class HeadingTurn:
 
     IMU samples are stamped at the bridge's DDS reception. Matching a sample
     to image capture bounds the local transport alignment error, not the
-    hardware clock error. A stale or discontinuous IMU terminates the turn.
+    hardware clock error. Stale IMU feedback terminates the turn. At the
+    operator's request, yaw jumps do not terminate it; control uses the latest
+    fresh yaw while retaining the angular speed limit and turn timeout.
     """
 
     def __init__(self):
@@ -28,8 +30,6 @@ class HeadingTurn:
         self.started_s = None
         self.phase = "idle"
         self.error_rad = None
-        self.last_yaw = None
-        self.last_stamp_ns = None
         self.completed_s = None
 
     def observe(self, stamp_ns, yaw):
@@ -61,7 +61,6 @@ class HeadingTurn:
         self.started_s = now_s
         self.active = True
         self.phase = "turning"
-        self.last_stamp_ns, self.last_yaw = self.samples[-1]
         return True
 
     def step(self, now_ns, now_s, gain, max_wz):
@@ -71,18 +70,16 @@ class HeadingTurn:
         if age is None or not 0 <= age <= 0.35:
             self.phase = "heading_feedback_stale"
         else:
-            stamp, yaw = self.samples[-1]
-            if stamp > self.last_stamp_ns:
-                dt = (stamp - self.last_stamp_ns) / 1e9
-                if abs(wrap(yaw - self.last_yaw)) > 3.0 * dt + 0.10:
-                    self.phase = "heading_feedback_discontinuity"
-                self.last_stamp_ns, self.last_yaw = stamp, yaw
+            _, yaw = self.samples[-1]
             self.error_rad = wrap(self.target_yaw - yaw)
             if self.phase == "turning":
                 if abs(self.error_rad) <= math.radians(8):
                     self.phase = "complete"
                     self.completed_s = now_s
-                elif now_s - self.started_s >= 20.0:
+                # A rear-goal turn can begin close to 180 degrees away.  At
+                # the capped 0.55 rad/s command, 20 seconds can expire while
+                # fresh feedback shows the robot is still converging.
+                elif now_s - self.started_s >= 30.0:
                     self.phase = "heading_turn_timeout"
                 else:
                     return VelocityCommand(angular_z=max(-max_wz, min(max_wz, gain * self.error_rad)))

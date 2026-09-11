@@ -102,6 +102,8 @@ class NavDPGo2Adapter(Node):
         self._plan_cycle = PlanCycle(self.settle_before_sense_s)
         self._rgbd_pause_reason = ""
         self._rgbd_pause_started_s = None
+        self._plan_pause_reason = ""
+        self._plan_pause_started_s = None
         self._trajectory_execution = TrajectoryExecution(
             completion_tolerance_m=self.local_completion_tolerance_m,
             stagnation_timeout_s=self.stagnation_timeout_s,
@@ -667,6 +669,8 @@ class NavDPGo2Adapter(Node):
         # Keep emergency/episode locking usable during partial initialization.
         self._rgbd_pause_reason = ""
         self._rgbd_pause_started_s = None
+        self._plan_pause_reason = ""
+        self._plan_pause_started_s = None
         plan_cycle = getattr(self, "_plan_cycle", None)
         if plan_cycle is not None:
             plan_cycle.reset()
@@ -1260,6 +1264,41 @@ class NavDPGo2Adapter(Node):
         return response
 
     def _begin_revisit_service(self, _request, response):
+        # A formal Revisit preparation may reset the resident GPU hub while
+        # retaining this Jetson adapter.  In that case the adapter's cached
+        # phase can still be ``revisit_query`` even though the hub has safely
+        # returned to the locked ``memory_recording`` phase.  Refresh only the
+        # cached, non-motion state before applying the normal begin gate.
+        # This never enables motion: begin_revisit still reserves inference,
+        # prepares the frozen goal, and leaves the operator lock in force.
+        try:
+            health = self._client.health()
+            remote_phase = str(health.get("phase", ""))
+            if health.get("initialized") is not True:
+                raise RuntimeError("hub is not initialized")
+            if remote_phase not in {"memory_recording", "revisit_query"}:
+                raise RuntimeError(f"unsupported hub phase {remote_phase!r}")
+            with self._lock:
+                if not self._inference_busy and remote_phase != self._phase:
+                    self._phase = remote_phase
+                    self._frames_recorded = int(health.get("frames_recorded", 0))
+                    self._goal_candidates_captured = int(
+                        health.get("goal_candidates_captured", 0)
+                    )
+                    self._active_goal_id = health.get("active_goal_id")
+                    active_goal_sha256 = health.get("active_goal_sha256")
+                    self._active_goal_sha256 = (
+                        None if active_goal_sha256 is None
+                        else str(active_goal_sha256)
+                    )
+                    self.pause_memory_recording = remote_phase == "memory_recording"
+                    if remote_phase == "memory_recording":
+                        self._last_phase_receipt = {}
+        except Exception as exc:
+            self._publish_zero("begin_revisit_hub_sync_failed")
+            response.success = False
+            response.message = f"hub phase refresh failed: {type(exc).__name__}: {exc}"
+            return response
         with self._lock:
             initialized = self._server_initialized
             phase = self._phase
@@ -1829,6 +1868,8 @@ class NavDPGo2Adapter(Node):
                     self._plan_cycle.install_plan(finished)
                     self._rgbd_pause_reason = ""
                     self._rgbd_pause_started_s = None
+                    self._plan_pause_reason = ""
+                    self._plan_pause_started_s = None
                     self._last_inference_s = finished - started
                     self._last_error = ""
                     self._stop_reason = "ready"
@@ -1894,6 +1935,8 @@ class NavDPGo2Adapter(Node):
             return "awaiting_rgbd_replan"
         if self._last_error:
             return "inference_error"
+        if self._plan_pause_reason:
+            return "awaiting_plan_recovery"
         if (self.two_phase_episode and self._phase == "revisit_query"
                 and self._last_geometry_update_s > 0
                 and now - self._last_geometry_update_s > self.trajectory_timeout_s):
@@ -1954,6 +1997,34 @@ class NavDPGo2Adapter(Node):
             return
 
         if reason == "awaiting_rgbd_replan":
+            self._publish_zero(reason)
+            self._request_inference()
+            return
+
+        if reason in {"trajectory_stale", "geometry_stream_stale"}:
+            with self._lock:
+                # A plan or Stop may have arrived since the initial snapshot.
+                # Never create a recovery transaction across either boundary.
+                reason = self._motion_block_reason(time.monotonic())
+                if reason not in {"trajectory_stale", "geometry_stream_stale"}:
+                    return
+                self._publish_zero(reason)
+                self._plan_pause_reason = reason
+                self._plan_pause_started_s = now
+                self._motion_epoch += 1
+                self._heading_turn.reset()
+                self._trajectory_execution.reset()
+                self._trajectory = None
+                self._target_command = VelocityCommand()
+                self._terminal_motion_receipt = {}
+                # End the old action and reject every result from before this
+                # stop. Only an accepted post-stop plan clears the pause.
+                self._plan_cycle.install_plan(now)
+                self._note_action_stopped_after_zero(now)
+            self._request_inference()
+            return
+
+        if reason == "awaiting_plan_recovery":
             self._publish_zero(reason)
             self._request_inference()
             return
@@ -2411,6 +2482,13 @@ class NavDPGo2Adapter(Node):
                 "motion_epoch": self._motion_epoch,
                 "geometry_update_age_s": self._age(now, self._last_geometry_update_s),
                 "plan_timeout_s": self.trajectory_timeout_s,
+                "plan_recovery": {
+                    "policy": "stop_wait_replan_v1",
+                    "pending": bool(self._plan_pause_reason),
+                    "reason": self._plan_pause_reason,
+                    "pause_age_s": (None if self._plan_pause_started_s is None
+                                    else now - self._plan_pause_started_s),
+                },
                 "query_geometry_observations": self._query_geometry_count,
                 # Adapter and run supervisor share this Jetson monotonic clock.
                 "plan_monotonic_s": self._plan_monotonic,

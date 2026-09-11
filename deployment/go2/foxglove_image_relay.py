@@ -465,6 +465,7 @@ def build_operator_diagnostics(
         rgbd_age = source_age if rgbd_age is None else max(rgbd_age, source_age)
     recovery = payload.get("rgbd_recovery") or {}
     rgbd_paused = recovery.get("pending") is True
+    plan_paused = (payload.get("plan_recovery") or {}).get("pending") is True
     rgbd_timeout = _number(recovery.get("timeout_s")) or 2.0
     rgbd_skew = _number(payload.get("rgb_depth_skew_s"))
     clearance = _number(payload.get("clearance_m"))
@@ -515,6 +516,8 @@ def build_operator_diagnostics(
         policy_level, policy_message = DiagnosticStatus.ERROR, "OFFLINE"
     elif rgbd_paused:
         policy_level, policy_message = DiagnosticStatus.WARN, "WAIT · RGB-D / REPLAN"
+    elif plan_paused:
+        policy_level, policy_message = DiagnosticStatus.WARN, "WAIT · NEW PLAN"
     elif ((payload.get("trajectory_execution") or {}).get("active") is True
           or (payload.get("heading_turn") or {}).get("active") is True):
         policy_level, policy_message = DiagnosticStatus.OK, "LOCAL CONTROL · PLAN HELD"
@@ -567,6 +570,8 @@ def build_operator_diagnostics(
         mode_level, mode_message = DiagnosticStatus.OK, "ARRIVED"
     elif rgbd_paused:
         mode_level, mode_message = DiagnosticStatus.WARN, f"{state['mode']} · WAIT RGB-D"
+    elif plan_paused:
+        mode_level, mode_message = DiagnosticStatus.WARN, f"{state['mode']} · WAIT PLAN"
     elif state["mode"] == "SURVEY":
         survey_step = {
             "ACTIVE": "RECORDING",
@@ -601,6 +606,8 @@ def build_operator_diagnostics(
         overall_level, overall_message = DiagnosticStatus.ERROR, "STOP"
     elif image_level in {DiagnosticStatus.ERROR, DiagnosticStatus.STALE}:
         overall_level, overall_message = DiagnosticStatus.ERROR, "IMAGE OFFLINE"
+    elif plan_paused:
+        overall_level, overall_message = DiagnosticStatus.WARN, "PAUSED · WAIT PLAN"
     elif not observer_only and policy_level == DiagnosticStatus.ERROR:
         overall_level, overall_message = DiagnosticStatus.ERROR, "POLICY STALE"
     elif any(

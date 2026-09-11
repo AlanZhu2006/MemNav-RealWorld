@@ -34,6 +34,8 @@ navdp_go2_adapter:
     # accepted plan resume this run; explicit Stop and hard faults stay latched.
     # Initial arming still requires <=0.60 s freshness.
     sensor_timeout_s: 2.00
+    # Expiry stops and discards the current action, then waits for an accepted
+    # post-stop plan. It no longer ends the run; the overall run budget remains.
     trajectory_timeout_s: 5.00
     max_rgb_depth_skew_s: 0.10
     # Keep only a small pairing backlog. Post-stop admission below uses source
