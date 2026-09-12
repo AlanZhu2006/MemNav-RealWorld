@@ -65,7 +65,7 @@ navdp_go2_adapter:
     # Replan during motion; anchor each returned trajectory at RGB exposure.
     # No mandatory stop every 0.3 m. Sensor gaps/stops still require fresh RGB.
     latency_motion_guard_enabled: true
-    latency_max_plan_input_age_s: 1.50
+    latency_max_plan_input_age_s: 3.00
     settle_before_sense_s: 0.15
 
     # Rear goals use continuous pure-yaw control with measured Go2 IMU

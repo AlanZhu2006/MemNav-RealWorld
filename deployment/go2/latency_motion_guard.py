@@ -12,7 +12,7 @@ from trajectory_control import VelocityCommand
 @dataclass(frozen=True)
 class LatencyMotionGuardConfig:
     enabled: bool = True
-    max_plan_input_age_s: float = 1.50
+    max_plan_input_age_s: float = 3.00
 
 
 @dataclass(frozen=True)

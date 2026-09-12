@@ -34,4 +34,4 @@ exec /usr/bin/python3 "$NAVDP_GO2_DIR/revisit_operator_service.py" \
   --rgb-topic "$CFG_RGB_TOPIC" \
   --depth-topic "$CFG_DEPTH_TOPIC" \
   --robot-ip 192.168.123.161 \
-  --timeout-s 300
+  --timeout-s 500

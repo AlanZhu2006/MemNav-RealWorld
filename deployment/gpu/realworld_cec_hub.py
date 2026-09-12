@@ -428,6 +428,7 @@ class CecHybridRouter:
             "protocol_version": PROTOCOL_VERSION,
             "terminal_handoff_schema": TERMINAL_HANDOFF_SCHEMA,
             "query_observation_supported": True,
+            "installed_goal_rgb_only_supported": True,
             "query_observation_count": self.query_observation_count,
             "phase": self.phase,
             "frames_recorded": self.frames_recorded,
@@ -1305,7 +1306,7 @@ class CecHybridRouter:
         self,
         *,
         image: bytes,
-        goal: bytes,
+        goal: bytes | None = None,
         depth: bytes | None = None,
         form: Mapping[str, str] | None = None,
     ) -> dict[str, Any]:
@@ -1319,8 +1320,6 @@ class CecHybridRouter:
                 "goal query freezes the MemNav goal session and candidate "
                 "ceiling, so call /begin_revisit at the query start point first"
             )
-        if not image or not goal:
-            raise ValueError("image and goal are required")
         form = dict(form or {})
         if self.active_goal is not None:
             expected_sha = str(self.active_goal["sha256"])
@@ -1328,9 +1327,13 @@ class CecHybridRouter:
                 raise ValueError(
                     "client has not acknowledged the atomically selected goal"
                 )
-            # The hub owns the selected bytes.  The client's goal upload is a
-            # compatibility field and cannot replace the committed target.
+            # The hash acknowledges the committed target. Revisit clients
+            # send only the new RGB; an optional legacy goal cannot replace it.
             goal = self.active_goal["image"]
+        elif form.get("installed_goal_sha256"):
+            raise ValueError("no installed goal; prepare Revisit before planning")
+        if not image or not goal:
+            raise ValueError("image and an uploaded or hash-acknowledged installed goal are required")
         self.step_index += 1
 
         # In the monocular system the same causal LingBot stream provides both
@@ -1601,6 +1604,7 @@ def create_app(router: CecHybridRouter) -> Flask:
     def healthz():
         return jsonify({
             "query_observation_supported": True,
+            "installed_goal_rgb_only_supported": True,
             "query_observation_count": router.query_observation_count,
             "ok": True,
             "algo": "cec_hybrid_navdp",
@@ -1917,20 +1921,15 @@ def create_app(router: CecHybridRouter) -> Flask:
 
     @app.post("/imagegoal_step")
     def imagegoal_step():
-        missing = [name for name in ("image", "goal") if name not in request.files]
-        if missing:
-            return jsonify({"error": f"missing files: {', '.join(missing)}"}), 400
+        if "image" not in request.files:
+            return jsonify({"error": "missing files: image"}), 400
         if not call_lock.acquire(blocking=False):
             return jsonify({"error": "hub_busy"}), 409
         try:
             try:
                 result = router.plan_imagegoal(
                     image=request.files["image"].read(),
-                    goal=request.files["goal"].read(),
-                    depth=(
-                        request.files["depth"].read()
-                        if "depth" in request.files else None
-                    ),
+                    goal=(request.files["goal"].read() if "goal" in request.files else None),
                     form=request.form.to_dict(flat=True),
                 )
                 app.logger.info(

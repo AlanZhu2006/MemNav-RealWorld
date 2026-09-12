@@ -361,7 +361,7 @@ class NavDPGo2Adapter(Node):
             "max_linear_accel_mps2": 0.50,
             "max_angular_accel_rps2": 1.20,
             "latency_motion_guard_enabled": True,
-            "latency_max_plan_input_age_s": 1.50,
+            "latency_max_plan_input_age_s": 3.00,
             "settle_before_sense_s": 0.15,
             "depth_hard_stop_m": 0.35,
             "depth_percentile": 10.0,

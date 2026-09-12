@@ -130,8 +130,6 @@ class NavDPClient:
         files = {
             "image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg"),
             "goal": ("goal.jpg", self._encode_rgb(goal_rgb), "image/jpeg"),
-            # Wire compatibility only; the hub never forwards metric depth.
-            "depth": ("depth.png", self._encode_depth(depth_m), "image/png"),
         }
         data = None
         if source_observation is not None:
@@ -397,7 +395,8 @@ class NavDPClient:
     def validate_cec_contract(receipt: Mapping[str, Any]) -> None:
         if (receipt.get("protocol_version") != EXPECTED_CEC_PROTOCOL_VERSION
                 or receipt.get("terminal_handoff_schema") != EXPECTED_TERMINAL_HANDOFF_SCHEMA
-                or receipt.get("query_observation_supported") is not True):
+                or receipt.get("query_observation_supported") is not True
+                or receipt.get("installed_goal_rgb_only_supported") is not True):
             raise RuntimeError("CEC hub/Jetson contract mismatch: update both endpoints while motion-locked")
 
     def reset(self, intrinsic: np.ndarray, stop_threshold: float = -2.0) -> str:
@@ -427,9 +426,15 @@ class NavDPClient:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         files = {
             "image": ("image.jpg", self._encode_rgb(rgb), "image/jpeg"),
-            "goal": ("goal.jpg", self._encode_rgb(goal_rgb), "image/jpeg"),
-            "depth": ("depth.png", self._encode_depth(depth_m), "image/png"),
         }
+        if not installed_goal_sha256:
+            # The standalone RGB-D backend still needs both inputs. Paired
+            # Full-Mono acknowledges its frozen server-side goal by hash and
+            # derives depth from this RGB, so neither image is uploaded again.
+            files.update({
+                "goal": ("goal.jpg", self._encode_rgb(goal_rgb), "image/jpeg"),
+                "depth": ("depth.png", self._encode_depth(depth_m), "image/png"),
+            })
         request_args: dict[str, Any] = {
             "files": files,
             "timeout": self.timeout,

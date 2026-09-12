@@ -1706,7 +1706,7 @@ def main() -> int:
         "--depth-topic",
         default="/camera/camera/aligned_depth_to_color/image_raw",
     )
-    parser.add_argument("--timeout-s", type=float, default=300.0)
+    parser.add_argument("--timeout-s", type=float, default=500.0)
     parser.add_argument("--robot-ip", default="192.168.123.161")
     args = parser.parse_args()
     if not 0 < args.timeout_s <= 900:

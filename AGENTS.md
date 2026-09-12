@@ -38,9 +38,13 @@ counterpart on `work-pc`.
   run. Hard faults and the existing overall run timeout still terminate it.
 - The user also authorized replacing the five-second plan/geometry timeout
   termination with a zero-command pause inside the active run. Discard the old
-  action and wait for an accepted plan from post-stop RGB-D; retain the 1.5 s
-  plan-input age gate. Stop, estop, hard faults and the overall run budget still
-  terminate the run. This recovery must never clear estop or re-enable a run.
+  action and wait for an accepted plan from post-stop RGB-D; the user changed
+  the plan-input age gate to 3 s on 2026-09-12. Stop, estop, hard faults and the
+  overall run budget still terminate the run. This recovery must never clear
+  estop or re-enable a run.
+- On 2026-09-12 the user changed the operator Revisit run budget from 300 s to
+  500 s, including recovery pauses. New runs use this budget; preserve historical
+  run parameters and outcomes in existing experiment records.
 - `nav_stack.sh start` remains observation-only: `enabled=false`, `estop=true`.
   Do not change this default. Only use `run`, clear estop, enable execution, or
   publish motion commands within a user-requested motion run.

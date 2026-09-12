@@ -54,6 +54,7 @@ assert p.get("navdp_depth_source") == "monocular_sidecar"
 assert p.get("metric_depth_sensor_consumed_by_policy") is False
 assert p.get("terminal_handoff_schema") == expected_schema
 assert p.get("query_observation_supported") is True
+assert p.get("installed_goal_rgb_only_supported") is True
 assert p.get("terminal_approach_mode") in {"bearing_only", "height_scaled_local"}
 assert p.get("cec_authority_mode") in {"cec", "native"}
 if expected_authority_mode:
