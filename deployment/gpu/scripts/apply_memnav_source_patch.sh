@@ -9,8 +9,9 @@ PATCH_FILE="$REPO_ROOT/deployment/gpu/patches/memnav_reuse_flow_depth.patch"
 require_file "$PATCH_FILE"
 require_dir "$CFG_MEMNAV_SOURCE_ROOT"
 
-if git -C "$CFG_MEMNAV_SOURCE_ROOT" apply --reverse --check "$PATCH_FILE"; then
-  echo "MemNav current-frame depth reuse patch is already applied."
+if python3 "$REPO_ROOT/deployment/gpu/verify_memnav_depth_reuse.py" \
+    --source-root "$CFG_MEMNAV_SOURCE_ROOT"; then
+  echo "MemNav current-frame depth reuse implementation is already installed."
   exit 0
 fi
 if ! git -C "$CFG_MEMNAV_SOURCE_ROOT" apply --check "$PATCH_FILE"; then

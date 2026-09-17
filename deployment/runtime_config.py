@@ -30,6 +30,37 @@ class ConfigError(ValueError):
     pass
 
 
+def memory_storage_config(cec: Mapping[str, Any]) -> dict[str, str]:
+    """Explicit opt-in; older resolved configurations keep their writer."""
+    raw = _object(cec.get("memory_storage", {}), "cec.memory_storage")
+    _exact_keys(raw, {"mechanism", "geometry", "kv"}, "cec.memory_storage")
+    settings = {"mechanism": "legacy", "geometry": "dense", "kv": "native", **raw}
+    for name, allowed in {
+        "mechanism": {"legacy", "native_interval7"},
+        "geometry": {"dense", "detector_support"},
+        "kv": {"native", "reader_precision", "lossless_bf16"},
+    }.items():
+        if settings[name] not in allowed:
+            raise ConfigError(f"unsupported cec.memory_storage.{name}: {settings[name]!r}")
+    if settings["mechanism"] == "legacy":
+        if settings["geometry"] != "dense" or settings["kv"] != "native":
+            raise ConfigError("compact geometry/KV storage requires native_interval7")
+    elif (cec.get("historical_depth_source", "canonical") != "online_history"
+          or cec.get("eager_depth_cache", False)):
+        raise ConfigError("native_interval7 requires online_history without eager replay")
+    return settings
+
+
+def survey_initialization(cec: Mapping[str, Any]) -> str:
+    mechanism = memory_storage_config(cec)["mechanism"]
+    mode = cec.get("survey_initialization", "checkpoint" if mechanism == "legacy" else "rgb_replay")
+    if mode not in {"checkpoint", "rgb_replay"}:
+        raise ConfigError("survey_initialization must be checkpoint or rgb_replay")
+    if mode == "checkpoint" and mechanism != "legacy":
+        raise ConfigError("native_interval7 must rebuild Survey from RGB; legacy checkpoints are incompatible")
+    return mode
+
+
 def _load_json(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -293,7 +324,8 @@ def _validate_system(system: Mapping[str, Any]) -> None:
     }
     for name, fields in nested_fields.items():
         nested = _object(stack[name], f"stack.{name}")
-        allowed = fields | ({"historical_depth_source"} if name == "cec" else set())
+        allowed = fields | ({"historical_depth_source", "memory_storage", "survey_initialization"}
+                            if name == "cec" else set())
         _exact_keys(nested, allowed, f"stack.{name}")
         _required_keys(nested, fields, f"stack.{name}")
     depth_source = stack["cec"].get("historical_depth_source", "canonical")
@@ -301,6 +333,7 @@ def _validate_system(system: Mapping[str, Any]) -> None:
         raise ConfigError("stack.cec.historical_depth_source must be canonical or online_history")
     if depth_source == "online_history" and stack["cec"]["eager_depth_cache"]:
         raise ConfigError("online_history reuses the main stream; disable eager_depth_cache")
+    survey_initialization(stack["cec"])
     foxglove = _object(stack["foxglove"], "stack.foxglove")
     if not isinstance(foxglove["address"], str) or not foxglove["address"]:
         raise ConfigError("stack.foxglove.address must be a non-empty string")
@@ -543,6 +576,7 @@ def load_resolved(path: Path) -> dict[str, Any]:
 
 def verify(path: Path, site: str) -> dict[str, Any]:
     payload = load_resolved(path)
+    survey_initialization(payload["cec"])
     if site not in {"jetson", "gpu"}:
         raise ConfigError("site must be jetson or gpu")
     repo = Path(payload["sites"][site]["repository"])
@@ -863,6 +897,10 @@ def shell_exports(payload: Mapping[str, Any], site: str) -> str:
         "CFG_EAGER_DEPTH_CACHE": payload["cec"]["eager_depth_cache"],
         "CFG_HISTORICAL_DEPTH_SOURCE": payload["cec"].get(
             "historical_depth_source", "canonical"),
+        "CFG_MEMORY_MECHANISM": memory_storage_config(payload["cec"])["mechanism"],
+        "CFG_MEMORY_GEOMETRY_STORAGE": memory_storage_config(payload["cec"])["geometry"],
+        "CFG_MEMORY_KV_STORAGE": memory_storage_config(payload["cec"])["kv"],
+        "CFG_SURVEY_INITIALIZATION": survey_initialization(payload["cec"]),
     }
     if site == "gpu":
         gpu_keys = {
@@ -899,6 +937,10 @@ def shell_exports(payload: Mapping[str, Any], site: str) -> str:
             "CFG_DATASET_MIN_FRAMES",
             "CFG_EAGER_DEPTH_CACHE",
             "CFG_HISTORICAL_DEPTH_SOURCE",
+            "CFG_MEMORY_MECHANISM",
+            "CFG_MEMORY_GEOMETRY_STORAGE",
+            "CFG_MEMORY_KV_STORAGE",
+            "CFG_SURVEY_INITIALIZATION",
         }
         fields = {key: value for key, value in fields.items() if key in gpu_keys}
     return "\n".join(

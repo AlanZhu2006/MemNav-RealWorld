@@ -32,3 +32,10 @@ deployment/go2/scripts/*.pre_goalb_*
 assets/scenes/Materials/*
 assets/scenes/SkyTexture/*
 assets/scenes/embodiedscan/*
+
+# Machine-local credentials and development environments.
+/.env
+/.env.*
+!/.env.example
+/.venv/
+/.ruff_cache/

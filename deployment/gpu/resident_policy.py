@@ -38,6 +38,8 @@ def signature(config):
         "gpu": gpu, "eager_depth_cache": config["cec"]["eager_depth_cache"],
         "historical_depth_source": config["cec"].get(
             "historical_depth_source", "canonical"),
+        "memory_storage": config["cec"].get("memory_storage", {}),
+        "survey_initialization": config["cec"].get("survey_initialization"),
         "revision": subprocess.check_output(
             ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip(),
     }, sort_keys=True).encode())

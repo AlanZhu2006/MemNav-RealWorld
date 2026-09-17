@@ -1,0 +1,21 @@
+{
+  "schema": "memnav_depth_reuse_source_receipt_v1",
+  "implementation": "GEM causal writer/read_dense reviewed 2026-09-14",
+  "scope": "Depth reuse compatibility only; not navigation or experiment equivalence validation. Full-Mono uses the default legacy memory_mechanism.",
+  "reviewed_invariants": [
+    "Agent add_frame and monocular_depth_observation delegate to the same GEM instance.",
+    "GEM reset and every write clear current_depth_frame and current_relative_depth before appending.",
+    "Writer stores only the current prediction tensor and binds its frame index.",
+    "read_dense requires current_depth_frame == frame_count - 1 and nonempty depth for cache reuse; otherwise computes depth.",
+    "Payload binds current RGB SHA and frame index; HTTP append validates the transaction and exposes cache/timing receipts."
+  ],
+  "files_sha256": {
+    "NavDP/baselines/memnav/policy_agent.py": "97cddc86774a0399fa5f53d2d105a162d57d0de424a391ea87710775520b7ed0",
+    "NavDP/baselines/memnav/memnav_server.py": "f9d06a0b5e11377bb5c583e68897f016cbf159846e9b05c111abd4a97d028871",
+    "NavDP/baselines/memnav/gem/__init__.py": "f4876ba38ce7bb57c508d07af23d6430deb3049544317266faaf5b23e69100cf",
+    "NavDP/baselines/memnav/gem/memory.py": "8ce599ac2c07a0c32d46787f1cc663284b5d496ddc46904650d32adbce053b3f",
+    "NavDP/baselines/memnav/gem/writer.py": "98601b76fc865bbe5860f190fb2931f3e068ec3bde7057f878d15b4756ce6844",
+    "NavDP/baselines/memnav/gem/dense.py": "e29f0854ab1a873e534119958571d08a812020edd18cc7e6390bebc06a8eeb66"
+  },
+  "review_note": "Compared complete current snapshots with hash-verified pair036 approved source. Exactly two lines changed: the agent validation and server argparse choices each add lossless_bf16 to memory_kv_storage. Native defaults and the restriction that optimized storage require native_interval7 are unchanged. Actual RTX launcher and resident wrapper still match the reviewed hashes and pass no memory mechanism/KV-storage override, retaining legacy/native. All four pinned GEM core files are unchanged; depth reuse, RGB SHA binding and HTTP transaction handling are byte-identical. Both complete Python snapshots parsed successfully. Snapshots, exact diffs and previous receipt retained in runtime/go2/experiment_pairs/pair_038/source_review_20260914/. Source compatibility review for deployed default path only; optional storage modes and navigation outcomes not validated."
+}

@@ -17,6 +17,12 @@ server = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = server
 spec.loader.exec_module(server)
 
+# Deployment-owned persistence extends the existing goal-free episode boundary.
+# Keep the external implementation and its streaming cache contract intact.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from deployment.gpu.survey_state_cache import install
+install(server, os.environ["MEMNAV_RESIDENT_CONFIG"])
+
 
 def release_unused_memory():
     # The aggregator hook retains its last output independently of agent.reset.
@@ -45,17 +51,24 @@ def release_episode():
 
 @server.app.route("/resident/status")
 def resident_status():
+    archive = server.agent._certified_route_reference_depth_cache
+    # Compact archives are disk-backed; iterating .values() would reconstruct
+    # every historical map just to report status.
+    archive_bytes = (archive.array_bytes if hasattr(archive, "array_bytes") else
+                     sum(depth.nbytes + confidence.nbytes
+                         for depth, confidence in archive.values()))
     return server.jsonify({
         "resident_contract": "episode_reset_v1", "pid": os.getpid(),
         "memory_frames": server.agent.n,
         "depth_transactions": len(server.monocular_depth_transactions),
         "historical_depth_source": getattr(
             server.agent, "certified_reference_depth_source", "canonical"),
-        "historical_depth_cached_frames": len(
-            server.agent._certified_route_reference_depth_cache),
-        "historical_depth_cache_bytes": sum(
-            depth.nbytes + confidence.nbytes
-            for depth, confidence in server.agent._certified_route_reference_depth_cache.values()),
+        "historical_depth_cached_frames": len(archive),
+        "historical_depth_cache_bytes": archive_bytes,
+        "memory_mechanism": server.agent.memory_mechanism,
+        "memory_geometry_storage": server.agent.memory_geometry_storage,
+        "memory_kv_storage": server.agent.memory_kv_storage,
+        "memory_window": server.agent.W,
         "buffer_root": server.agent.buffer_root,
         "episode_buffer": server.agent.rgb_dir,
         "cuda_allocated_bytes": server.torch.cuda.memory_allocated(),

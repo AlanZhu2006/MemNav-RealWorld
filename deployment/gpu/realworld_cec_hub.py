@@ -101,8 +101,11 @@ class UpstreamConfig:
     authority_mode: str = "cec"
     terminal_approach: str = "bearing_only"
     historical_depth_source: str = "canonical"
+    survey_initialization: str = "checkpoint"
 
     def __post_init__(self) -> None:
+        if self.survey_initialization not in {"checkpoint", "rgb_replay"}:
+            raise ValueError("unsupported Survey initialization")
         if self.historical_depth_source not in ("canonical", "online_history"):
             raise ValueError("unsupported historical depth source")
         if self.terminal_approach not in {"bearing_only", "height_scaled_local"}:
@@ -260,9 +263,12 @@ class CecHybridRouter:
         self.terminal_stop_streak = 0
         self.loaded_dataset_id: str | None = None
         self.loaded_dataset_manifest_sha256: str | None = None
+        self.loaded_dataset_metadata: dict[str, Any] = {}
+        self.loaded_memory_hashes: set[str] = set()
         self.recorded_tail: deque[tuple[int, bytes]] = deque(
             maxlen=NAVDP_WARMUP_MAX_FRAMES * NAVDP_WARMUP_STRIDE)
         self.query_observation_count = 0
+        self.last_survey_state_cache = None
 
     def query_observation_step(self, image: bytes, installed_goal_sha256: str) -> dict[str, Any]:
         """One serialized query-time RGB append, with no retrieval or policy call.
@@ -304,6 +310,7 @@ class CecHybridRouter:
 
     def reset(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         self.query_observation_count = 0
+        self.last_survey_state_cache = None
         resume_empty_auto_dataset = False
         if self.dataset_store is not None and self.dataset_store.recording:
             dataset_status = self.dataset_store.status()
@@ -350,6 +357,8 @@ class CecHybridRouter:
         self.terminal_stop_streak = 0
         self.loaded_dataset_id = None
         self.loaded_dataset_manifest_sha256 = None
+        self.loaded_dataset_metadata = {}
+        self.loaded_memory_hashes = set()
         self.recorded_tail.clear()
         try:
             memnav = _json_object(
@@ -1045,8 +1054,9 @@ class CecHybridRouter:
             if (
                 self.active_goal is not None
                 and self.last_prepare_receipt is not None
-                and self.active_goal.get("goal_source")
-                == "operator_frozen_external"
+                and self.active_goal.get("goal_source") in {
+                    "operator_frozen_external", "survey_memory_frame",
+                    "operator_selected_after_survey"}
                 and self.active_goal.get("sha256") == digest
             ):
                 return {
@@ -1072,10 +1082,20 @@ class CecHybridRouter:
             "appended_to_memory": False,
             "goal_source": "operator_frozen_external",
         }
+        local_survey = self.loaded_dataset_metadata.get("collection_mode") == "local_raw_survey_v1"
+        if local_survey:
+            overlap = digest in self.loaded_memory_hashes
+            selected_goal.update({
+                "goal_source": "survey_memory_frame" if overlap else "operator_selected_after_survey",
+                "appended_to_memory": overlap,
+                "goal_memory_exact_sha_overlap": int(overlap),
+                "raw_manifest_sha256": self.loaded_dataset_metadata["raw_manifest_sha256"],
+            })
         self.active_goal = dict(selected_goal, image=goal)
         receipt = {
             **switch,
-            "goal_selection_contract": "operator_frozen_external_v1",
+            "goal_selection_contract": ("survey_goal_after_capture_v1" if local_survey
+                                        else "operator_frozen_external_v1"),
             "selected_goal": selected_goal,
             "candidate_scores": [],
             "goal_image_jpeg_base64": base64.b64encode(goal).decode("ascii"),
@@ -1272,14 +1292,43 @@ class CecHybridRouter:
         if self.frames_recorded or self.goal_candidates:
             raise ValueError("dataset loading requires a freshly reset empty stream")
         loaded = self.dataset_store.load(dataset_id)
+        self.loaded_dataset_metadata = dict(loaded.manifest.get("metadata", {}))
+        self.loaded_memory_hashes = {row["sha256"] for row in loaded.manifest["memory_frames"]}
         manifest_raw = (loaded.root / "manifest.json").read_bytes()
-        for expected, image in loaded.memory_frames():
-            receipt = self.memory_step(image)
-            if int(receipt.get("frame_idx", -1)) != int(expected["frame_index"]):
+        reusable = (self.config.survey_initialization == "checkpoint"
+                    and self.loaded_dataset_metadata.get("collection_mode") == "local_raw_survey_v1")
+        identity = {"dataset_id": dataset_id,
+                    "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest()}
+
+        def checkpoint(action):
+            try:
+                return _json_object(self.session.post(
+                    f"{self.config.memnav_url}/resident/survey/{action}",
+                    json=identity, timeout=(self.config.connect_timeout_s, 600.0)),
+                    "Survey state " + action)
+            except Exception as error:
                 self.memory_degraded = True
-                raise HybridBackendError(
-                    "dataset replay frame identity diverged; reset is required"
-                )
+                raise HybridBackendError(f"Survey state {action} failed; reset required: {error}") from error
+
+        cached = checkpoint("restore") if reusable else {"cache_hit": False}
+        if cached.get("cache_hit") is True:
+            if cached.get("frames_restored") != len(loaded.manifest["memory_frames"]):
+                self.memory_degraded = True
+                raise HybridBackendError("Restored Survey frame count mismatch")
+            for expected, image in loaded.memory_frames():
+                self.frames_recorded += 1
+                self.recorded_tail.append((self.frames_recorded, image))
+        else:
+            for expected, image in loaded.memory_frames():
+                receipt = self.memory_step(image)
+                if int(receipt.get("frame_idx", -1)) != int(expected["frame_index"]):
+                    self.memory_degraded = True
+                    raise HybridBackendError(
+                        "dataset replay frame identity diverged; reset is required"
+                    )
+            if reusable:
+                cached = checkpoint("save")
+        self.last_survey_state_cache = cached if reusable else None
         restored: list[dict[str, Any]] = []
         for record, image, evaluation_depth in loaded.goal_candidates():
             restored.append(dict(
@@ -1295,7 +1344,10 @@ class CecHybridRouter:
         return {
             "dataset_id": self.loaded_dataset_id,
             "manifest_sha256": self.loaded_dataset_manifest_sha256,
-            "frames_replayed": self.frames_recorded,
+            "frames_replayed": 0 if cached.get("cache_hit") else self.frames_recorded,
+            "frames_restored": self.frames_recorded if cached.get("cache_hit") else 0,
+            "survey_state_cache": self.last_survey_state_cache,
+            "survey_initialization": self.config.survey_initialization,
             "goal_candidates_restored": len(self.goal_candidates),
             "phase": self.phase,
             "navdp_fifo_replayed_from_dataset": False,
@@ -1627,6 +1679,7 @@ def create_app(router: CecHybridRouter) -> Flask:
                 else router.active_goal.get("sha256")
             ),
             "last_prepare_receipt": router.last_prepare_receipt,
+            "survey_state_cache": router.last_survey_state_cache,
             "episodic_dataset": router.dataset_status(include_sealed=False),
             "terminal_local_latched": router.terminal_local_latched,
             "terminal_stop_streak": router.terminal_stop_streak,
@@ -1963,6 +2016,8 @@ def main() -> None:
     parser.add_argument("--connect-timeout-s", type=float, default=3.0)
     parser.add_argument("--request-timeout-s", type=float, default=180.0)
     parser.add_argument("--camera-height-m", type=float, required=True)
+    parser.add_argument("--survey-initialization", choices=["checkpoint", "rgb_replay"],
+                        default="checkpoint", help="RGB replay is required by the episodic memory writer")
     parser.add_argument("--terminal-approach", choices=["bearing_only", "height_scaled_local"],
                         default="bearing_only",
                         help="opt-in local approach; use identically in both paired arms")
@@ -2037,6 +2092,7 @@ def main() -> None:
         goal_max_cos=float(args.goal_max_cos),
         authority_mode=args.authority_mode,
         historical_depth_source=args.historical_depth_source,
+        survey_initialization=args.survey_initialization,
         terminal_approach=args.terminal_approach,
     ), dataset_store=dataset_store,
        auto_dataset_id=args.auto_dataset_id,

@@ -1,5 +1,10 @@
 # RTX 4090 Policy Stack
 
+2026-09-16: an opt-in entry point for the paper's compact memory storage is
+available; production defaults are unchanged. See
+[`REALWORLD_MEMORY_STORAGE_SYNC_20260916_CN.md`](../../REALWORLD_MEMORY_STORAGE_SYNC_20260916_CN.md)
+for Survey replay compatibility and the stationary paired-latency protocol.
+
 2026-09-07 update: new resolved runs select `cec.historical_depth_source=online_history`.
 Historical CEC depth is retained from the shared causal stream; legacy configs
 without this field still use canonical replay. See
@@ -74,8 +79,10 @@ cold start of the owned parked session. Active or unidentified sessions are
 not replaced. Failed cleanup discards the owned model processes rather than
 letting the next experiment inherit uncertain state.
 
-Every formal arm still performs the original reset, sealed manifest/hash checks,
-full causal Survey replay, exact frozen goal binding and query-start FIFO prime.
+Every preparation performs reset, sealed manifest/hash checks, exact goal
+binding and query-start FIFO initialization. Compatible local engineering
+Surveys may restore a goal-free legacy checkpoint; other datasets and the
+`native_interval7` writer replay the ordered RGB history.
 No controller, speed, termination, sensor or replay rule is relaxed. Seeded
 NavDP reset applies the seed after model initialization too, so loading weights
 cannot shift the random sequence on cold starts but not warm starts.
@@ -92,6 +99,6 @@ bash deployment/gpu/scripts/stop_policy_stack.sh --config runtime/config/CONFIG_
 While parked the hub is intentionally absent; model idle receipts are available
 on loopback `/resident/status` at ports 18888 and 8888. Cleanup receipts with
 PIDs, zero frame/queue counts and CUDA allocated/reserved bytes are appended to
-`runtime/gpu/logs/resident_lifecycle.jsonl`. Reuse saves model loading, not Survey
-replay or recording finalization; neither constant-time preparation nor identical
-stochastic trajectories is implied.
+`runtime/gpu/logs/resident_lifecycle.jsonl`. Resident reuse saves model loading. Survey checkpoint reuse is a separate
+mechanism; recording finalization still completes for each run. Cleared caches
+are rebuilt from the sealed RGB dataset on the next preparation.

@@ -107,6 +107,12 @@ def candidate_free_external_goal_debug(metadata: Mapping[str, Any]) -> bool:
     audit contract.
     """
 
+    if metadata.get("collection_mode") == "local_raw_survey_v1":
+        return (metadata.get("goal_selection_contract") == "survey_goal_after_capture_v1"
+                and metadata.get("goal_candidates_required") is False
+                and metadata.get("engineering_only") is True
+                and isinstance(metadata.get("raw_manifest_sha256"), str)
+                and re.fullmatch(r"[0-9a-f]{64}", metadata["raw_manifest_sha256"]) is not None)
     return (
         metadata.get("collection_mode") == ONE_WAY_EXTERNAL_GOAL_MODE
         and metadata.get("goal_selection_contract") == EXTERNAL_GOAL_CONTRACT

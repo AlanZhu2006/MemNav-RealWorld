@@ -27,6 +27,15 @@ mkdir -p "$BUFFER_ROOT"
 echo "realworld_memnav_buffer_root=$BUFFER_ROOT"
 
 extra_args=()
+memory_window=32
+memory_flow_gate=auto
+if [[ "$CFG_MEMORY_MECHANISM" != legacy ]]; then
+  memory_window=64
+  memory_flow_gate=off
+  extra_args+=(--memory_mechanism "$CFG_MEMORY_MECHANISM"
+    --memory_geometry_storage "$CFG_MEMORY_GEOMETRY_STORAGE"
+    --memory_kv_storage "$CFG_MEMORY_KV_STORAGE")
+fi
 if [[ "$CFG_EAGER_DEPTH_CACHE" == true ]]; then
   extra_args+=(--certified_eager_depth_cache)
 fi
@@ -34,9 +43,10 @@ server_pythonpath="$MEMNAV_SOURCE_ROOT:$DEPENDENCY_ROOT:$LIGHTGLUE_REPO:$INTERNN
 
 cd "$CEC_OUT_ROOT"
 exec env PYTHONUNBUFFERED=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+  MEMNAV_RESIDENT_CONFIG="$RUN_CONFIG" \
   PYTHONPATH="$server_pythonpath" \
   LINGBOT_REPO="$LINGBOT_REPO" LINGBOT_WEIGHTS="$LINGBOT_WEIGHTS" \
-  MEMNAV_WINDOW=32 MEMNAV_NUM_SCALE=8 MEMNAV_MAX_FRAME_NUM=2048 \
+  MEMNAV_WINDOW="$memory_window" MEMNAV_NUM_SCALE=8 MEMNAV_MAX_FRAME_NUM=2048 \
   MEMNAV_GROUND_SCALE_MAX=6.0 MEMNAV_GATE_FUSION=complementary \
   MEMNAV_AUX_POSE_CALIBRATION=empirical MEMNAV_COLLISION_SELECT=1 \
   MEMNAV_REPORT_TO=none \
@@ -46,7 +56,7 @@ exec env PYTHONUNBUFFERED=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
     --exclude_recent 32 --retrieval raw \
     --retrieval_candidate_top_k 32 --retrieval_candidate_min_gap 16 \
     --graph_subgoal_spacing_m 0.0 --graph_subgoal_arrival_m 0.60 \
-    --flow_gate auto --buffer_root "$BUFFER_ROOT" \
+    --flow_gate "$memory_flow_gate" --buffer_root "$BUFFER_ROOT" \
     --certified_relocalization \
     --certified_reference_depth_source "$CFG_HISTORICAL_DEPTH_SOURCE" \
     --lightglue_repo "$LIGHTGLUE_REPO" \

@@ -2,6 +2,10 @@
 
 Snapshot: **2026-08-30**
 
+This is the preserved release snapshot. Later implementation and validation
+entry points are indexed in [CURRENT_STATUS.md](CURRENT_STATUS.md). Its pinned
+hashes are not assertions about the current checkout.
+
 ## Repository base
 
 - Current repository: `https://github.com/AlanZhu2006/MemNav-RealWorld`
